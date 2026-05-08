@@ -45,9 +45,9 @@
 - [ ] repository 를 mock → supabase 로 교체
 
 ## 6. Sync
-- [ ] Google Sheets read-only importer 설계 확정
-- [ ] 수동 sync 진입점 구성
-- [ ] raw import 실행
+- [x] Google Sheets read-only importer 설계 확정
+- [x] 수동 sync 진입점 구성
+- [x] raw import 실행
 - [ ] 정규화 mapper 연결
 - [ ] 실제 리스트 데이터 반영
 

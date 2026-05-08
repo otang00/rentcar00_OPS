@@ -156,6 +156,6 @@
 
 ## 다음 착수 기준
 - repository 교체 시작
+- raw -> projection 정규화 작성
 - importer 실행 위치 확정
-- 시트 인증 방식 확정
-- Google Sheets 수동 import 1회 실행 준비
+- Google Sheets 수동 import 재실행/검증 기준 정리
