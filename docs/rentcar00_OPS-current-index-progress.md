@@ -47,6 +47,8 @@
 ### 3순위. DB 기준
 - `projects/rentcar00_OPS/docs/rentcar00_OPS-supabase-draft-v1.md`
 - 역할: raw / projection / reservation_states / action_logs / outbox 구조 초안
+- `projects/rentcar00_OPS/docs/rentcar00_OPS-db-build-order-v1.md`
+- 역할: 실제 테이블 생성 순서, import 흐름, 초기 컬럼 최소셋 고정
 
 ### 4순위. 네이밍 기준
 - `projects/rentcar00_OPS/docs/rentcar00_OPS-naming-mapping-rules-v1.md`
@@ -194,6 +196,7 @@
 - Flutter dotenv 연결
 - Supabase client 초기화
 - Supabase 스키마 / repository 뼈대 구현
+- DB 생성 순서 기준 문서 기반 migration 준비
 - mock repository → Supabase repository 교체 준비
 - read-only sync importer 구조 작성
 
@@ -207,7 +210,7 @@
 ## 7. 다음 작업 순서
 1. Flutter dotenv 연결
 2. Supabase client 초기화 및 연결 검증
-3. Supabase 스키마 / 모델 / repository 뼈대 작성
+3. `rentcar00_OPS-db-build-order-v1.md` 기준으로 스키마 / migration 작성
 4. mock repository → Supabase repository 교체
 5. read-only sync 화면 / importer 구조 연결
 6. 액션 / 체크 / status 로직 연결
@@ -225,11 +228,12 @@
 
 1. 이 문서
 2. `rentcar00_OPS-next-phase-prep.md`
-3. `rentcar00_OPS-design-v1.md`
-4. `rentcar00_OPS-spec.md`
-5. `rentcar00_OPS-supabase-draft-v1.md`
-6. `rentcar00_OPS-naming-mapping-rules-v1.md`
-7. 필요 시 checklist / archive 참고
+3. `rentcar00_OPS-db-build-order-v1.md`
+4. `rentcar00_OPS-design-v1.md`
+5. `rentcar00_OPS-spec.md`
+6. `rentcar00_OPS-supabase-draft-v1.md`
+7. `rentcar00_OPS-naming-mapping-rules-v1.md`
+8. 필요 시 checklist / archive 참고
 
 ---
 

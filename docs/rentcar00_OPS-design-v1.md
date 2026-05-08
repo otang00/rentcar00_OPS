@@ -88,7 +88,7 @@
 ## 6. 다음 작업 순서
 1. Flutter dotenv 연결
 2. Supabase client 초기화 및 연결 검증
-3. Supabase 스키마 / repository 뼈대 작성
+3. `rentcar00_OPS-db-build-order-v1.md` 기준으로 Supabase 스키마 / migration 작성
 4. mock repository → Supabase repository 교체
 5. read-only sync 화면 / importer 구조 연결
 6. 액션 / 체크 / status 로직 연결

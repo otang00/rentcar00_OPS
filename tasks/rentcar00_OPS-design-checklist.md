@@ -23,6 +23,7 @@
 1. dotenv 연결
 2. Supabase client 초기화
 3. 연결 확인
-4. 스키마 생성
-5. repository 교체
-6. sync read-only importer 착수
+4. migration 뼈대 생성
+5. 스키마 생성
+6. repository 교체
+7. sync read-only importer 착수

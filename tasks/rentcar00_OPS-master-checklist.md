@@ -31,7 +31,9 @@
 - [ ] Supabase 연결 검증
 
 ## 5. 데이터 계층
+- [x] DB 생성 순서 기준 문서 작성
 - [ ] Supabase 스키마 SQL 초안 실제화
+- [ ] `rc00_ops_sheet_sync_runs` 생성
 - [ ] raw reservations 테이블 생성
 - [ ] raw schedules 테이블 생성
 - [ ] reservations projection 테이블 생성
