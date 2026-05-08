@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
+import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 
 class SyncPage extends ConsumerWidget {
   const SyncPage({super.key});
@@ -9,6 +10,7 @@ class SyncPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final runs = ref.watch(syncRunsProvider);
     final outboxEntries = ref.watch(outboxEntriesProvider);
+    final env = ref.watch(appEnvProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Sync / Dry-run')),
@@ -19,8 +21,19 @@ class SyncPage extends ConsumerWidget {
             '실제 Google Sheets write는 비활성화 상태입니다.',
             style: Theme.of(context).textTheme.titleMedium,
           ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              title: Text(env.projectName),
+              subtitle: Text('${env.projectRef} · ${env.supabaseUrl}'),
+              trailing: const Text('Supabase 연결 준비'),
+            ),
+          ),
           const SizedBox(height: 16),
-          Text('최근 sync/dry-run', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            '최근 sync/dry-run',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 8),
           for (final item in runs)
             Card(
@@ -31,7 +44,10 @@ class SyncPage extends ConsumerWidget {
               ),
             ),
           const SizedBox(height: 16),
-          Text('outbox preview', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'outbox preview',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 8),
           for (final entry in outboxEntries)
             Card(

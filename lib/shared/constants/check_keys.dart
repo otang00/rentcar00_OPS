@@ -15,6 +15,7 @@ class CheckKeys {
   static const emergencyNoticeSent = 'rc00_ops_check_emergency_notice_sent';
   static const accidentReported = 'rc00_ops_check_accident_reported';
   static const dropoffAddressChanged = 'rc00_ops_check_dropoff_address_changed';
-  static const extensionFeeNoticeSent = 'rc00_ops_check_extension_fee_notice_sent';
+  static const extensionFeeNoticeSent =
+      'rc00_ops_check_extension_fee_notice_sent';
   static const returnCompleted = 'rc00_ops_check_return_completed';
 }

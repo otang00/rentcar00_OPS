@@ -8,7 +8,9 @@ import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_ta
 import 'package:rentcar00_ops/shared/constants/action_keys.dart';
 import 'package:rentcar00_ops/shared/constants/status_keys.dart';
 
-final opsStateProvider = StateNotifierProvider<MockOpsRepository, OpsState>((ref) {
+final opsStateProvider = StateNotifierProvider<MockOpsRepository, OpsState>((
+  ref,
+) {
   return MockOpsRepository();
 });
 
@@ -18,7 +20,9 @@ class MockOpsRepository extends StateNotifier<OpsState> {
   void executeAction(String reservationId, String actionKey) {
     final now = DateTime.now();
     final reservations = [...state.reservations];
-    final index = reservations.indexWhere((item) => item.reservationId == reservationId);
+    final index = reservations.indexWhere(
+      (item) => item.reservationId == reservationId,
+    );
 
     if (index == -1) {
       return;
@@ -261,9 +265,7 @@ class MockOpsRepository extends StateNotifier<OpsState> {
           locationSummary: '김해공항',
           noteText: '완료 후 7일 이내 조회 샘플',
           primaryBadges: const ['특이사항'],
-          checkPayload: const {
-            'return_completed': 'done',
-          },
+          checkPayload: const {'return_completed': 'done'},
           actionLogs: [
             ActionLogEntry(
               actionKey: ActionKeys.completeReturn,

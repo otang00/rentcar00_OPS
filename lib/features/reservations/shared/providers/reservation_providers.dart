@@ -15,13 +15,14 @@ final allReservationsProvider = Provider<List<ReservationRecord>>((ref) {
   return ref.watch(opsStateProvider).reservations;
 });
 
-final tabListProvider = Provider.family<List<ReservationSummary>, ReservationTab>((ref, tab) {
-  return ref
-      .watch(allReservationsProvider)
-      .where((item) => item.tab == tab)
-      .map(_toSummary)
-      .toList();
-});
+final tabListProvider =
+    Provider.family<List<ReservationSummary>, ReservationTab>((ref, tab) {
+      return ref
+          .watch(allReservationsProvider)
+          .where((item) => item.tab == tab)
+          .map(_toSummary)
+          .toList();
+    });
 
 final tabCountsProvider = Provider<Map<ReservationTab, int>>((ref) {
   final reservations = ref.watch(allReservationsProvider);
@@ -31,7 +32,10 @@ final tabCountsProvider = Provider<Map<ReservationTab, int>>((ref) {
   };
 });
 
-final reservationDetailProvider = Provider.family<ReservationRecord?, String>((ref, reservationId) {
+final reservationDetailProvider = Provider.family<ReservationRecord?, String>((
+  ref,
+  reservationId,
+) {
   for (final item in ref.watch(allReservationsProvider)) {
     if (item.reservationId == reservationId) {
       return item;
@@ -40,95 +44,106 @@ final reservationDetailProvider = Provider.family<ReservationRecord?, String>((r
   return null;
 });
 
-final reservationActionsProvider = Provider.family<List<ReservationActionDefinition>, String>((ref, reservationId) {
-  final reservation = ref.watch(reservationDetailProvider(reservationId));
-  if (reservation == null) {
-    return const [];
-  }
+final reservationActionsProvider =
+    Provider.family<List<ReservationActionDefinition>, String>((
+      ref,
+      reservationId,
+    ) {
+      final reservation = ref.watch(reservationDetailProvider(reservationId));
+      if (reservation == null) {
+        return const [];
+      }
 
-  return switch (reservation.tab) {
-    ReservationTab.pending => const [
-        ReservationActionDefinition(
-          key: ActionKeys.checkId,
-          label: '신분증 확보 확인',
-          description: '신분증 확보 체크를 done 으로 바꿉니다.',
-        ),
-        ReservationActionDefinition(
-          key: ActionKeys.checkAddress,
-          label: '주소 확보 확인',
-          description: '주소 확보 체크를 done 으로 바꿉니다.',
-        ),
-        ReservationActionDefinition(
-          key: ActionKeys.markPickupReady,
-          label: '배차준비완료',
-          description: '예약중 준비 상태를 ready 로 갱신합니다.',
-        ),
-      ],
-    ReservationTab.pickupToday => const [
-        ReservationActionDefinition(
-          key: ActionKeys.sendPickupNotice,
-          label: '배차 안내 문자',
-          description: '배차 안내 발송 체크를 갱신합니다.',
-        ),
-        ReservationActionDefinition(
-          key: ActionKeys.requestDelivery,
-          label: '탁송 요청',
-          description: 'dry-run outbox 를 생성합니다.',
-          createsOutbox: true,
-        ),
-        ReservationActionDefinition(
-          key: ActionKeys.createContract,
-          label: '계약서 작성',
-          description: '계약 준비 체크를 갱신합니다.',
-        ),
-        ReservationActionDefinition(
-          key: ActionKeys.sendSignatureNotice,
-          label: '서명 안내 문자',
-          description: '서명 안내 체크를 갱신합니다.',
-        ),
-        ReservationActionDefinition(
-          key: ActionKeys.confirmDispatchStart,
-          label: '실제 출발 확인',
-          description: '배차중 탭으로 전이합니다.',
-        ),
-      ],
-    ReservationTab.inUse => const [
-        ReservationActionDefinition(
-          key: ActionKeys.changeEndAt,
-          label: '반납일 변경',
-          description: '연장 검토 상태와 dry-run outbox 를 생성합니다.',
-          createsOutbox: true,
-        ),
-      ],
-    ReservationTab.returnDue => const [
-        ReservationActionDefinition(
-          key: ActionKeys.requestDelivery,
-          label: '회수 탁송 요청',
-          description: '회수용 dry-run outbox 를 생성합니다.',
-          createsOutbox: true,
-        ),
-        ReservationActionDefinition(
-          key: ActionKeys.changeDropoffAddress,
-          label: '반납지 변경',
-          description: '반납지 변경 dry-run outbox 를 생성합니다.',
-          createsOutbox: true,
-        ),
-        ReservationActionDefinition(
-          key: ActionKeys.completeReturn,
-          label: '반납 완료',
-          description: '완료 탭으로 전이합니다.',
-          createsOutbox: true,
-        ),
-      ],
-    ReservationTab.completed => const [],
-  };
+      return switch (reservation.tab) {
+        ReservationTab.pending => const [
+          ReservationActionDefinition(
+            key: ActionKeys.checkId,
+            label: '신분증 확보 확인',
+            description: '신분증 확보 체크를 done 으로 바꿉니다.',
+          ),
+          ReservationActionDefinition(
+            key: ActionKeys.checkAddress,
+            label: '주소 확보 확인',
+            description: '주소 확보 체크를 done 으로 바꿉니다.',
+          ),
+          ReservationActionDefinition(
+            key: ActionKeys.markPickupReady,
+            label: '배차준비완료',
+            description: '예약중 준비 상태를 ready 로 갱신합니다.',
+          ),
+        ],
+        ReservationTab.pickupToday => const [
+          ReservationActionDefinition(
+            key: ActionKeys.sendPickupNotice,
+            label: '배차 안내 문자',
+            description: '배차 안내 발송 체크를 갱신합니다.',
+          ),
+          ReservationActionDefinition(
+            key: ActionKeys.requestDelivery,
+            label: '탁송 요청',
+            description: 'dry-run outbox 를 생성합니다.',
+            createsOutbox: true,
+          ),
+          ReservationActionDefinition(
+            key: ActionKeys.createContract,
+            label: '계약서 작성',
+            description: '계약 준비 체크를 갱신합니다.',
+          ),
+          ReservationActionDefinition(
+            key: ActionKeys.sendSignatureNotice,
+            label: '서명 안내 문자',
+            description: '서명 안내 체크를 갱신합니다.',
+          ),
+          ReservationActionDefinition(
+            key: ActionKeys.confirmDispatchStart,
+            label: '실제 출발 확인',
+            description: '배차중 탭으로 전이합니다.',
+          ),
+        ],
+        ReservationTab.inUse => const [
+          ReservationActionDefinition(
+            key: ActionKeys.changeEndAt,
+            label: '반납일 변경',
+            description: '연장 검토 상태와 dry-run outbox 를 생성합니다.',
+            createsOutbox: true,
+          ),
+        ],
+        ReservationTab.returnDue => const [
+          ReservationActionDefinition(
+            key: ActionKeys.requestDelivery,
+            label: '회수 탁송 요청',
+            description: '회수용 dry-run outbox 를 생성합니다.',
+            createsOutbox: true,
+          ),
+          ReservationActionDefinition(
+            key: ActionKeys.changeDropoffAddress,
+            label: '반납지 변경',
+            description: '반납지 변경 dry-run outbox 를 생성합니다.',
+            createsOutbox: true,
+          ),
+          ReservationActionDefinition(
+            key: ActionKeys.completeReturn,
+            label: '반납 완료',
+            description: '완료 탭으로 전이합니다.',
+            createsOutbox: true,
+          ),
+        ],
+        ReservationTab.completed => const [],
+      };
+    });
+
+final actionLogsProvider = Provider.family<List<ActionLogEntry>, String>((
+  ref,
+  reservationId,
+) {
+  return ref.watch(reservationDetailProvider(reservationId))?.actionLogs ??
+      const [];
 });
 
-final actionLogsProvider = Provider.family<List<ActionLogEntry>, String>((ref, reservationId) {
-  return ref.watch(reservationDetailProvider(reservationId))?.actionLogs ?? const [];
-});
-
-final outboxPreviewProvider = Provider.family<List<String>, String>((ref, reservationId) {
+final outboxPreviewProvider = Provider.family<List<String>, String>((
+  ref,
+  reservationId,
+) {
   final entries = ref
       .watch(opsStateProvider)
       .outboxEntries
@@ -136,11 +151,7 @@ final outboxPreviewProvider = Provider.family<List<String>, String>((ref, reserv
       .toList();
 
   if (entries.isEmpty) {
-    return const [
-      'outbox 없음',
-      'dry_run=true',
-      'Google Sheets apply는 아직 비활성화',
-    ];
+    return const ['outbox 없음', 'dry_run=true', 'Google Sheets apply는 아직 비활성화'];
   }
 
   return entries.first.previewLines;
@@ -173,7 +184,9 @@ final filteredReservationsProvider = Provider<List<ReservationSummary>>((ref) {
 ReservationSummary _toSummary(ReservationRecord item) {
   final baseTime = switch (item.tab) {
     ReservationTab.pending || ReservationTab.pickupToday => item.startAt,
-    ReservationTab.inUse || ReservationTab.returnDue || ReservationTab.completed => item.endAt,
+    ReservationTab.inUse ||
+    ReservationTab.returnDue ||
+    ReservationTab.completed => item.endAt,
   };
 
   return ReservationSummary(

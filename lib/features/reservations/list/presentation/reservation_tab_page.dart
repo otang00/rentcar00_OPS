@@ -23,17 +23,17 @@ class ReservationTabPage extends ConsumerWidget {
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 8),
-        Text(
-          tab.emptyMessage,
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
+        Text(tab.emptyMessage, style: Theme.of(context).textTheme.bodyMedium),
         const SizedBox(height: 16),
         for (final item in items)
           Card(
             child: InkWell(
               onTap: () => context.push('/reservation/${item.reservationId}'),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
                     Expanded(

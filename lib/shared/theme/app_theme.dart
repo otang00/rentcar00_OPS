@@ -11,9 +11,7 @@ class AppTheme {
       colorScheme: ColorScheme.fromSeed(seedColor: seedColor),
       scaffoldBackgroundColor: const Color(0xFFF7F8FA),
       appBarTheme: const AppBarTheme(centerTitle: false),
-      cardTheme: const CardThemeData(
-        margin: EdgeInsets.symmetric(vertical: 6),
-      ),
+      cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(vertical: 6)),
     );
   }
 }

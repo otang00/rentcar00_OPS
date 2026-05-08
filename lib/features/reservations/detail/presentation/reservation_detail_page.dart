@@ -13,9 +13,7 @@ class ReservationDetailPage extends ConsumerWidget {
     final reservation = ref.watch(reservationDetailProvider(reservationId));
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('예약 상세 · $reservationId'),
-      ),
+      appBar: AppBar(title: Text('예약 상세 · $reservationId')),
       body: reservation == null
           ? const Center(child: Text('예약 정보를 찾을 수 없습니다.'))
           : _ReservationDetailBody(reservationId: reservationId),
@@ -64,7 +62,8 @@ class _ReservationDetailBody extends ConsumerWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final badge in reservation.primaryBadges) Chip(label: Text(badge)),
+                  for (final badge in reservation.primaryBadges)
+                    Chip(label: Text(badge)),
                 ],
               ),
             ],
@@ -82,10 +81,9 @@ class _ReservationDetailBody extends ConsumerWidget {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: FilledButton.tonal(
                     onPressed: () {
-                      ref.read(opsStateProvider.notifier).executeAction(
-                            reservation.reservationId,
-                            action.key,
-                          );
+                      ref
+                          .read(opsStateProvider.notifier)
+                          .executeAction(reservation.reservationId, action.key);
                     },
                     child: Align(
                       alignment: Alignment.centerLeft,
@@ -126,9 +124,7 @@ class _ReservationDetailBody extends ConsumerWidget {
           title: 'outbox dry-run',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final line in outboxPreview) Text('• $line'),
-            ],
+            children: [for (final line in outboxPreview) Text('• $line')],
           ),
         ),
         const SizedBox(height: 12),
@@ -142,16 +138,15 @@ class _ReservationDetailBody extends ConsumerWidget {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(log.label),
-                        subtitle: Text('${_formatDateTime(log.executedAt)} · ${log.note}'),
+                        subtitle: Text(
+                          '${_formatDateTime(log.executedAt)} · ${log.note}',
+                        ),
                       ),
                   ],
                 ),
         ),
         const SizedBox(height: 12),
-        _SectionCard(
-          title: '메모',
-          child: Text(reservation.noteText),
-        ),
+        _SectionCard(title: '메모', child: Text(reservation.noteText)),
       ],
     );
   }

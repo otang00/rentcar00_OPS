@@ -21,9 +21,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: AppRoutes.pending,
-                builder: (context, state) => const ReservationTabPage(
-                  tab: ReservationTab.pending,
-                ),
+                builder: (context, state) =>
+                    const ReservationTabPage(tab: ReservationTab.pending),
               ),
             ],
           ),
@@ -31,9 +30,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: AppRoutes.pickupToday,
-                builder: (context, state) => const ReservationTabPage(
-                  tab: ReservationTab.pickupToday,
-                ),
+                builder: (context, state) =>
+                    const ReservationTabPage(tab: ReservationTab.pickupToday),
               ),
             ],
           ),
@@ -41,9 +39,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: AppRoutes.inUse,
-                builder: (context, state) => const ReservationTabPage(
-                  tab: ReservationTab.inUse,
-                ),
+                builder: (context, state) =>
+                    const ReservationTabPage(tab: ReservationTab.inUse),
               ),
             ],
           ),
@@ -51,9 +48,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: AppRoutes.returnDue,
-                builder: (context, state) => const ReservationTabPage(
-                  tab: ReservationTab.returnDue,
-                ),
+                builder: (context, state) =>
+                    const ReservationTabPage(tab: ReservationTab.returnDue),
               ),
             ],
           ),
@@ -61,9 +57,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: AppRoutes.completed,
-                builder: (context, state) => const ReservationTabPage(
-                  tab: ReservationTab.completed,
-                ),
+                builder: (context, state) =>
+                    const ReservationTabPage(tab: ReservationTab.completed),
               ),
             ],
           ),

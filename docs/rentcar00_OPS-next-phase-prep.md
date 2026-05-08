@@ -1,7 +1,8 @@
 # rentcar00_OPS Next Phase Prep
 
 ## 목표
-다음 작업은 Flutter 앱이 Supabase 공개 설정을 읽고, 실제 Supabase client 를 초기화한 뒤, 스키마 작업으로 넘어갈 준비를 끝내는 것이다.
+이 문서는 이제 준비 단계 완료 기록이다.
+다음 작업은 원격 DB에 migration 을 적용하고, 앱 데이터 공급자를 mock 에서 Supabase 로 전환하는 것이다.
 
 ## 현재 기준
 - Supabase 프로젝트 생성 완료
@@ -12,12 +13,12 @@
 - 앱 메인 리스트는 한 줄 중심 카드로 축약 완료했다.
 - 현재 데이터 공급자는 mock repository 다.
 
-## 다음 phase 범위
-1. `flutter_dotenv` 연결
-2. 공개 env 로드
-3. Supabase Flutter client 초기화
-4. analyze / test 통과
-5. 연결 확인 후 `rentcar00_OPS-db-build-order-v1.md` 기준으로 스키마 생성 phase 로 이동
+## 완료된 범위
+1. `flutter_dotenv` 연결 완료
+2. 공개 env 로드 완료
+3. Supabase Flutter client 초기화 완료
+4. analyze / test 통과 완료
+5. `rentcar00_OPS-db-build-order-v1.md` 기준 migration 초안 작성 완료
 
 ## 공개 env 원칙
 앱 번들에 포함 가능한 값만 앱용 env 에 둔다.
@@ -153,9 +154,8 @@
 종료 조건:
 - read-only importer 구현에 바로 들어갈 수 있다.
 
-## 완료 조건
-- 앱 시작 시 공개 env 로드 성공
-- Supabase client 초기화 성공
-- analyze / test 통과
-- migration 작업에 바로 들어갈 수 있는 상태 확보
-- repository 교체 및 importer 착수 기준이 문서로 고정됨
+## 다음 착수 기준
+- repository 교체 시작
+- importer 실행 위치 확정
+- 시트 인증 방식 확정
+- Google Sheets 수동 import 1회 실행 준비

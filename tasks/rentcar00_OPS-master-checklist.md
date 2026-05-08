@@ -26,19 +26,22 @@
 - [x] Supabase 프로젝트 생성 (`rentcar00-ops`)
 - [x] 프로젝트 ref / URL 확보
 - [x] 앱용 env 와 작업용 secret env 분리
-- [ ] Flutter dotenv 연결
-- [ ] Supabase client 초기화
-- [ ] Supabase 연결 검증
+- [x] Flutter dotenv 연결
+- [x] Supabase client 초기화
+- [x] Supabase 연결 검증
+- [x] 로컬 Supabase 프로젝트 link 완료
 
 ## 5. 데이터 계층
 - [x] DB 생성 순서 기준 문서 작성
-- [ ] Supabase 스키마 SQL 초안 실제화
-- [ ] `rc00_ops_sheet_sync_runs` 생성
-- [ ] raw reservations 테이블 생성
-- [ ] raw schedules 테이블 생성
-- [ ] reservations projection 테이블 생성
-- [ ] reservation_states 테이블 생성
-- [ ] action_logs / outbox 테이블 생성
+- [x] Supabase 스키마 SQL 초안 실제화
+- [x] migration 뼈대 생성
+- [x] `rc00_ops_sheet_sync_runs` 생성 SQL 작성
+- [x] raw reservations 테이블 생성 SQL 작성
+- [x] raw schedules 테이블 생성 SQL 작성
+- [x] reservations projection 테이블 생성 SQL 작성
+- [x] reservation_states 테이블 생성 SQL 작성
+- [x] action_logs / outbox 테이블 생성 SQL 작성
+- [x] 원격 DB migration 적용
 - [ ] repository 를 mock → supabase 로 교체
 
 ## 6. Sync

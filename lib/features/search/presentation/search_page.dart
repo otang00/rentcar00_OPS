@@ -25,13 +25,18 @@ class SearchPage extends ConsumerWidget {
             },
           ),
           const SizedBox(height: 16),
-          Text('검색 결과 ${items.length}건', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            '검색 결과 ${items.length}건',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 12),
           for (final item in items)
             Card(
               child: ListTile(
                 title: Text('${item.customerName} · ${item.carNumber}'),
-                subtitle: Text('${item.reservationId} · ${item.tab.label} · ${item.timeLabel}'),
+                subtitle: Text(
+                  '${item.reservationId} · ${item.tab.label} · ${item.timeLabel}',
+                ),
                 onTap: () => context.push('/reservation/${item.reservationId}'),
               ),
             ),
