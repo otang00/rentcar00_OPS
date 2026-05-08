@@ -3,6 +3,12 @@
 ## 1. 초안 목적
 이 문서는 현재 확인된 Supabase 구조와 앞으로 필요한 업무처리 구조 사이의 간극을 메우기 위한 1차 초안이다.
 
+현재 기준 메모:
+- Supabase 프로젝트 `rentcar00-ops` 생성 완료
+- project ref: `wojisucidqzjrqbuiikl`
+- 앱은 Supabase를 직접 조회하고, Google Sheets는 sync/import 원본으로만 다룬다
+- 앱 번들에는 공개값만 포함하고, secret은 작업/서버용으로 분리한다
+
 중요:
 - Google Sheets `차량현황 > 예약` 탭의 기본 컬럼은 확인했다.
 - 다만 AppSheet virtual column, 계산 로직, 실무 보조 입력 구조는 아직 확인 전이다.
@@ -187,11 +193,13 @@ Google Sheets 또는 IMS 원본을 그대로 업무 UI에 직접 얹지 말고,
 - Google Sheets `예약` + `일정` 탭을 최우선 기준 원장으로 사용
 - 원본 import/feed 계층을 유지
 - 그 위에 업무처리 projection 계층을 둔다
+- Flutter 앱은 시트를 직접 읽지 않고 Supabase만 조회한다
 
 이유:
 - 기존 AppSheet와 데이터 의미를 맞추기 쉽다
 - 업무앱 전용 상태를 원본과 분리할 수 있다
 - 나중에 IMS/문자/탁송/계약 연동 붙이기 쉽다
+- 모바일 앱의 응답성과 상태 일관성을 지키기 쉽다
 
 ### 방향안 B
 - `ims_sync_reservations`를 원본 기준으로 삼고 부족한 값을 시트에서 보완
@@ -200,7 +208,20 @@ Google Sheets 또는 IMS 원본을 그대로 업무 UI에 직접 얹지 말고,
 - 실제 운영 기준이 시트라면 사용자 인식과 어긋날 수 있다
 - AppSheet 계산 논리와 분리될 수 있다
 
+## 6-1. 다음 구현 기준
+다음 단계에서는 아래 순서로 진행한다.
+1. Flutter 공개 env 로드
+2. Supabase client 초기화
+3. 스키마 SQL 초안 실제화
+4. repository 를 mock 에서 Supabase 기반으로 교체
+5. read-only sync importer 연결
+
+원칙:
+- 앱에서 사용하는 값은 `SUPABASE_URL`, `SUPABASE_ANON_KEY` 등 공개값만 사용한다
+- DB password, service role, 외부 API secret 은 앱 바깥에서만 사용한다
+
 ## 7. 1차 물리 스키마 초안
+
 ### 7-1. `rc00_ops_sheet_reservations_raw`
 목적:
 - 시트 `예약` 탭 원문 보존

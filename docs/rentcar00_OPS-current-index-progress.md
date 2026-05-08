@@ -170,22 +170,32 @@
 
 ## 6. 현재 진행 상태
 현재 phase:
-- **Phase 2 제작 준비 완료 단계**
+- **Phase 3 앱 골격 완료 / Supabase 연결 준비 단계**
 
 지금 상태 판단:
 - MVP 핵심 설계 잠금 완료
-- 바로 제작 들어가도 되는 기준 문서 세트 확보
-- 운영 실사 항목만 후순위 확인으로 남김
+- Flutter 앱 골격 및 기본 UI 확인 완료
+- Supabase 프로젝트 생성 및 앱용/작업용 env 분리 완료
+- 다음은 dotenv + Supabase client 연결이 기준점
+
+### 현재 완료된 것
+- Flutter 프로젝트 생성
+- 5탭 네비 구조 구현
+- 공용 상세 화면 골격 구현
+- Sync / Search 화면 골격 구현
+- mock repository 기반 샘플 흐름 연결
+- 메인 리스트를 한 줄 중심 얇은 카드로 축약
+- 핵심 배지 1~2개 약어 표시 적용
+- `flutter analyze` / `flutter test` 통과
+- Supabase 프로젝트 `rentcar00-ops` 생성
+- 앱용 공개 env 와 작업용 secret env 분리
 
 ### 지금 바로 가능한 것
-- Flutter 앱 골격
-- 5탭 네비 구조
-- 공용 상세 화면 레이아웃
-- action/check/status/tab key 상수
-- 실제 자동 탭 분류 로직 구현
-- 액션 후 status 변경 로직 구현
-- outbound dry-run 생성 구현
+- Flutter dotenv 연결
+- Supabase client 초기화
 - Supabase 스키마 / repository 뼈대 구현
+- mock repository → Supabase repository 교체 준비
+- read-only sync importer 구조 작성
 
 ### 아직 보류할 것
 - 실제 Google Sheets write
@@ -195,11 +205,13 @@
 ---
 
 ## 7. 다음 작업 순서
-1. Flutter 프로젝트 뼈대 생성
-2. Supabase 스키마 / 모델 / repository 뼈대 작성
-3. 탭 리스트 + 공용 상세 UI 구현
-4. 액션 / 체크 / status 로직 연결
-5. outbox dry-run / sync 화면 연결
+1. Flutter dotenv 연결
+2. Supabase client 초기화 및 연결 검증
+3. Supabase 스키마 / 모델 / repository 뼈대 작성
+4. mock repository → Supabase repository 교체
+5. read-only sync 화면 / importer 구조 연결
+6. 액션 / 체크 / status 로직 연결
+7. outbox dry-run 연결
 
 원칙:
 - 제작은 이 문서 기준으로 진행한다.
@@ -212,11 +224,12 @@
 다음에 다시 볼 때는 아래 순서로 읽는다.
 
 1. 이 문서
-2. `rentcar00_OPS-design-v1.md`
-3. `rentcar00_OPS-spec.md`
-4. `rentcar00_OPS-supabase-draft-v1.md`
-5. `rentcar00_OPS-naming-mapping-rules-v1.md`
-6. 필요 시 checklist / archive 참고
+2. `rentcar00_OPS-next-phase-prep.md`
+3. `rentcar00_OPS-design-v1.md`
+4. `rentcar00_OPS-spec.md`
+5. `rentcar00_OPS-supabase-draft-v1.md`
+6. `rentcar00_OPS-naming-mapping-rules-v1.md`
+7. 필요 시 checklist / archive 참고
 
 ---
 

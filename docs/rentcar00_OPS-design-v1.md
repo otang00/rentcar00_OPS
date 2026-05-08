@@ -61,7 +61,7 @@
 
 ## 5. 현재 phase
 현재 기준 phase:
-- **Phase 2 제작 준비 완료 단계**
+- **Phase 3 앱 골격 완료 / Supabase 연결 준비 단계**
 
 현재 완료:
 - 제품 기준 문서 정리
@@ -73,19 +73,27 @@
 - outbound 최소 항목 잠금
 - Flutter 제작 구조 잠금
 - raw import / 레거시 일정 정규화 규칙 잠금
+- Flutter 프로젝트 생성 및 메인 라우팅 구성
+- 5탭 메인 구조 / 공용 상세 / Sync / Search 화면 골격 구현
+- 메인 카드를 한 줄 중심 얇은 리스트로 축약
+- Supabase 프로젝트 생성
+- 앱용 공개 env 와 작업용 secret env 분리
 
 현재 진행 대상:
-- Flutter 프로젝트 뼈대 생성
+- Flutter dotenv 연결
+- Supabase client 초기화
 - Supabase CRUD / repository 뼈대 생성
 - outbox dry-run 검증 시나리오 정리
 
 ## 6. 다음 작업 순서
-1. Flutter 프로젝트 뼈대 생성
-2. Supabase 스키마 / repository 뼈대 작성
-3. 탭 리스트 + 공용 상세 UI 구현
-4. 액션 / 체크 / status 로직 연결
-5. outbox dry-run / sync 화면 연결
-6. 마지막 phase 전까지는 시트 apply 금지 유지
+1. Flutter dotenv 연결
+2. Supabase client 초기화 및 연결 검증
+3. Supabase 스키마 / repository 뼈대 작성
+4. mock repository → Supabase repository 교체
+5. read-only sync 화면 / importer 구조 연결
+6. 액션 / 체크 / status 로직 연결
+7. outbox dry-run 연결
+8. 마지막 phase 전까지는 시트 apply 금지 유지
 
 ## 7. 업무 흐름 요약
 이 앱은 예약 원장을 그대로 보여주는 앱이 아니다.
