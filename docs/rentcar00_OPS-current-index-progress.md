@@ -180,7 +180,7 @@
 - Supabase 공개 env 로드 및 client 초기화 완료
 - 로컬 migration 구조와 초기 스키마 SQL 초안 작성 완료
 - 원격 DB migration 적용 완료
-- 다음은 repository 교체와 raw -> projection 정규화 연결이 기준점
+- 다음은 액션 / check / outbox write 로직 연결이 기준점
 
 ### 현재 완료된 것
 - Flutter 프로젝트 생성
@@ -205,11 +205,15 @@
   - sync run id: `89fe1958-d25a-4b96-a100-b6bea28a93df`
   - reservations raw: `79`
   - schedules raw: `78`
+- raw -> projection 1차 정규화 실행 완료
+  - reservations projection: `79`
+  - reservation states: `79`
+- 앱 메인/상세/검색/sync 화면을 Supabase read-only 데이터 기준으로 전환 완료
 
 ### 지금 바로 가능한 것
-- mock repository → Supabase repository 교체 준비
-- raw import mapper 작성
-- raw -> projection 정규화 로직 작성
+- 액션 / check / status write 로직 연결
+- outbox dry-run 실DB 연결
+- 일정(raw schedule) 기반 보강 로직 작성
 - 수동 sync 재실행 경로 유지
 - Google Sheets 인증 방식 고정
 
@@ -221,13 +225,13 @@
 ---
 
 ## 7. 다음 작업 순서
-1. raw import mapper 작성
-2. raw -> projection 정규화 로직 작성
-3. mock repository → Supabase repository 교체
-4. 액션 / 체크 / status 로직 연결
-5. outbox dry-run 연결
-6. 실제 리스트 데이터 Supabase 기준으로 전환
-7. 수동 sync 재실행/검증 흐름 정리
+1. 액션 / 체크 / status write 로직 연결
+2. outbox dry-run 실DB 연결
+3. 일정(raw schedule) 기반 projection 보강
+4. 상세 화면 로그/action log 실데이터 연결
+5. 수동 sync 재실행/검증 흐름 정리
+6. 운영 테스트 기준 정리
+7. 마지막 phase 전까지 Sheets write 금지 유지
 
 원칙:
 - 제작은 이 문서 기준으로 진행한다.

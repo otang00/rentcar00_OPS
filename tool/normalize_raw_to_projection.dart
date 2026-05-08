@@ -59,14 +59,17 @@ Future<void> main(List<String> args) async {
         continue;
       }
 
-      final reservationNumber = (mapped['reservation_number'] as String?)?.trim() ?? '';
+      final reservationNumber =
+          (mapped['reservation_number'] as String?)?.trim() ?? '';
       final carNumber = (mapped['car_number'] as String?)?.trim() ?? '';
       final carName = (mapped['car_name'] as String?)?.trim() ?? '';
       final customerName = (mapped['customer_name'] as String?)?.trim() ?? '';
       final customerPhone = (mapped['customer_phone'] as String?)?.trim() ?? '';
       final locationRaw = (mapped['location_raw'] as String?)?.trim() ?? '';
       final statusRaw = (mapped['status_raw'] as String?)?.trim() ?? '';
-      final startAt = _parseDateTime((mapped['start_at_raw'] as String?)?.trim());
+      final startAt = _parseDateTime(
+        (mapped['start_at_raw'] as String?)?.trim(),
+      );
       final endAt = _parseDateTime((mapped['end_at_raw'] as String?)?.trim());
       final metaJson = (mapped['payload_json'] as String?) ?? '{}';
 
@@ -238,7 +241,9 @@ DateTime? _parseDateTime(String? raw) {
   final direct = DateTime.tryParse(normalized);
   if (direct != null) return direct;
 
-  final slashMatch = RegExp(r'^(\d{4})/(\d{2})/(\d{2}),\s*(\d{1,2}):(\d{2})$').firstMatch(normalized);
+  final slashMatch = RegExp(
+    r'^(\d{4})/(\d{2})/(\d{2}),\s*(\d{1,2}):(\d{2})$',
+  ).firstMatch(normalized);
   if (slashMatch != null) {
     return DateTime(
       int.parse(slashMatch.group(1)!),
@@ -262,8 +267,12 @@ _NormalizedState _deriveState({
 }) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
-  final startDay = startAt == null ? null : DateTime(startAt.year, startAt.month, startAt.day);
-  final endDay = endAt == null ? null : DateTime(endAt.year, endAt.month, endAt.day);
+  final startDay = startAt == null
+      ? null
+      : DateTime(startAt.year, startAt.month, startAt.day);
+  final endDay = endAt == null
+      ? null
+      : DateTime(endAt.year, endAt.month, endAt.day);
 
   final missingCustomer = customerName.isEmpty;
   final missingPhone = customerPhone.isEmpty;
@@ -315,7 +324,9 @@ _NormalizedState _deriveState({
       tabKey: TabKeys.pickupToday,
       statusKey: StatusKeys.readyForDispatch,
       needsAttention: missingCustomer || missingPhone || missingLocation,
-      warningLevel: (missingCustomer || missingPhone || missingLocation) ? 'warning' : null,
+      warningLevel: (missingCustomer || missingPhone || missingLocation)
+          ? 'warning'
+          : null,
       checkPayload: checkPayload,
       memoText: '대여일이 오늘인 건으로 자동 분류',
     );

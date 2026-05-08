@@ -8,8 +8,8 @@ class SyncPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final runs = ref.watch(syncRunsProvider);
-    final outboxEntries = ref.watch(outboxEntriesProvider);
+    final runsAsync = ref.watch(syncRunsProvider);
+    final outboxEntriesAsync = ref.watch(outboxEntriesProvider);
     final env = ref.watch(appEnvProvider);
 
     return Scaffold(
@@ -26,7 +26,7 @@ class SyncPage extends ConsumerWidget {
             child: ListTile(
               title: Text(env.projectName),
               subtitle: Text('${env.projectRef} · ${env.supabaseUrl}'),
-              trailing: const Text('Supabase 연결 준비'),
+              trailing: const Text('Supabase 연결 완료'),
             ),
           ),
           const SizedBox(height: 16),
@@ -35,34 +35,61 @@ class SyncPage extends ConsumerWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          for (final item in runs)
-            Card(
-              child: ListTile(
-                title: Text(item.title),
-                subtitle: Text('${item.status} · ${item.note}'),
-                trailing: Text(_formatDateTime(item.executedAt)),
-              ),
+          runsAsync.when(
+            data: (runs) => Column(
+              children: [
+                for (final item in runs)
+                  Card(
+                    child: ListTile(
+                      title: Text(item.title),
+                      subtitle: Text('${item.status} · ${item.note}'),
+                      trailing: Text(_formatDateTime(item.executedAt)),
+                    ),
+                  ),
+              ],
             ),
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, stack) => Text('sync 이력을 불러오지 못했습니다.\n$error'),
+          ),
           const SizedBox(height: 16),
           Text(
             'outbox preview',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          for (final entry in outboxEntries)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('${entry.reservationId} · ${entry.actionKey}'),
-                    const SizedBox(height: 8),
-                    for (final line in entry.previewLines) Text('• $line'),
-                  ],
-                ),
-              ),
-            ),
+          outboxEntriesAsync.when(
+            data: (entries) {
+              if (entries.isEmpty) {
+                return const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('현재 outbox 항목이 없습니다.'),
+                  ),
+                );
+              }
+              return Column(
+                children: [
+                  for (final entry in entries)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${entry.reservationId} · ${entry.actionKey}'),
+                            const SizedBox(height: 8),
+                            for (final line in entry.previewLines)
+                              Text('• $line'),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, stack) => Text('outbox 데이터를 불러오지 못했습니다.\n$error'),
+          ),
         ],
       ),
     );

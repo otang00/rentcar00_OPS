@@ -42,14 +42,14 @@
 - [x] reservation_states 테이블 생성 SQL 작성
 - [x] action_logs / outbox 테이블 생성 SQL 작성
 - [x] 원격 DB migration 적용
-- [ ] repository 를 mock → supabase 로 교체
+- [x] repository 를 mock → supabase 로 교체
 
 ## 6. Sync
 - [x] Google Sheets read-only importer 설계 확정
 - [x] 수동 sync 진입점 구성
 - [x] raw import 실행
-- [ ] 정규화 mapper 연결
-- [ ] 실제 리스트 데이터 반영
+- [x] 정규화 mapper 연결
+- [x] 실제 리스트 데이터 반영
 
 ## 7. 이후 단계
 - [ ] action / check / status 로직 연결

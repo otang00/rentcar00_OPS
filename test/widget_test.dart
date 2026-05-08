@@ -1,11 +1,43 @@
 import 'package:flutter/widgets.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:rentcar00_ops/app/app.dart';
+import 'package:rentcar00_ops/data/models/reservation_record.dart';
+import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
+import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
+import 'package:rentcar00_ops/shared/constants/status_keys.dart';
 
 void main() {
+  final fakeReservations = [
+    ReservationRecord(
+      reservationId: 'R-TEST-1',
+      reservationNumber: 'TEST-001',
+      customerName: '테스트고객',
+      customerPhone: '010-0000-0000',
+      carNumber: '123하4567',
+      tab: ReservationTab.pending,
+      statusKey: StatusKeys.pending,
+      startAt: DateTime(2026, 5, 9, 10),
+      endAt: DateTime(2026, 5, 10, 10),
+      locationSummary: '김해공항',
+      noteText: '테스트 메모',
+      primaryBadges: const ['연락처 미확인'],
+      checkPayload: const {'customer_phone_verified': 'pending'},
+      actionLogs: const [],
+    ),
+  ];
+
   testWidgets('앱이 5개 메인 탭을 표시한다', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: Rentcar00OpsApp()));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          allReservationsProvider.overrideWith((ref) async => fakeReservations),
+        ],
+        child: const Rentcar00OpsApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
 
     expect(find.text('예약중'), findsOneWidget);
     expect(find.text('오늘배차'), findsOneWidget);
@@ -15,9 +47,18 @@ void main() {
   });
 
   testWidgets('상세 화면으로 이동하면 핵심 섹션이 보인다', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: Rentcar00OpsApp()));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          allReservationsProvider.overrideWith((ref) async => fakeReservations),
+        ],
+        child: const Rentcar00OpsApp(),
+      ),
+    );
 
-    await tester.tap(find.textContaining('김태진 · 123하4567'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.textContaining('테스트고객 · 123하4567'));
     await tester.pumpAndSettle();
 
     expect(find.text('액션 영역'), findsOneWidget);
