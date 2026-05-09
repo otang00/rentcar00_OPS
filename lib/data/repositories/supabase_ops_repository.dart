@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/sync_run_entry.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
-import 'package:rentcar00_ops/shared/constants/status_keys.dart';
 import 'package:rentcar00_ops/shared/constants/tab_keys.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -28,43 +27,51 @@ class SupabaseOpsRepository {
       for (final row in statesResponse) (row['reservation_id'] as String): row,
     };
 
-    return reservationsResponse.map<ReservationRecord>((row) {
+    final records = <ReservationRecord>[];
+
+    for (final row in reservationsResponse) {
       final reservationId = row['reservation_id'] as String;
       final state = stateByReservationId[reservationId];
+      if (state == null) {
+        continue;
+      }
 
-      final tabKey = state?['tab_key'] as String? ?? TabKeys.pending;
-      final statusKey = state?['status_key'] as String? ?? StatusKeys.pending;
-      final checkPayload = _toStringMap(state?['check_payload_json']);
-      final warningLevel = state?['warning_level'] as String?;
+      final tabKey = state['tab_key'] as String? ?? TabKeys.pending;
+      final statusRaw = (row['status_raw'] as String?) ?? '';
+      final checkPayload = _toStringMap(state['check_payload_json']);
+      final warningLevel = state['warning_level'] as String?;
       final noteParts = <String>[
-        if ((state?['memo_text'] as String?)?.isNotEmpty ?? false)
-          state!['memo_text'] as String,
-        if ((row['status_raw'] as String?)?.isNotEmpty ?? false)
-          '원본상태: ${row['status_raw']}',
+        if ((state['memo_text'] as String?)?.isNotEmpty ?? false)
+          state['memo_text'] as String,
+        if (statusRaw.isNotEmpty) '원본상태: $statusRaw',
       ];
 
-      return ReservationRecord(
-        reservationId: reservationId,
-        reservationNumber: (row['reservation_number'] as String?) ?? '',
-        customerName: (row['customer_name'] as String?) ?? '',
-        customerPhone: (row['customer_phone'] as String?) ?? '',
-        carNumber: (row['car_number'] as String?) ?? '',
-        tab: _tabFromKey(tabKey),
-        statusKey: statusKey,
-        startAt: _parseDateTime(row['start_at']) ?? DateTime(2000),
-        endAt: _parseDateTime(row['end_at']) ?? DateTime(2000),
-        locationSummary: (row['pickup_location'] as String?) ?? '',
-        noteText: noteParts.join(' · '),
-        primaryBadges: _deriveBadges(
+      records.add(
+        ReservationRecord(
+          reservationId: reservationId,
+          reservationNumber: (row['reservation_number'] as String?) ?? '',
+          customerName: (row['customer_name'] as String?) ?? '',
+          customerPhone: (row['customer_phone'] as String?) ?? '',
+          carNumber: (row['car_number'] as String?) ?? '',
+          tab: _tabFromKey(tabKey),
+          statusKey: statusRaw,
+          startAt: _parseDateTime(row['start_at']) ?? DateTime(2000),
+          endAt: _parseDateTime(row['end_at']) ?? DateTime(2000),
+          locationSummary: (row['pickup_location'] as String?) ?? '',
+          noteText: noteParts.join(' · '),
+          primaryBadges: _deriveBadges(
+            checkPayload: checkPayload,
+            warningLevel: warningLevel,
+            tabKey: tabKey,
+            statusRaw: statusRaw,
+          ),
           checkPayload: checkPayload,
-          warningLevel: warningLevel,
-          statusKey: statusKey,
-          statusRaw: (row['status_raw'] as String?) ?? '',
+          actionLogs: const [],
         ),
-        checkPayload: checkPayload,
-        actionLogs: const [],
       );
-    }).toList();
+    }
+
+    return records;
   }
 
   Future<List<SyncRunEntry>> fetchSyncRuns() async {
@@ -128,7 +135,7 @@ class SupabaseOpsRepository {
   List<String> _deriveBadges({
     required Map<String, String> checkPayload,
     required String? warningLevel,
-    required String statusKey,
+    required String tabKey,
     required String statusRaw,
   }) {
     final badges = <String>[];
@@ -145,13 +152,10 @@ class SupabaseOpsRepository {
     if (warningLevel == 'warning' && badges.isEmpty) {
       badges.add('확인 필요');
     }
-    if (statusKey == StatusKeys.hold || statusRaw.contains('취소')) {
-      badges.add('예약취소');
-    }
-    if (statusKey == StatusKeys.done) {
+    if (statusRaw == '반납완료') {
       badges.add('반납 완료');
     }
-    if (statusKey == StatusKeys.readyForDispatch) {
+    if (tabKey == TabKeys.pickupToday) {
       badges.add('오늘배차');
     }
 

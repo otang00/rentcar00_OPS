@@ -209,12 +209,18 @@
 - raw -> projection 1차 정규화 실행 완료
   - reservations projection: `79`
   - reservation states: `79`
+- `status_raw + tab_key` 규칙으로 projection/state 구조 단순화 완료
+  - migration 적용 완료
+  - 재정규화 결과 reservations: `79`, states: `67`
+  - status 분포: `반납완료 36 / 예약중 18 / 배차중 13 / 예약취소 12`
+  - tab 분포: `완료 36 / 예약중 17 / 배차중 13 / 오늘배차 1 / 반납일 0`
 - 앱 메인/상세/검색/sync 화면을 Supabase read-only 데이터 기준으로 전환 완료
 
 ### 지금 바로 가능한 것
-- 액션 / check / status write 로직 연결
+- 액션 / check write 로직 연결
 - outbox dry-run 실DB 연결
 - 일정(raw schedule) 기반 보강 로직 작성
+- 예약취소/hidden 검색 정책 결정
 - 수동 sync 재실행 경로 유지
 - Google Sheets 인증 방식 고정
 

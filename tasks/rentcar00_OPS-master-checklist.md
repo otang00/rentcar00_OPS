@@ -43,6 +43,7 @@
 - [x] action_logs / outbox 테이블 생성 SQL 작성
 - [x] 원격 DB migration 적용
 - [x] repository 를 mock → supabase 로 교체
+- [x] `status_raw + tab_key` 기준으로 projection/state 구조 단순화
 
 ## 6. Sync
 - [x] Google Sheets read-only importer 설계 확정
@@ -50,6 +51,7 @@
 - [x] raw import 실행
 - [x] 정규화 mapper 연결
 - [x] 실제 리스트 데이터 반영
+- [x] 새 규칙 기준 재정규화 실행
 
 ## 7. 이후 단계
 - [ ] action / check / status 로직 연결

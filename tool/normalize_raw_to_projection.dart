@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:postgres/postgres.dart';
-import 'package:rentcar00_ops/shared/constants/status_keys.dart';
 import 'package:rentcar00_ops/shared/constants/tab_keys.dart';
 
 Future<void> main(List<String> args) async {
@@ -27,6 +26,14 @@ Future<void> main(List<String> args) async {
 
   try {
     final targetSyncRunId = syncRunId ?? await _latestSyncRunId(conn);
+
+    await conn.runTx((tx) async {
+      await tx.execute('delete from public.rc00_ops_outbox');
+      await tx.execute('delete from public.rc00_ops_action_logs');
+      await tx.execute('delete from public.rc00_ops_reservation_states');
+      await tx.execute('delete from public.rc00_ops_reservations');
+    });
+
     final rawRows = await conn.execute(
       Sql.named('''
         select
@@ -108,21 +115,6 @@ Future<void> main(List<String> args) async {
             @meta_json::jsonb,
             now()
           )
-          on conflict (reservation_id) do update set
-            reservation_number = excluded.reservation_number,
-            car_number = excluded.car_number,
-            car_name = excluded.car_name,
-            customer_name = excluded.customer_name,
-            customer_phone = excluded.customer_phone,
-            start_at = excluded.start_at,
-            end_at = excluded.end_at,
-            pickup_location = excluded.pickup_location,
-            status_raw = excluded.status_raw,
-            source_sync_run_id = excluded.source_sync_run_id,
-            source_reservation_raw_id = excluded.source_reservation_raw_id,
-            last_synced_at = now(),
-            meta_json = excluded.meta_json,
-            updated_at = now()
           returning id::text
         '''),
         parameters: {
@@ -142,9 +134,7 @@ Future<void> main(List<String> args) async {
         },
       );
 
-      final reservationRefId = reservationResult.first[0] as String;
       reservationCount++;
-
       final state = _deriveState(
         statusRaw: statusRaw,
         startAt: startAt,
@@ -154,58 +144,44 @@ Future<void> main(List<String> args) async {
         locationRaw: locationRaw,
       );
 
+      if (!state.includeInTabs) {
+        continue;
+      }
+
+      final reservationRefId = reservationResult.first[0] as String;
       await conn.execute(
         Sql.named('''
           insert into public.rc00_ops_reservation_states (
             reservation_id,
             reservation_ref_id,
             tab_key,
-            status_key,
-            auto_tab_key,
-            auto_status_key,
-            manual_override,
             needs_attention,
             warning_level,
             check_payload_json,
             memo_text,
+            completed_at,
             updated_at
           ) values (
             @reservation_id,
             @reservation_ref_id::uuid,
             @tab_key,
-            @status_key,
-            @auto_tab_key,
-            @auto_status_key,
-            false,
             @needs_attention,
             @warning_level,
             @check_payload_json::jsonb,
             @memo_text,
+            @completed_at,
             now()
           )
-          on conflict (reservation_id) do update set
-            reservation_ref_id = excluded.reservation_ref_id,
-            tab_key = excluded.tab_key,
-            status_key = excluded.status_key,
-            auto_tab_key = excluded.auto_tab_key,
-            auto_status_key = excluded.auto_status_key,
-            needs_attention = excluded.needs_attention,
-            warning_level = excluded.warning_level,
-            check_payload_json = excluded.check_payload_json,
-            memo_text = excluded.memo_text,
-            updated_at = now()
         '''),
         parameters: {
           'reservation_id': reservationId,
           'reservation_ref_id': reservationRefId,
           'tab_key': state.tabKey,
-          'status_key': state.statusKey,
-          'auto_tab_key': state.tabKey,
-          'auto_status_key': state.statusKey,
           'needs_attention': state.needsAttention,
           'warning_level': state.warningLevel,
           'check_payload_json': jsonEncode(state.checkPayload),
           'memo_text': state.memoText,
+          'completed_at': state.completedAt,
         },
       );
       stateCount++;
@@ -277,7 +253,12 @@ _NormalizedState _deriveState({
   final missingCustomer = customerName.isEmpty;
   final missingPhone = customerPhone.isEmpty;
   final missingLocation = locationRaw.isEmpty;
-  final isCanceled = statusRaw.contains('취소');
+  final isPending = statusRaw == '예약중';
+  final isCanceled = statusRaw == '예약취소';
+  final isInUse = statusRaw == '배차중';
+  final isCompleted = statusRaw == '반납완료';
+  final isPickupToday = startDay != null && startDay == today;
+  final isReturnToday = endDay != null && endDay == today;
 
   final checkPayload = <String, String>{
     'customer_name_verified': missingCustomer ? 'pending' : 'done',
@@ -288,85 +269,93 @@ _NormalizedState _deriveState({
 
   if (isCanceled) {
     return _NormalizedState(
-      tabKey: TabKeys.pending,
-      statusKey: StatusKeys.hold,
+      includeInTabs: false,
+      tabKey: null,
       needsAttention: false,
       warningLevel: null,
       checkPayload: checkPayload,
-      memoText: '원본 상태가 예약취소로 확인됨',
+      memoText: '예약취소 건은 기본 탭에서 제외',
+      completedAt: null,
     );
   }
 
-  if (endDay != null && endDay.isBefore(today)) {
+  if (isCompleted) {
     return _NormalizedState(
+      includeInTabs: true,
       tabKey: TabKeys.completed,
-      statusKey: StatusKeys.done,
       needsAttention: false,
       warningLevel: null,
       checkPayload: checkPayload,
-      memoText: '반납일 기준 과거 건으로 자동 완료 분류',
+      memoText: '원본 상태가 반납완료로 확인됨',
+      completedAt: endAt,
     );
   }
 
-  if (endDay != null && endDay == today) {
+  if (isInUse && isReturnToday) {
     return _NormalizedState(
+      includeInTabs: true,
       tabKey: TabKeys.returnDue,
-      statusKey: StatusKeys.returnDue,
       needsAttention: missingLocation,
       warningLevel: missingLocation ? 'warning' : null,
       checkPayload: checkPayload,
-      memoText: '반납일이 오늘인 건으로 자동 분류',
+      memoText: '배차중 상태에서 오늘 반납 대상',
+      completedAt: null,
     );
   }
 
-  if (startDay != null && startDay == today) {
+  if (isInUse) {
     return _NormalizedState(
+      includeInTabs: true,
+      tabKey: TabKeys.inUse,
+      needsAttention: false,
+      warningLevel: null,
+      checkPayload: checkPayload,
+      memoText: '원본 상태가 배차중으로 확인됨',
+      completedAt: null,
+    );
+  }
+
+  if (isPending && isPickupToday) {
+    return _NormalizedState(
+      includeInTabs: true,
       tabKey: TabKeys.pickupToday,
-      statusKey: StatusKeys.readyForDispatch,
       needsAttention: missingCustomer || missingPhone || missingLocation,
       warningLevel: (missingCustomer || missingPhone || missingLocation)
           ? 'warning'
           : null,
       checkPayload: checkPayload,
-      memoText: '대여일이 오늘인 건으로 자동 분류',
-    );
-  }
-
-  if (startAt != null && startAt.isBefore(now)) {
-    return _NormalizedState(
-      tabKey: TabKeys.inUse,
-      statusKey: StatusKeys.inUse,
-      needsAttention: false,
-      warningLevel: null,
-      checkPayload: checkPayload,
-      memoText: '대여일이 과거인 건으로 자동 분류',
+      memoText: '예약중 상태에서 오늘 배차 대상',
+      completedAt: null,
     );
   }
 
   return _NormalizedState(
+    includeInTabs: true,
     tabKey: TabKeys.pending,
-    statusKey: missingCustomer ? StatusKeys.waitingForId : StatusKeys.pending,
     needsAttention: missingCustomer || missingPhone,
     warningLevel: (missingCustomer || missingPhone) ? 'warning' : null,
     checkPayload: checkPayload,
-    memoText: '기본 예약중 분류',
+    memoText: isPending ? '예약중 기본 분류' : '정의되지 않은 상태값은 예약중으로 임시 분류',
+    completedAt: null,
   );
 }
 
 class _NormalizedState {
   const _NormalizedState({
+    required this.includeInTabs,
     required this.tabKey,
-    required this.statusKey,
     required this.needsAttention,
     required this.warningLevel,
     required this.checkPayload,
     required this.memoText,
+    required this.completedAt,
   });
 
-  final String tabKey;
-  final String statusKey;
+  final bool includeInTabs;
+  final String? tabKey;
   final bool needsAttention;
   final String? warningLevel;
   final Map<String, String> checkPayload;
   final String memoText;
+  final DateTime? completedAt;
 }
