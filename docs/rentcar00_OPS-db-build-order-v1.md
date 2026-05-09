@@ -49,8 +49,8 @@
 5. `rc00_ops_reservation_states`
 
 역할:
-- 예약 1건당 현재 업무 상태 1행
-- 탭/상태/check/warning 관리
+- 예약 1건당 현재 앱 탭 상태 1행
+- 탭/check/warning 관리
 
 ### 3-4. 실행 기록 계층
 6. `rc00_ops_action_logs`
@@ -194,17 +194,13 @@
 
 #### C-1. `rc00_ops_reservation_states`
 이유:
-- 탭 계산과 업무 상태를 예약 원장과 분리해야 충돌이 줄어든다.
+- 탭 계산과 체크/경고 상태를 예약 원장과 분리해야 충돌이 줄어든다.
 
 최소 컬럼:
 - `id`
 - `reservation_id`
 - `reservation_ref_id`
 - `tab_key`
-- `status_key`
-- `auto_tab_key`
-- `auto_status_key`
-- `manual_override` boolean
 - `needs_attention` boolean
 - `warning_level`
 - `check_payload_json`
@@ -218,8 +214,9 @@
 - `reservation_id`
 
 핵심 원칙:
-- 앱의 탭 source of truth 는 이 테이블
-- 자동 계산값과 수동 override 값을 분리 저장
+- 원본 상태는 `rc00_ops_reservations.status_raw` 로 유지
+- 앱의 탭 source of truth 는 이 테이블의 `tab_key`
+- 탭 계산은 `status_raw + start_at + end_at` 기준
 - 초기 check 값은 전부 `check_payload_json` 에 저장
 
 ---
@@ -304,22 +301,26 @@
 - orphan 일정은 raw 에 남긴다
 - 잘못된 추정 연결은 하지 않는다
 
-### Step 6. 상태 계산
+### Step 6. 탭 계산
 입력값:
 - `start_at`
 - `end_at`
-- raw 상태
+- `status_raw`
 - schedule 연결 여부
 - 현재 check 값
-- 수동 override 값
 
 출력값:
-- `auto_tab_key`
-- `auto_status_key`
 - `tab_key`
-- `status_key`
 - `needs_attention`
 - `warning_level`
+
+MVP 규칙:
+- `예약상태='예약중'` + 오늘 배차 아님 -> 예약중
+- `예약상태='예약중'` + 오늘 배차 -> 오늘배차
+- `예약상태='배차중'` + 오늘 반납 아님 -> 배차중
+- `예약상태='배차중'` + 오늘 반납 -> 반납일
+- `예약상태='반납완료'` -> 완료
+- `예약상태='예약취소'` -> 기본 탭 제외
 
 ### Step 7. sync run 종료
 - 성공 시 `success`

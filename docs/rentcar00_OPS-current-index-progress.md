@@ -93,7 +93,8 @@
 - 메인 연결키: `reservation_id`
 - 표시/검색용 보조키: `reservation_number`
 - 차량 연결 기준: `car_number`
-- 상태 source of truth: `rc00_ops_reservation_states`
+- 원본 상태 source of truth: 시트 `예약상태` -> DB `status_raw`
+- 앱 탭 source of truth: `rc00_ops_reservation_states.tab_key`
 - 현재 체크값 저장: `check_payload_json`
 - `check_payload_json` 키 규칙: `snake_case`
 
@@ -104,17 +105,17 @@
 - 상태 키: `rc00_ops_status_*`
 
 ### 전이 기준
-- 예약중 → 오늘배차: `start_at` 날짜가 오늘
-- 오늘배차 → 배차중: 실제 출발 확인값
-- 배차중 → 반납일: `end_at` 날짜의 00:00
-- 반납일 → 완료: `rc00_ops_action_complete_return`
-- 완료 → 기본 목록 제외: 반납완료 후 7일
+- `예약상태='예약중'` + `start_at` 오늘 아님 → 예약중
+- `예약상태='예약중'` + `start_at` 오늘 → 오늘배차
+- `예약상태='배차중'` + `end_at` 오늘 아님 → 배차중
+- `예약상태='배차중'` + `end_at` 오늘 → 반납일
+- `예약상태='반납완료'` → 완료
+- `예약상태='예약취소'` → 기본 목록 제외
 
 보조 규칙:
 - 오늘배차는 준비 미완료여도 진입 막지 않음
-- 오늘배차 준비 미완료는 주황 경고
-- 배차중 반납 하루 전은 노랑 경고
-- `request_delivery` 실행만으로 배차중 전이하지 않음
+- 오늘배차 → 배차중 전이는 별도 출발 체크가 아니라 시트 `예약상태` 변경 기준
+- 반납일은 `배차중` 상태에서 오늘 반납일인 차량만 표시
 
 ### 카드 최소 기준
 공통 최소 필드:
@@ -153,7 +154,7 @@
 - 라우팅: `go_router`
 - 상태관리: `flutter_riverpod`
 - 상세 화면: 공용 1개
-- 탭 계산 source of truth: `rc00_ops_reservation_states`
+- 탭 계산 source of truth: `status_raw + start_at + end_at` 를 반영한 `rc00_ops_reservation_states.tab_key`
 - 예약 원장 생성 기준: `예약` 탭 only
 - 일정 연결 우선순위: `reservation_id` → `reservation_number` unique → orphan raw
 
