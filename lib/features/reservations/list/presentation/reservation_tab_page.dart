@@ -63,21 +63,27 @@ class ReservationTabPage extends ConsumerWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: Theme.of(context)
                                         .textTheme
-                                        .titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                        .titleLarge
+                                        ?.copyWith(fontWeight: FontWeight.w800),
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    item.customerName.isEmpty
+                                    item.carName.isEmpty
                                         ? (item.reservationNumber.isEmpty
-                                              ? '이름 미확인'
+                                              ? '차량명 미확인'
                                               : item.reservationNumber)
-                                        : item.customerName,
+                                        : item.carName,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodyMedium,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                   ),
                                 ],
                               ),
@@ -105,7 +111,7 @@ class ReservationTabPage extends ConsumerWidget {
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            for (final badge in item.primaryBadges.take(6))
+                            for (final badge in item.primaryBadges)
                               _StatusIconChip(label: badge),
                             if (item.primaryBadges.isEmpty)
                               const _StatusIconChip(label: '이상 없음'),
@@ -158,7 +164,7 @@ class _DateTimeBadge extends StatelessWidget {
               timeText,
               style: Theme.of(
                 context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
             ),
           ],
         ],
@@ -191,7 +197,7 @@ class _StatusIconChip extends StatelessWidget {
             token.text,
             style: Theme.of(
               context,
-            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -201,7 +207,32 @@ class _StatusIconChip extends StatelessWidget {
 
 ({IconData icon, Color? color, String text}) _iconToken(String label) {
   return switch (label) {
-    '고객명 미확인' => (icon: Icons.badge_outlined, color: Colors.orange, text: '고객'),
+    '확인 필요' => (icon: Icons.error_outline, color: Colors.red, text: '확인'),
+    '특이사항' => (
+      icon: Icons.priority_high_rounded,
+      color: Colors.red,
+      text: '특이',
+    ),
+    '반납완료 직전 미처리' => (
+      icon: Icons.assignment_late_outlined,
+      color: Colors.red,
+      text: '반납전',
+    ),
+    '신분증 미확보' => (
+      icon: Icons.badge_outlined,
+      color: Colors.orange,
+      text: '신분증',
+    ),
+    '주소 미확보' => (
+      icon: Icons.home_work_outlined,
+      color: Colors.orange,
+      text: '주소',
+    ),
+    '고객명 미확인' => (
+      icon: Icons.person_off_outlined,
+      color: Colors.orange,
+      text: '고객',
+    ),
     '연락처 미확인' => (
       icon: Icons.phone_disabled_outlined,
       color: Colors.orange,
@@ -212,6 +243,22 @@ class _StatusIconChip extends StatelessWidget {
       color: Colors.orange,
       text: '위치',
     ),
+    '준비 미완료' => (
+      icon: Icons.hourglass_bottom_outlined,
+      color: Colors.orange,
+      text: '준비',
+    ),
+    '계약 미완료' => (
+      icon: Icons.description_outlined,
+      color: Colors.orange,
+      text: '계약',
+    ),
+    '반납 임박' => (
+      icon: Icons.event_busy_outlined,
+      color: Colors.blue,
+      text: '임박',
+    ),
+    '연장·이슈' => (icon: Icons.update_outlined, color: Colors.blue, text: '연장'),
     '예약취소' => (icon: Icons.block_outlined, color: Colors.red, text: '취소'),
     '반납 완료' => (icon: Icons.task_alt_outlined, color: Colors.green, text: '완료'),
     '오늘배차' => (
@@ -219,7 +266,6 @@ class _StatusIconChip extends StatelessWidget {
       color: Colors.blue,
       text: '오늘',
     ),
-    '확인 필요' => (icon: Icons.error_outline, color: Colors.red, text: '확인'),
     '이상 없음' => (
       icon: Icons.check_circle_outline,
       color: Colors.green,

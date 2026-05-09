@@ -171,6 +171,7 @@ final filteredReservationsProvider =
         return summaries.where((item) {
           return item.customerName.toLowerCase().contains(query) ||
               item.carNumber.toLowerCase().contains(query) ||
+              item.carName.toLowerCase().contains(query) ||
               item.reservationId.toLowerCase().contains(query) ||
               item.reservationNumber.toLowerCase().contains(query);
         }).toList();
@@ -191,13 +192,42 @@ ReservationSummary _toSummary(ReservationRecord item) {
     customerName: item.customerName,
     customerPhone: item.customerPhone,
     carNumber: item.carNumber,
+    carName: item.carName,
     tab: item.tab,
     statusKey: item.statusKey,
     timeLabel: _formatDateTime(baseTime),
     locationSummary: item.locationSummary,
     noteText: item.noteText,
-    primaryBadges: item.primaryBadges,
+    primaryBadges: _prioritizeBadges(item.primaryBadges),
   );
+}
+
+List<String> _prioritizeBadges(List<String> badges) {
+  final unique = <String>[];
+  for (final badge in badges) {
+    if (!unique.contains(badge)) {
+      unique.add(badge);
+    }
+  }
+
+  unique.sort((a, b) => _badgePriority(a).compareTo(_badgePriority(b)));
+  return unique.take(4).toList();
+}
+
+int _badgePriority(String badge) {
+  return switch (badge) {
+    '확인 필요' || '특이사항' || '반납완료 직전 미처리' => 0,
+    '신분증 미확보' ||
+    '주소 미확보' ||
+    '고객명 미확인' ||
+    '연락처 미확인' ||
+    '위치 미확인' ||
+    '준비 미완료' ||
+    '계약 미완료' => 1,
+    '반납 임박' || '연장·이슈' => 2,
+    '오늘배차' || '반납 완료' => 3,
+    _ => 4,
+  };
 }
 
 String _formatDateTime(DateTime value) {

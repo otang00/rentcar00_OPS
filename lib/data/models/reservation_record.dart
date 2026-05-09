@@ -8,6 +8,7 @@ class ReservationRecord {
     required this.customerName,
     required this.customerPhone,
     required this.carNumber,
+    required this.carName,
     required this.tab,
     required this.statusKey,
     required this.startAt,
@@ -24,6 +25,7 @@ class ReservationRecord {
   final String customerName;
   final String customerPhone;
   final String carNumber;
+  final String carName;
   final ReservationTab tab;
   final String statusKey;
   final DateTime startAt;
@@ -40,6 +42,7 @@ class ReservationRecord {
     String? customerName,
     String? customerPhone,
     String? carNumber,
+    String? carName,
     ReservationTab? tab,
     String? statusKey,
     DateTime? startAt,
@@ -56,6 +59,7 @@ class ReservationRecord {
       customerName: customerName ?? this.customerName,
       customerPhone: customerPhone ?? this.customerPhone,
       carNumber: carNumber ?? this.carNumber,
+      carName: carName ?? this.carName,
       tab: tab ?? this.tab,
       statusKey: statusKey ?? this.statusKey,
       startAt: startAt ?? this.startAt,

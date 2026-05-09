@@ -7,6 +7,7 @@ class ReservationSummary {
     required this.customerName,
     required this.customerPhone,
     required this.carNumber,
+    required this.carName,
     required this.tab,
     required this.statusKey,
     required this.timeLabel,
@@ -20,6 +21,7 @@ class ReservationSummary {
   final String customerName;
   final String customerPhone;
   final String carNumber;
+  final String carName;
   final ReservationTab tab;
   final String statusKey;
   final String timeLabel;

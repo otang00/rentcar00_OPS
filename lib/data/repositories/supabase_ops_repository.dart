@@ -53,6 +53,7 @@ class SupabaseOpsRepository {
           customerName: (row['customer_name'] as String?) ?? '',
           customerPhone: (row['customer_phone'] as String?) ?? '',
           carNumber: (row['car_number'] as String?) ?? '',
+          carName: (row['car_name'] as String?) ?? '',
           tab: _tabFromKey(tabKey),
           statusKey: statusRaw,
           startAt: _parseDateTime(row['start_at']) ?? DateTime(2000),
@@ -159,6 +160,6 @@ class SupabaseOpsRepository {
       badges.add('오늘배차');
     }
 
-    return badges.take(2).toList();
+    return badges;
   }
 }

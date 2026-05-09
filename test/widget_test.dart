@@ -15,13 +15,14 @@ void main() {
       customerName: '테스트고객',
       customerPhone: '010-0000-0000',
       carNumber: '123하4567',
+      carName: 'K5',
       tab: ReservationTab.pending,
       statusKey: StatusKeys.pending,
       startAt: DateTime(2026, 5, 9, 10),
       endAt: DateTime(2026, 5, 10, 10),
       locationSummary: '김해공항',
       noteText: '테스트 메모',
-      primaryBadges: const ['연락처 미확인'],
+      primaryBadges: const ['연락처 미확인', '준비 미완료', '오늘배차'],
       checkPayload: const {'customer_phone_verified': 'pending'},
       actionLogs: const [],
     ),
@@ -46,7 +47,7 @@ void main() {
     expect(find.text('완료'), findsOneWidget);
   });
 
-  testWidgets('카드가 2~3줄 정보로 보이고 상세 화면으로 이동한다', (tester) async {
+  testWidgets('카드가 차량명과 우선순위 아이콘으로 보이고 상세 화면으로 이동한다', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -59,9 +60,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('123하4567'), findsOneWidget);
-    expect(find.text('테스트고객'), findsOneWidget);
+    expect(find.text('K5'), findsOneWidget);
     expect(find.text('김해공항'), findsOneWidget);
     expect(find.text('연락처'), findsOneWidget);
+    expect(find.text('준비'), findsOneWidget);
+    expect(find.text('오늘'), findsOneWidget);
 
     await tester.tap(find.text('123하4567'));
     await tester.pumpAndSettle();
