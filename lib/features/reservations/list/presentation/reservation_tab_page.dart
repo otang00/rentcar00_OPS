@@ -44,29 +44,73 @@ class ReservationTabPage extends ConsumerWidget {
                       context.push('/reservation/${item.reservationId}'),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
+                      horizontal: 12,
+                      vertical: 12,
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            '${item.customerName.isEmpty ? '(고객명없음)' : item.customerName} · ${item.carNumber} · ${item.locationSummary.isEmpty ? '(위치없음)' : item.locationSummary} · ${item.reservationId}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.carNumber,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    item.customerName.isEmpty
+                                        ? (item.reservationNumber.isEmpty
+                                              ? '이름 미확인'
+                                              : item.reservationNumber)
+                                        : item.customerName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            _DateTimeBadge(timeLabel: item.timeLabel),
+                          ],
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(height: 10),
                         Text(
-                          item.timeLabel,
-                          style: Theme.of(context).textTheme.labelSmall,
+                          item.locationSummary.isEmpty
+                              ? '(주소없음)'
+                              : item.locationSummary,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                         ),
-                        const SizedBox(width: 6),
-                        for (final badge in item.primaryBadges.take(2)) ...[
-                          _CompactBadge(label: _badgeAbbr(badge)),
-                          const SizedBox(width: 4),
-                        ],
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final badge in item.primaryBadges.take(6))
+                              _StatusIconChip(label: badge),
+                            if (item.primaryBadges.isEmpty)
+                              const _StatusIconChip(label: '이상 없음'),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -82,38 +126,105 @@ class ReservationTabPage extends ConsumerWidget {
   }
 }
 
-class _CompactBadge extends StatelessWidget {
-  const _CompactBadge({required this.label});
+class _DateTimeBadge extends StatelessWidget {
+  const _DateTimeBadge({required this.timeLabel});
 
-  final String label;
+  final String timeLabel;
 
   @override
   Widget build(BuildContext context) {
+    final parts = timeLabel.split(' ');
+    final dateText = parts.isNotEmpty ? parts.first : timeLabel;
+    final timeText = parts.length > 1 ? parts.last : '';
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.labelSmall,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            dateText,
+            style: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          if (timeText.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              timeText,
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ],
       ),
     );
   }
 }
 
-String _badgeAbbr(String label) {
+class _StatusIconChip extends StatelessWidget {
+  const _StatusIconChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final token = _iconToken(label);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(token.icon, size: 16, color: token.color),
+          const SizedBox(width: 4),
+          Text(
+            token.text,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+({IconData icon, Color? color, String text}) _iconToken(String label) {
   return switch (label) {
-    '고객명 미확인' => '고객',
-    '연락처 미확인' => '연락처',
-    '위치 미확인' => '위치',
-    '예약취소' => '취소',
-    '반납 완료' => '완료',
-    '오늘배차' => '오늘',
-    '확인 필요' => '확인',
-    _ => label,
+    '고객명 미확인' => (icon: Icons.badge_outlined, color: Colors.orange, text: '고객'),
+    '연락처 미확인' => (
+      icon: Icons.phone_disabled_outlined,
+      color: Colors.orange,
+      text: '연락처',
+    ),
+    '위치 미확인' => (
+      icon: Icons.location_off_outlined,
+      color: Colors.orange,
+      text: '위치',
+    ),
+    '예약취소' => (icon: Icons.block_outlined, color: Colors.red, text: '취소'),
+    '반납 완료' => (icon: Icons.task_alt_outlined, color: Colors.green, text: '완료'),
+    '오늘배차' => (
+      icon: Icons.local_shipping_outlined,
+      color: Colors.blue,
+      text: '오늘',
+    ),
+    '확인 필요' => (icon: Icons.error_outline, color: Colors.red, text: '확인'),
+    '이상 없음' => (
+      icon: Icons.check_circle_outline,
+      color: Colors.green,
+      text: '정상',
+    ),
+    _ => (icon: Icons.info_outline, color: null, text: label),
   };
 }

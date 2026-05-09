@@ -46,7 +46,7 @@ void main() {
     expect(find.text('완료'), findsOneWidget);
   });
 
-  testWidgets('상세 화면으로 이동하면 핵심 섹션이 보인다', (tester) async {
+  testWidgets('카드가 2~3줄 정보로 보이고 상세 화면으로 이동한다', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -58,7 +58,12 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    await tester.tap(find.textContaining('테스트고객 · 123하4567'));
+    expect(find.text('123하4567'), findsOneWidget);
+    expect(find.text('테스트고객'), findsOneWidget);
+    expect(find.text('김해공항'), findsOneWidget);
+    expect(find.text('연락처'), findsOneWidget);
+
+    await tester.tap(find.text('123하4567'));
     await tester.pumpAndSettle();
 
     expect(find.text('액션 영역'), findsOneWidget);
