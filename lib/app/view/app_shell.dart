@@ -9,6 +9,16 @@ import 'package:rentcar00_ops/features/reservations/shared/providers/reservation
 import 'package:rentcar00_ops/features/status_board/list/presentation/status_board_tab_page.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
 
+String _reservationLabel(ReservationTab tab, int? count) {
+  if (count == null) return tab.label;
+  return '${tab.label}($count)';
+}
+
+String _boardLabel(StatusBoardTab tab, int? count) {
+  if (count == null) return tab.label;
+  return '${tab.label}($count)';
+}
+
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
@@ -18,17 +28,25 @@ class AppShell extends ConsumerWidget {
     final reservationTab = ref.watch(selectedReservationTabProvider);
     final statusBoardTab = ref.watch(selectedStatusBoardTabProvider);
 
+    final reservationCounts = ref.watch(tabCountsProvider).valueOrNull;
+    final boardCounts = ref.watch(statusBoardCountsProvider).valueOrNull;
     final selectedIndex = layer == OpsLayer.reservations
         ? ReservationTab.values.indexOf(reservationTab)
         : StatusBoardTab.values.indexOf(statusBoardTab);
     final destinations = layer == OpsLayer.reservations
         ? [
             for (final tab in ReservationTab.values)
-              NavigationDestination(icon: Icon(tab.icon), label: tab.label),
+              NavigationDestination(
+                icon: Icon(tab.icon),
+                label: _reservationLabel(tab, reservationCounts?[tab]),
+              ),
           ]
         : [
             for (final tab in StatusBoardTab.values)
-              NavigationDestination(icon: Icon(tab.icon), label: tab.label),
+              NavigationDestination(
+                icon: Icon(tab.icon),
+                label: _boardLabel(tab, boardCounts?[tab]),
+              ),
           ];
 
     return Scaffold(

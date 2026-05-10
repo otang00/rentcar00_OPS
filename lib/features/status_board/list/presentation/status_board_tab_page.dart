@@ -17,28 +17,30 @@ class StatusBoardTabPage extends ConsumerWidget {
 
     return itemsAsync.when(
       data: (items) {
-        final count = countsAsync.valueOrNull?[tab] ?? items.length;
+        final sortedItems = _sortItems(tab, items);
+        final count = countsAsync.valueOrNull?[tab] ?? sortedItems.length;
         return ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
           children: [
             Text(
               '${tab.label} $count건',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               tab.emptyMessage,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
-            const SizedBox(height: 16),
-            if (items.isEmpty)
+            const SizedBox(height: 12),
+            if (sortedItems.isEmpty)
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('현재 이 탭에 표시할 실데이터가 없습니다.'),
                 ),
-              ),
-            for (final item in items) _BoardListCard(item: item),
+              )
+            else
+              ..._buildTabContent(context, sortedItems),
           ],
         );
       },
@@ -47,172 +49,647 @@ class StatusBoardTabPage extends ConsumerWidget {
           Center(child: Text('현황판 데이터를 불러오지 못했습니다.\n$error')),
     );
   }
+
+  List<Widget> _buildTabContent(
+    BuildContext context,
+    List<StatusBoardRecord> items,
+  ) {
+    switch (tab) {
+      case StatusBoardTab.idle:
+        return _buildIdleContent(context, items);
+      case StatusBoardTab.insurance:
+        return [for (final item in items) _InsuranceCard(item: item)];
+      case StatusBoardTab.general:
+        return [_GeneralTable(items: items)];
+      case StatusBoardTab.longTerm:
+        return [_LongTermTable(items: items)];
+      case StatusBoardTab.schedule:
+        return [for (final item in items) _ScheduleCard(item: item)];
+    }
+  }
+
+  List<Widget> _buildIdleContent(
+    BuildContext context,
+    List<StatusBoardRecord> items,
+  ) {
+    final groups = <String, List<StatusBoardRecord>>{};
+    for (final item in items) {
+      final key = item.carName.isEmpty ? '차종 미확인' : item.carName;
+      groups.putIfAbsent(key, () => []).add(item);
+    }
+
+    return [
+      for (final entry in groups.entries) ...[
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 6),
+          child: Text(
+            entry.key,
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ),
+        Container(
+          decoration: _tableDecoration(context),
+          child: Column(
+            children: [
+              const _IdleHeaderRow(),
+              for (var i = 0; i < entry.value.length; i++)
+                _IdleDataRow(
+                  item: entry.value[i],
+                  showDivider: i < entry.value.length - 1,
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    ];
+  }
+
+  List<StatusBoardRecord> _sortItems(
+    StatusBoardTab tab,
+    List<StatusBoardRecord> items,
+  ) {
+    final sorted = [...items];
+    int compareText(String a, String b) => a.compareTo(b);
+
+    switch (tab) {
+      case StatusBoardTab.idle:
+        sorted.sort((a, b) {
+          final byName = compareText(a.carName, b.carName);
+          if (byName != 0) return byName;
+          return compareText(a.carNumber, b.carNumber);
+        });
+      case StatusBoardTab.insurance:
+      case StatusBoardTab.general:
+        sorted.sort((a, b) {
+          final aTime = a.sortAt ?? DateTime(2999);
+          final bTime = b.sortAt ?? DateTime(2999);
+          final byTime = aTime.compareTo(bTime);
+          if (byTime != 0) return byTime;
+          return compareText(a.carNumber, b.carNumber);
+        });
+      case StatusBoardTab.longTerm:
+        sorted.sort((a, b) {
+          final aTime = a.sortAt ?? DateTime(2999);
+          final bTime = b.sortAt ?? DateTime(2999);
+          final byTime = aTime.compareTo(bTime);
+          if (byTime != 0) return byTime;
+          return compareText(a.customerName, b.customerName);
+        });
+      case StatusBoardTab.schedule:
+        sorted.sort((a, b) {
+          final aTime = a.sortAt ?? DateTime(2999);
+          final bTime = b.sortAt ?? DateTime(2999);
+          return aTime.compareTo(bTime);
+        });
+    }
+
+    return sorted;
+  }
 }
 
-class _BoardListCard extends StatelessWidget {
-  const _BoardListCard({required this.item});
+class _InsuranceCard extends StatelessWidget {
+  const _InsuranceCard({required this.item});
 
   final StatusBoardRecord item;
 
   @override
   Widget build(BuildContext context) {
-    final title = item.carName.isEmpty ? '차종 미확인' : item.carName;
-    final subtitle = item.customerName.isEmpty
-        ? (item.status.isEmpty ? '-' : item.status)
-        : item.customerName;
-
     return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Theme.of(context).dividerColor),
+      ),
       child: InkWell(
+        borderRadius: BorderRadius.circular(14),
         onTap: () =>
             context.push('/board/${Uri.encodeComponent(item.recordId)}'),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '$title · $subtitle',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        item.tab.label,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      if (item.timeLabel.isNotEmpty)
-                        Text(
-                          item.timeLabel,
-                          textAlign: TextAlign.end,
-                          style: Theme.of(context).textTheme.labelMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                    ],
-                  ),
-                ],
+              Text(
+                item.pickupLocation.isEmpty ? '(배차지없음)' : item.pickupLocation,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 8),
-              _InfoLine(
-                icon: Icons.person_outline,
-                text: item.customerName.isEmpty ? '(임차인없음)' : item.customerName,
-              ),
-              if (item.locationSummary.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                _InfoLine(
-                  icon: Icons.place_outlined,
-                  text: item.locationSummary,
-                ),
-              ],
-              if (item.startAt.isNotEmpty || item.endAt.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                _InfoLine(
-                  icon: Icons.schedule_outlined,
-                  text: _periodText(item),
-                ),
-              ],
-              if (item.primaryBadges.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final badge in item.primaryBadges)
-                      Chip(
-                        visualDensity: VisualDensity.compact,
-                        label: Text(badge),
-                      ),
-                  ],
-                ),
-              ],
               if (item.noteText.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text(
                   item.noteText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
+              const SizedBox(height: 18),
+              Text(
+                item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                item.carName.isEmpty ? '(차종없음)' : item.carName,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                _fullDate(item.startAt),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'GO TO DETAILS',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
   }
-
-  String _periodText(StatusBoardRecord item) {
-    if (item.startAt.isEmpty && item.endAt.isEmpty) return '-';
-    if (item.startAt.isEmpty) return item.endAt;
-    if (item.endAt.isEmpty) return item.startAt;
-    return '${item.startAt} ~ ${item.endAt}';
-  }
 }
 
-class _InfoLine extends StatelessWidget {
-  const _InfoLine({required this.icon, required this.text});
+class _GeneralTable extends StatelessWidget {
+  const _GeneralTable({required this.items});
 
-  final IconData icon;
-  final String text;
+  final List<StatusBoardRecord> items;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 1),
-          child: Icon(
-            icon,
-            size: 14,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+    return Container(
+      decoration: _tableDecoration(context),
+      child: Column(
+        children: [
+          const _TableHeader(
+            columns: [
+              _HeaderColumn('차량번호', flex: 3),
+              _HeaderColumn('차종', flex: 2),
+              _HeaderColumn('대여', flex: 2, alignEnd: true),
+              _HeaderColumn('반납', flex: 2, alignEnd: true),
+            ],
           ),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ],
+          for (var i = 0; i < items.length; i++)
+            _GeneralTableRow(item: items[i], showDivider: i < items.length - 1),
+        ],
+      ),
     );
   }
+}
+
+class _LongTermTable extends StatelessWidget {
+  const _LongTermTable({required this.items});
+
+  final List<StatusBoardRecord> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _tableDecoration(context),
+      child: Column(
+        children: [
+          const _TableHeader(
+            columns: [
+              _HeaderColumn('차량번호', flex: 3),
+              _HeaderColumn('차종', flex: 2),
+              _HeaderColumn('반납년월일', flex: 3, alignEnd: true),
+              _HeaderColumn('임차인', flex: 3),
+            ],
+          ),
+          for (var i = 0; i < items.length; i++)
+            _LongTermTableRow(
+              item: items[i],
+              showDivider: i < items.length - 1,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScheduleCard extends StatelessWidget {
+  const _ScheduleCard({required this.item});
+
+  final StatusBoardRecord item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () =>
+            context.push('/board/${Uri.encodeComponent(item.recordId)}'),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 78,
+                child: Text(
+                  item.timeLabel,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${item.carNumber} · ${item.scheduleType}',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.locationSummary.isEmpty ? '-' : item.locationSummary,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IdleHeaderRow extends StatelessWidget {
+  const _IdleHeaderRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      child: Row(
+        children: [
+          _headerText(context, '차량번호', flex: 3),
+          _headerText(context, '세차', flex: 1, alignEnd: true),
+          _headerText(context, '실내', flex: 1, alignEnd: true),
+          _headerText(context, '주차지', flex: 3),
+        ],
+      ),
+    );
+  }
+}
+
+class _IdleDataRow extends StatelessWidget {
+  const _IdleDataRow({required this.item, required this.showDivider});
+
+  final StatusBoardRecord item;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          border: showDivider
+              ? Border(
+                  bottom: BorderSide(color: Theme.of(context).dividerColor),
+                )
+              : null,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: Text(
+                item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            Expanded(
+              flex: 1,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _WashDot(active: _isActive(item.carWash)),
+              ),
+            ),
+            Expanded(
+              flex: 1,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _WashDot(active: _isActive(item.interiorWash)),
+              ),
+            ),
+            Expanded(
+              flex: 3,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: Text(
+                  item.parkingLocation.isEmpty ? '-' : item.parkingLocation,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TableHeader extends StatelessWidget {
+  const _TableHeader({required this.columns});
+
+  final List<_HeaderColumn> columns;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      child: Row(
+        children: [
+          for (final column in columns)
+            Expanded(
+              flex: column.flex,
+              child: Align(
+                alignment: column.alignEnd
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: Text(
+                  column.label,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GeneralTableRow extends StatelessWidget {
+  const _GeneralTableRow({required this.item, required this.showDivider});
+
+  final StatusBoardRecord item;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final returnDue = item.endAt.isNotEmpty;
+    return InkWell(
+      onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+        decoration: BoxDecoration(
+          border: showDivider
+              ? Border(
+                  bottom: BorderSide(color: Theme.of(context).dividerColor),
+                )
+              : null,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: Text(
+                item.carNumber,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            Expanded(flex: 2, child: Text(item.carName)),
+            Expanded(
+              flex: 2,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  _shortDate(item.startAt),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.blue,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (returnDue)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 4),
+                        child: Icon(
+                          Icons.arrow_downward,
+                          size: 14,
+                          color: Color(0xFF8B1E1E),
+                        ),
+                      ),
+                    Text(
+                      _shortDate(item.endAt),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF8B1E1E),
+                        fontWeight: FontWeight.w800,
+                        decoration: returnDue
+                            ? TextDecoration.underline
+                            : TextDecoration.none,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LongTermTableRow extends StatelessWidget {
+  const _LongTermTableRow({required this.item, required this.showDivider});
+
+  final StatusBoardRecord item;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEmphasized = _isRedDate(item.endAt);
+    return InkWell(
+      onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+        decoration: BoxDecoration(
+          border: showDivider
+              ? Border(
+                  bottom: BorderSide(color: Theme.of(context).dividerColor),
+                )
+              : null,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: Text(
+                item.carNumber,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            Expanded(flex: 2, child: Text(item.carName)),
+            Expanded(
+              flex: 3,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  _fullDate(item.endAt),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: isEmphasized ? const Color(0xFF8B1E1E) : null,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 3,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: Text(
+                  item.customerName.isEmpty ? '-' : item.customerName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderColumn {
+  const _HeaderColumn(this.label, {required this.flex, this.alignEnd = false});
+
+  final String label;
+  final int flex;
+  final bool alignEnd;
+}
+
+class _WashDot extends StatelessWidget {
+  const _WashDot({required this.active});
+
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: BoxDecoration(
+        color: active ? Colors.green : Colors.grey.shade300,
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+Widget _headerText(
+  BuildContext context,
+  String text, {
+  required int flex,
+  bool alignEnd = false,
+}) {
+  return Expanded(
+    flex: flex,
+    child: Align(
+      alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+      child: Text(
+        text,
+        style: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
+      ),
+    ),
+  );
+}
+
+BoxDecoration _tableDecoration(BuildContext context) {
+  return BoxDecoration(
+    color: Theme.of(context).colorScheme.surface,
+    borderRadius: BorderRadius.circular(12),
+    border: Border.all(color: Theme.of(context).dividerColor),
+  );
+}
+
+bool _isActive(String value) {
+  final normalized = value.trim().toLowerCase();
+  return normalized == 'true' ||
+      normalized == 'y' ||
+      normalized == 'yes' ||
+      normalized == '1';
+}
+
+bool _isRedDate(String value) {
+  if (value.isEmpty) return false;
+  return value.contains('2026.04.') || value.contains('2026-04-');
+}
+
+String _shortDate(String value) {
+  if (value.isEmpty) return '-';
+  if (value.length >= 10 && value.contains('-')) {
+    return value.substring(5, 10);
+  }
+  if (value.length >= 10 && value.contains('.')) {
+    return value.substring(5, 10);
+  }
+  return value;
+}
+
+String _fullDate(String value) {
+  if (value.isEmpty) return '-';
+  if (value.length >= 10 && value.contains('-')) {
+    return value.substring(0, 10).replaceAll('-', '.');
+  }
+  return value;
 }
