@@ -76,7 +76,7 @@ class ReservationTabPage extends ConsumerWidget {
                                           '  ${item.carName.isEmpty ? (item.reservationNumber.isEmpty ? '차량명 미확인' : item.reservationNumber) : item.carName}',
                                       style: Theme.of(context)
                                           .textTheme
-                                          .bodyMedium
+                                          .bodySmall
                                           ?.copyWith(
                                             fontWeight: FontWeight.w600,
                                             color: Theme.of(
@@ -93,12 +93,13 @@ class ReservationTabPage extends ConsumerWidget {
                               item.timeLabel,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelLarge
+                              style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    color: Theme.of(
+                                    fontWeight: FontWeight.w900,
+                                    color: _dateColorForLabel(
                                       context,
-                                    ).colorScheme.primary,
+                                      item.timeLabel,
+                                    ),
                                   ),
                             ),
                           ],
@@ -141,6 +142,16 @@ class ReservationTabPage extends ConsumerWidget {
           Center(child: Text('탭 데이터를 불러오지 못했습니다.\n$error')),
     );
   }
+}
+
+Color _dateColorForLabel(BuildContext context, String label) {
+  if (label.endsWith('(토)')) {
+    return Colors.blue;
+  }
+  if (label.endsWith('(일)')) {
+    return Colors.red;
+  }
+  return Theme.of(context).colorScheme.primary;
 }
 
 class _StatusIconChip extends StatelessWidget {

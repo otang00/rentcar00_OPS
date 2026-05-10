@@ -151,8 +151,10 @@
 
 APK 운영 규칙:
 - Android APK를 다시 배포할 때는 매번 `versionCode` 를 증가시킨다.
-- 현재 기준 버전은 `1.0.0+2` 이다.
+- 현재 기준 버전은 `1.0.0+3` 이다.
 - 다음 APK 배포 시에는 `+3`, 그다음은 `+4`처럼 build number를 1씩 올린다.
+- 앞으로 기본 배포물은 `전용 단일 release APK` 기준으로 고정한다.
+- debug APK는 내부 테스트 외 기본 배포물로 쓰지 않는다.
 - Google Drive 업로드는 반드시 `rclone` 으로 한다.
 - 업로드 파일명에는 커밋 sha 또는 build number를 포함한다.
 
