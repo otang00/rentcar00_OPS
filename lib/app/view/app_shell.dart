@@ -51,25 +51,33 @@ class AppShell extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('rentcar00 OPS'),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            child: SizedBox(
-              width: double.infinity,
+        titleSpacing: 10,
+        title: Row(
+          children: [
+            Text(
+              '빵빵카',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
               child: SegmentedButton<OpsLayer>(
                 showSelectedIcon: false,
+                style: ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
                 segments: const [
                   ButtonSegment(
                     value: OpsLayer.reservations,
                     label: Text('예약'),
-                    icon: Icon(Icons.assignment_outlined),
+                    icon: Icon(Icons.assignment_outlined, size: 18),
                   ),
                   ButtonSegment(
                     value: OpsLayer.statusBoard,
                     label: Text('현황판'),
-                    icon: Icon(Icons.directions_car_filled_outlined),
+                    icon: Icon(Icons.directions_car_filled_outlined, size: 18),
                   ),
                 ],
                 selected: {layer},
@@ -79,14 +87,9 @@ class AppShell extends ConsumerWidget {
                 },
               ),
             ),
-          ),
+          ],
         ),
         actions: [
-          IconButton(
-            tooltip: '검색',
-            onPressed: () => context.push(AppRoutes.search),
-            icon: const Icon(Icons.search),
-          ),
           IconButton(
             tooltip: 'sync',
             onPressed: () => context.push(AppRoutes.sync),

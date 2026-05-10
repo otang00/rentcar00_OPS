@@ -13,25 +13,13 @@ class StatusBoardTabPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final itemsAsync = ref.watch(statusBoardListProvider(tab));
-    final countsAsync = ref.watch(statusBoardCountsProvider);
 
     return itemsAsync.when(
       data: (items) {
         final sortedItems = _sortItems(tab, items);
-        final count = countsAsync.valueOrNull?[tab] ?? sortedItems.length;
         return ListView(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
           children: [
-            Text(
-              '${tab.label} $count건',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              tab.emptyMessage,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
             if (sortedItems.isEmpty)
               const Card(
                 child: Padding(
@@ -80,20 +68,10 @@ class StatusBoardTabPage extends ConsumerWidget {
 
     return [
       for (final entry in groups.entries) ...[
-        Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 6),
-          child: Text(
-            entry.key,
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-          ),
-        ),
         Container(
           decoration: _tableDecoration(context),
           child: Column(
             children: [
-              const _IdleHeaderRow(),
               for (var i = 0; i < entry.value.length; i++)
                 _IdleDataRow(
                   item: entry.value[i],
@@ -102,7 +80,7 @@ class StatusBoardTabPage extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
       ],
     ];
   }
@@ -341,29 +319,6 @@ class _ScheduleCard extends StatelessWidget {
   }
 }
 
-class _IdleHeaderRow extends StatelessWidget {
-  const _IdleHeaderRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-      ),
-      child: Row(
-        children: [
-          _headerText(context, '차량번호', flex: 3),
-          _headerText(context, '세차', flex: 1, alignEnd: true),
-          _headerText(context, '실내', flex: 1, alignEnd: true),
-          _headerText(context, '주차지', flex: 3),
-        ],
-      ),
-    );
-  }
-}
-
 class _IdleDataRow extends StatelessWidget {
   const _IdleDataRow({required this.item, required this.showDivider});
 
@@ -375,7 +330,7 @@ class _IdleDataRow extends StatelessWidget {
     return InkWell(
       onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           border: showDivider
               ? Border(
@@ -386,38 +341,35 @@ class _IdleDataRow extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              flex: 3,
-              child: Text(
-                item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
-              ),
-            ),
-            Expanded(
-              flex: 1,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: _WashDot(active: _isActive(item.carWash)),
-              ),
-            ),
-            Expanded(
-              flex: 1,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: _WashDot(active: _isActive(item.interiorWash)),
-              ),
-            ),
-            Expanded(
-              flex: 3,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 10),
-                child: Text(
-                  item.parkingLocation.isEmpty ? '-' : item.parkingLocation,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+              child: Row(
+                children: [
+                  Flexible(
+                    flex: 4,
+                    child: Text(
+                      item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _WashDot(active: _isActive(item.carWash)),
+                  const SizedBox(width: 4),
+                  _WashDot(active: _isActive(item.interiorWash)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 5,
+                    child: Text(
+                      item.parkingLocation.isEmpty ? '-' : item.parkingLocation,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -632,26 +584,6 @@ class _WashDot extends StatelessWidget {
       ),
     );
   }
-}
-
-Widget _headerText(
-  BuildContext context,
-  String text, {
-  required int flex,
-  bool alignEnd = false,
-}) {
-  return Expanded(
-    flex: flex,
-    child: Align(
-      alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
-      child: Text(
-        text,
-        style: Theme.of(
-          context,
-        ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
-      ),
-    ),
-  );
 }
 
 BoxDecoration _tableDecoration(BuildContext context) {
