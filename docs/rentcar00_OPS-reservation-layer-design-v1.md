@@ -1,7 +1,7 @@
-# rentcar00_OPS 설계안 v1
+# rentcar00_OPS 예약 레이어 설계안 v1
 
 ## 1. 문서 역할
-이 문서는 `rentcar00_OPS` 제작을 위한 **실행 기준 설계 문서**다.
+이 문서는 `rentcar00_OPS`의 **예약 레이어 전용 실행 기준 설계 문서**다.
 
 역할:
 - 화면 구조 기준
@@ -12,8 +12,8 @@
 
 문서 우선순위:
 - 제품 범위/원칙은 `rentcar00_OPS-spec.md`
-- 이 문서는 실제 제작 순서와 화면/동작 설계를 고정한다.
-- DB 구조 세부는 `rentcar00_OPS-supabase-draft-v1.md`
+- 이 문서는 예약 레이어의 실제 제작 순서와 화면/동작 설계를 고정한다.
+- 데이터 구조 세부는 `rentcar00_OPS-reservation-layer-data-design-v1.md`
 - 네이밍/키 체계는 `rentcar00_OPS-naming-mapping-rules-v1.md`
 
 ## 2. 이 문서를 메인 제작 문서로 쓰는 방법
@@ -26,30 +26,31 @@
 - 세부 규칙이 필요할 때만 참조 문서로 내려간다.
 
 즉,
-- `design-v1` = 메인 제작 문서
+- `reservation-layer-design-v1` = 예약 레이어 메인 제작 문서
 - `spec` = 제품 기준
-- `supabase-draft` = DB 기준
-- `naming-rules` = 이름/키 기준
+- `reservation-layer-supabase-draft` = 예약 레이어 DB 기준
+- `naming-rules` = 공통 이름/키 기준
 
 ## 3. 참조 문서 목록
 ### 3-1. 제품 기준
 - `projects/rentcar00_OPS/docs/rentcar00_OPS-spec.md`
 - 역할: 범위, 원칙, 금지 규칙, 외부 반영 경계
 
-### 3-2. DB 기준
-- `projects/rentcar00_OPS/docs/rentcar00_OPS-supabase-draft-v1.md`
-- 역할: raw / projection / status / logs / outbox 구조
+### 3-2. 데이터 기준
+- `projects/rentcar00_OPS/docs/rentcar00_OPS-reservation-layer-data-design-v1.md`
+- 역할: 예약 시트 구조, 중요 경로, import / normalization, Supabase 구조, DB 생성 순서
 
 ### 3-3. 네이밍 기준
 - `projects/rentcar00_OPS/docs/rentcar00_OPS-naming-mapping-rules-v1.md`
 - 역할: `rc00_ops_*` 키 체계, 시트 매핑 어휘, 상태/액션/체크 규칙
 
 ## 4. 현재 고정 결정사항 요약
-- 원본 원장은 Google Sheets `차량현황`의 `예약` + `일정` 탭이다.
+- 예약 레이어의 원본 원장은 Google Sheets `차량현황`의 `예약` + `일정` 탭이다.
 - 예약 메인 연결키는 `reservation_id` 다.
 - `reservation_number` 는 표시/검색용 보조키다.
 - 차량 강한 연결 기준은 `car_number` ↔ `cars.car_number` 다.
-- 메인 UI는 `예약중 / 오늘배차 / 배차중 / 반납일 / 완료` 5개 탭이다.
+- 앱 최상단에는 `예약 / 현황판` 2개 버튼이 있지만, 이 문서는 그중 `예약` 레이어만 다룬다.
+- `예약` 레이어의 기본 UI는 `예약중 / 오늘배차 / 배차중 / 반납일 / 완료` 5개 탭이다.
 - OPS 앱은 AppSheet API를 직접 호출하지 않는다.
 - AppSheet/기존 봇은 시트 변경에 반응하는 후속 자동화 레이어다.
 - 업무 상태와 로그의 source of truth 는 Supabase다.
@@ -89,7 +90,7 @@
 ## 6. 다음 작업 순서
 1. Flutter dotenv 연결
 2. Supabase client 초기화 및 연결 검증
-3. `rentcar00_OPS-db-build-order-v1.md` 기준으로 Supabase 스키마 / migration 작성
+3. `rentcar00_OPS-reservation-layer-data-design-v1.md` 기준으로 Supabase 스키마 / migration 작성
 4. mock repository → Supabase repository 교체
 5. read-only sync 화면 / importer 구조 연결
 6. 액션 / 체크 / status 로직 연결
@@ -97,6 +98,11 @@
 8. 마지막 phase 전까지는 시트 apply 금지 유지
 
 ## 7. 업무 흐름 요약
+이 앱은 상단 `예약 / 현황판` 2개 레이어를 가지지만,
+이 문서는 그중 `예약` 레이어의 처리 흐름만 정의한다.
+
+현재 기준 핵심 처리 흐름은 `예약` 레이어를 기준으로 정의한다.
+현황판 레이어 규칙은 별도 현황판 문서군에서 관리한다.
 이 앱은 예약 원장을 그대로 보여주는 앱이 아니다.
 각 예약이 현재 어느 업무 단계에 있는지 판단하고,
 그 단계에서 필요한 액션 버튼을 빠르게 제공해 처리 완료까지 밀어주는 앱이다.
@@ -118,7 +124,8 @@
 - 따라서 Google Sheets write는 **최종 phase 전까지 금지**한다.
 - 초기 제작 단계에서는 read-only import, 내부 상태 저장, outbox dry-run까지만 허용한다.
 - AppSheet는 직접 제어 대상이 아니라 시트 변경 반응자다.
-- 설계는 AppSheet 복제가 아니라 OPS 앱 자체의 처리 흐름 완성에 집중한다.
+- 예약 레이어 설계는 OPS 앱 자체의 처리 흐름 완성에 집중한다.
+- 현황판 레이어는 예외적으로 기존 AppSheet 화면 복제를 우선한다.
 
 ## 9. 상태 전이 설명
 ### 고정 전이 기준

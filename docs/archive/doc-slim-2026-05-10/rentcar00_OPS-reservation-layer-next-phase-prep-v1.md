@@ -1,4 +1,4 @@
-# rentcar00_OPS Next Phase Prep
+# rentcar00_OPS 예약 레이어 Next Phase Prep v1
 
 ## 목표
 이 문서는 이제 준비 단계 완료 기록이다.
@@ -18,7 +18,7 @@
 2. 공개 env 로드 완료
 3. Supabase Flutter client 초기화 완료
 4. analyze / test 통과 완료
-5. `rentcar00_OPS-db-build-order-v1.md` 기준 migration 초안 작성 완료
+5. `rentcar00_OPS-reservation-layer-db-build-order-v1.md` 기준 migration 초안 작성 완료
 
 ## 공개 env 원칙
 앱 번들에 포함 가능한 값만 앱용 env 에 둔다.
@@ -32,7 +32,7 @@
 - Google service account / API secret
 
 ## 다음 스키마 기준 문서
-- `docs/rentcar00_OPS-db-build-order-v1.md`
+- `docs/rentcar00_OPS-reservation-layer-db-build-order-v1.md`
 - 이 문서를 기준으로 raw -> projection -> state -> log/outbox 순서로 생성한다.
 
 ## 단계별 구체 실행계획
@@ -79,7 +79,7 @@
 실행:
 1. `supabase/` 디렉토리 초기화
 2. migrations 디렉토리 생성
-3. `rentcar00_OPS-db-build-order-v1.md` 기준으로 첫 migration 초안 작성
+3. `rentcar00_OPS-reservation-layer-db-build-order-v1.md` 기준으로 첫 migration 초안 작성
 4. 생성 대상 7개 테이블 SQL 파일 분리 여부 결정
 
 검증:
