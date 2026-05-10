@@ -263,6 +263,12 @@ class SupabaseOpsRepository {
       sortAt:
           _parseFlexibleDateTime((row['end_at'] as String? ?? '').trim()) ??
           _parseFlexibleDateTime((row['start_at'] as String? ?? '').trim()),
+      carRegisteredAt: (row['car_registered_at'] as String? ?? '').trim(),
+      carInspectionAt: (row['car_inspection_at'] as String? ?? '').trim(),
+      carAgeExpiryAt: (row['car_age_expiry_at'] as String? ?? '').trim(),
+      carNumberFront: (row['car_number_front'] as String? ?? '').trim(),
+      carNumberMiddle: (row['car_number_middle'] as String? ?? '').trim(),
+      carNumberRear: (row['car_number_rear'] as String? ?? '').trim(),
     );
   }
 
@@ -302,6 +308,12 @@ class SupabaseOpsRepository {
       scheduleType: scheduleType,
       scheduleDone: (row['schedule_done_raw'] as String? ?? '').trim(),
       detailText: (row['detail_text'] as String? ?? '').trim(),
+      carRegisteredAt: linkedCar?.carRegisteredAt ?? '',
+      carInspectionAt: linkedCar?.carInspectionAt ?? '',
+      carAgeExpiryAt: linkedCar?.carAgeExpiryAt ?? '',
+      carNumberFront: linkedCar?.carNumberFront ?? '',
+      carNumberMiddle: linkedCar?.carNumberMiddle ?? '',
+      carNumberRear: linkedCar?.carNumberRear ?? '',
     );
   }
 

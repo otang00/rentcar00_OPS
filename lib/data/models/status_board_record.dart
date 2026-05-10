@@ -26,6 +26,12 @@ class StatusBoardRecord {
     this.scheduleType = '',
     this.scheduleDone = '',
     this.detailText = '',
+    this.carRegisteredAt = '',
+    this.carInspectionAt = '',
+    this.carAgeExpiryAt = '',
+    this.carNumberFront = '',
+    this.carNumberMiddle = '',
+    this.carNumberRear = '',
   });
 
   final String recordId;
@@ -52,6 +58,12 @@ class StatusBoardRecord {
   final String scheduleType;
   final String scheduleDone;
   final String detailText;
+  final String carRegisteredAt;
+  final String carInspectionAt;
+  final String carAgeExpiryAt;
+  final String carNumberFront;
+  final String carNumberMiddle;
+  final String carNumberRear;
 
   bool get isScheduleEntry => sourceKind == 'schedule';
 }

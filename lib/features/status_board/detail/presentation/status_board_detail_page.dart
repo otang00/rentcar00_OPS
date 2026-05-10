@@ -13,17 +13,17 @@ class StatusBoardDetailPage extends ConsumerWidget {
     final recordAsync = ref.watch(statusBoardDetailProvider(recordId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('현황판 상세')),
+      appBar: AppBar(title: const Text('차량 디테일')),
       body: recordAsync.when(
         data: (record) {
           if (record == null) {
-            return const Center(child: Text('현황판 정보를 찾을 수 없습니다.'));
+            return const Center(child: Text('차량 정보를 찾을 수 없습니다.'));
           }
           return _StatusBoardDetailBody(recordId: recordId, record: record);
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) =>
-            Center(child: Text('현황판 상세를 불러오지 못했습니다.\n$error')),
+            Center(child: Text('차량 디테일을 불러오지 못했습니다.\n$error')),
       ),
     );
   }
@@ -43,18 +43,28 @@ class _StatusBoardDetailBody extends ConsumerWidget {
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          '${record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber} · ${record.carName.isEmpty ? '차종 미확인' : record.carName}',
-          style: Theme.of(context).textTheme.headlineSmall,
+          record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
+        Text(
+          record.carName.isEmpty ? '차종 미확인' : record.carName,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 6),
         Text(
           record.status.isEmpty
               ? record.tab.label
               : '${record.tab.label} · ${record.status}',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 12),
         _SectionCard(
-          title: '기본 정보',
+          title: '운행 정보',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -73,12 +83,36 @@ class _StatusBoardDetailBody extends ConsumerWidget {
         ),
         const SizedBox(height: 12),
         _SectionCard(
-          title: '차량 관리',
+          title: '차량 관리 정보',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _FieldLine(label: '세차', value: record.carWash),
               _FieldLine(label: '실내세차', value: record.interiorWash),
+              _FieldLine(label: '차량등록일', value: record.carRegisteredAt),
+              _FieldLine(label: '차량검사일', value: record.carInspectionAt),
+              _FieldLine(label: '차령만료일', value: record.carAgeExpiryAt),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _SectionCard(
+          title: '차량 번호 세부',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _FieldLine(label: '차량번호(앞)', value: record.carNumberFront),
+              _FieldLine(label: '차량번호(중)', value: record.carNumberMiddle),
+              _FieldLine(label: '차량번호(네자리)', value: record.carNumberRear),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _SectionCard(
+          title: '메모 / 상태',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               _FieldLine(label: '상태액션', value: record.statusAction),
               _FieldLine(label: '비고', value: record.noteText),
             ],
