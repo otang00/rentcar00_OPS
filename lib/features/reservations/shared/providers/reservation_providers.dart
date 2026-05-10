@@ -244,5 +244,5 @@ String _formatDateTime(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');
   const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
   final weekday = weekdays[value.weekday - 1];
-  return '${two(value.month)}/${two(value.day)}($weekday)';
+  return '${two(value.month)}/${two(value.day)}($weekday) ${two(value.hour)}:${two(value.minute)}';
 }

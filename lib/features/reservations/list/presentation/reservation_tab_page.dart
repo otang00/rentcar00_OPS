@@ -63,9 +63,9 @@ class ReservationTabPage extends ConsumerWidget {
                                       text: item.carNumber,
                                       style: Theme.of(context)
                                           .textTheme
-                                          .titleMedium
+                                          .titleLarge
                                           ?.copyWith(
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight: FontWeight.w900,
                                             color: Theme.of(
                                               context,
                                             ).colorScheme.onSurface,
@@ -89,19 +89,7 @@ class ReservationTabPage extends ConsumerWidget {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Text(
-                              item.timeLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    color: _dateColorForLabel(
-                                      context,
-                                      item.timeLabel,
-                                    ),
-                                  ),
-                            ),
+                            _DateTimeLabel(timeLabel: item.timeLabel),
                           ],
                         ),
                         const SizedBox(height: 6),
@@ -145,13 +133,52 @@ class ReservationTabPage extends ConsumerWidget {
 }
 
 Color _dateColorForLabel(BuildContext context, String label) {
-  if (label.endsWith('(토)')) {
+  if (label.contains('(토)')) {
     return Colors.blue;
   }
-  if (label.endsWith('(일)')) {
+  if (label.contains('(일)')) {
     return Colors.red;
   }
   return Theme.of(context).colorScheme.primary;
+}
+
+class _DateTimeLabel extends StatelessWidget {
+  const _DateTimeLabel({required this.timeLabel});
+
+  final String timeLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = timeLabel.split(' ');
+    final dateText = parts.isNotEmpty ? parts.first : timeLabel;
+    final timeText = parts.length > 1 ? parts.last : '';
+    final color = _dateColorForLabel(context, timeLabel);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          dateText,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            color: color,
+          ),
+        ),
+        if (timeText.isNotEmpty)
+          Text(
+            timeText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _StatusIconChip extends StatelessWidget {

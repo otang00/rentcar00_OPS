@@ -69,6 +69,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('05/09(토)'), findsOneWidget);
+    expect(find.text('10:00'), findsOneWidget);
     expect(find.text('김해공항'), findsOneWidget);
     expect(find.text('연락처'), findsOneWidget);
     expect(find.text('준비'), findsOneWidget);
