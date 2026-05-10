@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rentcar00_ops/app/app.dart';
@@ -47,7 +47,7 @@ void main() {
     expect(find.text('완료'), findsOneWidget);
   });
 
-  testWidgets('카드가 차량명과 우선순위 아이콘으로 보이고 상세 화면으로 이동한다', (tester) async {
+  testWidgets('카드가 압축형으로 보이고 미완료 아이콘만 남긴 채 상세 화면으로 이동한다', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -59,14 +59,21 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('123하4567'), findsOneWidget);
-    expect(find.text('K5'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            widget.text.toPlainText().contains('123하4567') &&
+            widget.text.toPlainText().contains('K5'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('김해공항'), findsOneWidget);
     expect(find.text('연락처'), findsOneWidget);
     expect(find.text('준비'), findsOneWidget);
-    expect(find.text('오늘'), findsOneWidget);
+    expect(find.text('오늘'), findsNothing);
 
-    await tester.tap(find.text('123하4567'));
+    await tester.tap(find.byType(InkWell).first);
     await tester.pumpAndSettle();
 
     expect(find.text('액션 영역'), findsOneWidget);

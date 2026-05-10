@@ -175,6 +175,13 @@
 - 예약 원장 생성 기준: `예약` 탭 only
 - 일정 연결 우선순위: `reservation_id` → `reservation_number` unique → orphan raw
 
+### APK 배포 운영 규칙
+- APK 재배포 시 `versionCode` 는 매번 증가시킨다.
+- 현재 기준 버전은 `1.0.0+2`
+- 다음 배포는 `+3`, 이후도 1씩 증가
+- Google Drive 업로드는 반드시 `rclone` 사용
+- 업로드 파일명에는 커밋 sha 또는 build number 포함
+
 ---
 
 ## 5. 아직 미확정

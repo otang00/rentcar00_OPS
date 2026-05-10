@@ -203,15 +203,25 @@ ReservationSummary _toSummary(ReservationRecord item) {
 }
 
 List<String> _prioritizeBadges(List<String> badges) {
-  final unique = <String>[];
+  final visible = <String>[];
   for (final badge in badges) {
-    if (!unique.contains(badge)) {
-      unique.add(badge);
+    if (_isCompletedBadge(badge)) {
+      continue;
+    }
+    if (!visible.contains(badge)) {
+      visible.add(badge);
     }
   }
 
-  unique.sort((a, b) => _badgePriority(a).compareTo(_badgePriority(b)));
-  return unique.take(4).toList();
+  visible.sort((a, b) => _badgePriority(a).compareTo(_badgePriority(b)));
+  return visible.take(3).toList();
+}
+
+bool _isCompletedBadge(String badge) {
+  return switch (badge) {
+    '오늘배차' || '반납 완료' || '이상 없음' => true,
+    _ => false,
+  };
 }
 
 int _badgePriority(String badge) {

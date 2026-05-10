@@ -44,79 +44,90 @@ class ReservationTabPage extends ConsumerWidget {
                       context.push('/reservation/${item.reservationId}'),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
+                      horizontal: 10,
+                      vertical: 9,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.carNumber,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(fontWeight: FontWeight.w800),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    item.carName.isEmpty
-                                        ? (item.reservationNumber.isEmpty
-                                              ? '차량명 미확인'
-                                              : item.reservationNumber)
-                                        : item.carName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                  ),
-                                ],
+                              child: RichText(
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                text: TextSpan(
+                                  style: DefaultTextStyle.of(context).style,
+                                  children: [
+                                    TextSpan(
+                                      text: item.carNumber,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w800,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurface,
+                                          ),
+                                    ),
+                                    TextSpan(
+                                      text:
+                                          '  ${item.carName.isEmpty ? (item.reservationNumber.isEmpty ? '차량명 미확인' : item.reservationNumber) : item.carName}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            _DateTimeBadge(timeLabel: item.timeLabel),
+                            const SizedBox(width: 8),
+                            Text(
+                              item.timeLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 6),
                         Text(
                           item.locationSummary.isEmpty
                               ? '(주소없음)'
                               : item.locationSummary,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: Theme.of(
                                   context,
                                 ).colorScheme.onSurfaceVariant,
                               ),
                         ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final badge in item.primaryBadges)
-                              _StatusIconChip(label: badge),
-                            if (item.primaryBadges.isEmpty)
-                              const _StatusIconChip(label: '이상 없음'),
-                          ],
-                        ),
+                        if (item.primaryBadges.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (final badge in item.primaryBadges)
+                                _StatusIconChip(label: badge),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -132,47 +143,6 @@ class ReservationTabPage extends ConsumerWidget {
   }
 }
 
-class _DateTimeBadge extends StatelessWidget {
-  const _DateTimeBadge({required this.timeLabel});
-
-  final String timeLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final parts = timeLabel.split(' ');
-    final dateText = parts.isNotEmpty ? parts.first : timeLabel;
-    final timeText = parts.length > 1 ? parts.last : '';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            dateText,
-            style: Theme.of(
-              context,
-            ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          if (timeText.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              timeText,
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
 class _StatusIconChip extends StatelessWidget {
   const _StatusIconChip({required this.label});
 
@@ -183,7 +153,7 @@ class _StatusIconChip extends StatelessWidget {
     final token = _iconToken(label);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(999),
@@ -191,13 +161,15 @@ class _StatusIconChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(token.icon, size: 16, color: token.color),
-          const SizedBox(width: 4),
+          Icon(token.icon, size: 12, color: token.color),
+          const SizedBox(width: 3),
           Text(
             token.text,
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              fontSize: 10,
+              height: 1,
+            ),
           ),
         ],
       ),
