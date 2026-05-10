@@ -1,15 +1,27 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rentcar00_ops/app/domain/ops_layer.dart';
 import 'package:rentcar00_ops/data/models/action_log_entry.dart';
 import 'package:rentcar00_ops/data/models/outbox_entry.dart';
 import 'package:rentcar00_ops/data/models/reservation_action_definition.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
+import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/data/models/sync_run_entry.dart';
 import 'package:rentcar00_ops/data/repositories/supabase_ops_repository.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_summary.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
+import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/constants/action_keys.dart';
 
+final selectedOpsLayerProvider = StateProvider<OpsLayer>(
+  (ref) => OpsLayer.statusBoard,
+);
+final selectedReservationTabProvider = StateProvider<ReservationTab>(
+  (ref) => ReservationTab.pending,
+);
+final selectedStatusBoardTabProvider = StateProvider<StatusBoardTab>(
+  (ref) => StatusBoardTab.idle,
+);
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
 final supabaseOpsRepositoryProvider = Provider<SupabaseOpsRepository>((ref) {
@@ -20,6 +32,12 @@ final allReservationsProvider = FutureProvider<List<ReservationRecord>>((
   ref,
 ) async {
   return ref.watch(supabaseOpsRepositoryProvider).fetchReservations();
+});
+
+final allStatusBoardRecordsProvider = FutureProvider<List<StatusBoardRecord>>((
+  ref,
+) async {
+  return ref.watch(supabaseOpsRepositoryProvider).fetchStatusBoardRecords();
 });
 
 final tabListProvider =
@@ -175,6 +193,70 @@ final filteredReservationsProvider =
               item.reservationId.toLowerCase().contains(query) ||
               item.reservationNumber.toLowerCase().contains(query);
         }).toList();
+      });
+    });
+
+final statusBoardListProvider =
+    Provider.family<AsyncValue<List<StatusBoardRecord>>, StatusBoardTab>((
+      ref,
+      tab,
+    ) {
+      final boardAsync = ref.watch(allStatusBoardRecordsProvider);
+      return boardAsync.whenData(
+        (items) => items.where((item) => item.tab == tab).toList(),
+      );
+    });
+
+final statusBoardCountsProvider =
+    Provider<AsyncValue<Map<StatusBoardTab, int>>>((ref) {
+      final boardAsync = ref.watch(allStatusBoardRecordsProvider);
+      return boardAsync.whenData((items) {
+        return {
+          for (final tab in StatusBoardTab.values)
+            tab: items.where((item) => item.tab == tab).length,
+        };
+      });
+    });
+
+final statusBoardDetailProvider =
+    Provider.family<AsyncValue<StatusBoardRecord?>, String>((ref, recordId) {
+      final boardAsync = ref.watch(allStatusBoardRecordsProvider);
+      return boardAsync.whenData((items) {
+        for (final item in items) {
+          if (item.recordId == recordId) {
+            return item;
+          }
+        }
+        return null;
+      });
+    });
+
+final relatedSchedulesProvider =
+    Provider.family<AsyncValue<List<StatusBoardRecord>>, String>((
+      ref,
+      recordId,
+    ) {
+      final boardAsync = ref.watch(allStatusBoardRecordsProvider);
+      return boardAsync.whenData((items) {
+        StatusBoardRecord? target;
+        for (final item in items) {
+          if (item.recordId == recordId) {
+            target = item;
+            break;
+          }
+        }
+        if (target == null) {
+          return const [];
+        }
+
+        return items
+            .where(
+              (item) =>
+                  item.isScheduleEntry &&
+                  item.carNumber.isNotEmpty &&
+                  item.carNumber == target!.carNumber,
+            )
+            .toList();
       });
     });
 

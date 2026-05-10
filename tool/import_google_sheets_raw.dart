@@ -31,9 +31,11 @@ Future<void> main(List<String> args) async {
   ]);
 
   Connection? conn;
+  String? syncRunId;
 
   try {
     final sheetsApi = SheetsApi(authClient);
+    final carRows = await _readSheet(sheetsApi, spreadsheetId, '시트1!A1:Z');
     final reservationRows = await _readSheet(
       sheetsApi,
       spreadsheetId,
@@ -47,7 +49,9 @@ Future<void> main(List<String> args) async {
 
     conn = await Connection.openFromUrl(fullDbUrl);
 
-    final syncRunId = await _createSyncRun(conn, spreadsheetId);
+    syncRunId = await _createSyncRun(conn, spreadsheetId);
+
+    final carCount = await _insertCarRows(conn, syncRunId, carRows);
 
     final reservationCount = await _insertReservationRows(
       conn,
@@ -72,6 +76,7 @@ Future<void> main(List<String> args) async {
         'status': 'success',
         'meta': jsonEncode({
           'spreadsheet_id': spreadsheetId,
+          'car_row_count': carCount,
           'reservation_raw_count': reservationCount,
           'schedule_raw_count': scheduleCount,
         }),
@@ -80,15 +85,129 @@ Future<void> main(List<String> args) async {
     );
 
     stdout.writeln('sync_run_id=$syncRunId');
+    stdout.writeln('car_row_count=$carCount');
     stdout.writeln('reservation_raw_count=$reservationCount');
     stdout.writeln('schedule_raw_count=$scheduleCount');
   } catch (error) {
+    if (conn != null && syncRunId != null) {
+      await conn.execute(
+        Sql.named('''
+          update public.rc00_ops_sheet_sync_runs
+          set status = @status,
+              finished_at = now(),
+              error_text = @error_text
+          where id = @id
+        '''),
+        parameters: {
+          'status': 'failed',
+          'error_text': error.toString(),
+          'id': syncRunId,
+        },
+      );
+    }
     stderr.writeln(error);
     rethrow;
   } finally {
     await conn?.close();
     authClient.close();
   }
+}
+
+Future<int> _insertCarRows(
+  Connection conn,
+  String syncRunId,
+  List<List<String>> rows,
+) async {
+  if (rows.isEmpty) return 0;
+  final headers = rows.first;
+  var inserted = 0;
+
+  for (var index = 1; index < rows.length; index++) {
+    final row = rows[index];
+    final mapped = _mapRow(headers, row);
+    if (_isBlankRow(mapped)) continue;
+
+    await conn.execute(
+      Sql.named('''
+        insert into public.rc00_ops_sheet_cars (
+          sync_run_id,
+          sheet_row_number,
+          car_number,
+          car_name,
+          status,
+          car_wash,
+          interior_wash,
+          start_at,
+          end_at,
+          customer_name,
+          pickup_location,
+          customer_phone,
+          note_text,
+          parking_location,
+          car_registered_at,
+          car_inspection_at,
+          car_age_expiry_at,
+          car_number_front,
+          car_number_middle,
+          car_number_rear,
+          status_action,
+          payload_json
+        ) values (
+          @sync_run_id::uuid,
+          @sheet_row_number,
+          @car_number,
+          @car_name,
+          @status,
+          @car_wash,
+          @interior_wash,
+          @start_at,
+          @end_at,
+          @customer_name,
+          @pickup_location,
+          @customer_phone,
+          @note_text,
+          @parking_location,
+          @car_registered_at,
+          @car_inspection_at,
+          @car_age_expiry_at,
+          @car_number_front,
+          @car_number_middle,
+          @car_number_rear,
+          @status_action,
+          @payload_json::jsonb
+        )
+      '''),
+      parameters: {
+        'sync_run_id': syncRunId,
+        'sheet_row_number': index + 1,
+        'car_number': mapped['차량번호'],
+        'car_name': mapped['차종'],
+        'status': mapped['상태'],
+        'car_wash': mapped['세차'],
+        'interior_wash': mapped['실내세차'],
+        'start_at': mapped['대여일'],
+        'end_at': mapped['반납일'],
+        'customer_name': mapped['임차인'],
+        'pickup_location': mapped['배차지'],
+        'customer_phone': mapped['고객번호'],
+        'note_text': (mapped['비      고'] ?? '').isNotEmpty
+            ? mapped['비      고']
+            : mapped['비고'],
+        'parking_location': mapped['주차지'],
+        'car_registered_at': mapped['차량등록일'],
+        'car_inspection_at': mapped['차량검사일'],
+        'car_age_expiry_at': mapped['차령만료일'],
+        'car_number_front': mapped['차량번호(앞)'],
+        'car_number_middle': mapped['차량번호(중)'],
+        'car_number_rear': mapped['차량번호(네자리)'],
+        'status_action': mapped['상태액션'],
+        'payload_json': jsonEncode(mapped),
+      },
+    );
+    inserted++;
+  }
+
+  return inserted;
 }
 
 Future<List<List<String>>> _readSheet(
