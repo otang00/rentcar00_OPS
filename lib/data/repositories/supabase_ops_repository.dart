@@ -342,8 +342,49 @@ class SupabaseOpsRepository {
 
   DateTime? _parseFlexibleDateTime(String value) {
     if (value.isEmpty) return null;
-    final normalized = value.replaceAll('.', '-').replaceAll('/', '-');
-    return DateTime.tryParse(normalized);
+
+    var normalized = value.trim();
+    if (normalized.isEmpty) return null;
+
+    normalized = normalized.replaceAll('.', '-').replaceAll('/', '-');
+    normalized = normalized.replaceAll(RegExp(r'-+'), '-');
+    normalized = normalized.replaceAll(RegExp(r'\s+'), ' ');
+    normalized = normalized.replaceAll(RegExp(r'-$'), '');
+
+    final dateOnlyMatch = RegExp(
+      r'^(\d{4})-(\d{1,2})-(\d{1,2})$',
+    ).firstMatch(normalized);
+    if (dateOnlyMatch != null) {
+      final year = int.tryParse(dateOnlyMatch.group(1)!);
+      final month = int.tryParse(dateOnlyMatch.group(2)!);
+      final day = int.tryParse(dateOnlyMatch.group(3)!);
+      if (year != null && month != null && day != null) {
+        return DateTime(year, month, day);
+      }
+    }
+
+    final dateTimeMatch = RegExp(
+      r'^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$',
+    ).firstMatch(normalized);
+    if (dateTimeMatch != null) {
+      final year = int.tryParse(dateTimeMatch.group(1)!);
+      final month = int.tryParse(dateTimeMatch.group(2)!);
+      final day = int.tryParse(dateTimeMatch.group(3)!);
+      final hour = int.tryParse(dateTimeMatch.group(4)!);
+      final minute = int.tryParse(dateTimeMatch.group(5)!);
+      final second = int.tryParse(dateTimeMatch.group(6) ?? '0');
+      if (year != null &&
+          month != null &&
+          day != null &&
+          hour != null &&
+          minute != null &&
+          second != null) {
+        return DateTime(year, month, day, hour, minute, second);
+      }
+    }
+
+    return DateTime.tryParse(normalized.replaceFirst(' ', 'T')) ??
+        DateTime.tryParse(normalized);
   }
 
   String _formatBoardPeriod(String startAt, String endAt) {

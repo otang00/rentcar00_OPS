@@ -65,6 +65,7 @@ class StatusBoardTabPage extends ConsumerWidget {
         decoration: _tableDecoration(context),
         child: Column(
           children: [
+            const _IdleGridHeader(),
             for (var i = 0; i < items.length; i++)
               _IdleDataRow(item: items[i], showDivider: i < items.length - 1),
           ],
@@ -315,10 +316,11 @@ class _IdleDataRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
     return InkWell(
       onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           border: showDivider
               ? Border(
@@ -329,53 +331,91 @@ class _IdleDataRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Expanded(
+            SizedBox(
+              width: 112,
+              child: Text(
+                item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  height: 1.1,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 82,
+              child: Text(
+                item.carName.isEmpty ? '-' : item.carName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                  height: 1.1,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 32,
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Flexible(
-                    flex: 3,
-                    child: Text(
-                      item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    flex: 2,
-                    child: Text(
-                      item.carName.isEmpty ? '-' : item.carName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   _WashDot(active: _isActive(item.carWash)),
-                  const SizedBox(width: 4),
                   _WashDot(active: _isActive(item.interiorWash)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 5,
-                    child: Text(
-                      item.parkingLocation.isEmpty ? '-' : item.parkingLocation,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
                 ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                item.parkingLocation.isEmpty ? '-' : item.parkingLocation,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: textTheme.bodySmall?.copyWith(height: 1.1),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _IdleGridHeader extends StatelessWidget {
+  const _IdleGridHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final textStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(width: 112, child: Text('차량번호', style: textStyle)),
+          const SizedBox(width: 8),
+          SizedBox(width: 82, child: Text('차종', style: textStyle)),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 32,
+            child: Center(child: Text('세', style: textStyle)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('주차지', style: textStyle, textAlign: TextAlign.right),
+          ),
+        ],
       ),
     );
   }
@@ -616,12 +656,12 @@ bool _isPastDate(String value) {
 
 DateTime? _parseFlexibleDate(String value) {
   if (value.isEmpty) return null;
-  final normalized = value
-      .trim()
-      .replaceAll('.', '-')
-      .replaceAll('/', '-')
-      .replaceAll(' 0:00:00', '')
-      .replaceAll(' 00:00:00', '');
+  var normalized = value.trim();
+  if (normalized.isEmpty) return null;
+  normalized = normalized.replaceAll('.', '-').replaceAll('/', '-');
+  normalized = normalized.replaceAll(RegExp(r'-+'), '-');
+  normalized = normalized.replaceAll(RegExp(r'\s+'), ' ');
+  normalized = normalized.replaceAll(RegExp(r'-$'), '');
   if (normalized.length >= 10) {
     return DateTime.tryParse(normalized.substring(0, 10));
   }

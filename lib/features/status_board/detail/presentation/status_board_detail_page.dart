@@ -42,31 +42,42 @@ class _VehicleDetailBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final relatedSchedulesAsync = ref.watch(relatedSchedulesProvider(recordId));
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
       children: [
         Text(
           record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          record.carName.isEmpty ? '차종 미확인' : record.carName,
-          style: Theme.of(context).textTheme.titleMedium,
+          style: textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.4,
+          ),
         ),
         const SizedBox(height: 6),
         Text(
-          record.status.isEmpty
-              ? record.tab.label
-              : '${record.tab.label} · ${record.status}',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          record.carName.isEmpty ? '차종 미확인' : record.carName,
+          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            record.status.isEmpty
+                ? record.tab.label
+                : '${record.tab.label} · ${record.status}',
+            style: textTheme.titleSmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         _SectionCard(
           title: 'Related 일정',
           child: relatedSchedulesAsync.when(
@@ -79,15 +90,20 @@ class _VehicleDetailBody extends ConsumerWidget {
                   for (final item in items)
                     ListTile(
                       contentPadding: EdgeInsets.zero,
+                      dense: true,
                       title: Text(
                         item.scheduleType.isEmpty
                             ? item.timeLabel
                             : '${item.scheduleType} · ${item.timeLabel}',
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       subtitle: Text(
                         item.locationSummary.isEmpty
                             ? (item.detailText.isEmpty ? '-' : item.detailText)
                             : item.locationSummary,
+                        style: textTheme.bodyMedium?.copyWith(height: 1.3),
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => context.push(
@@ -101,55 +117,71 @@ class _VehicleDetailBody extends ConsumerWidget {
             error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         _SectionCard(
           title: '운행 정보',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _FieldLine(label: '임차인', value: record.customerName),
-              _FieldLine(label: '고객번호', value: record.customerPhone),
-              _FieldLine(label: '대여일', value: record.startAt),
-              _FieldLine(label: '반납일', value: record.endAt),
-              _FieldLine(label: '배차지', value: record.pickupLocation),
-              _FieldLine(label: '주차지', value: record.parkingLocation),
+              _FieldBlock(
+                label: '임차인',
+                value: record.customerName,
+                emphasize: true,
+              ),
+              _FieldBlock(label: '고객번호', value: record.customerPhone),
+              _FieldBlock(label: '대여일', value: record.startAt),
+              _FieldBlock(label: '반납일', value: record.endAt),
+              _FieldBlock(label: '배차지', value: record.pickupLocation),
+              _FieldBlock(label: '주차지', value: record.parkingLocation),
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         _SectionCard(
           title: '차량 관리 정보',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _FieldLine(label: '세차', value: record.carWash),
-              _FieldLine(label: '실내세차', value: record.interiorWash),
-              _FieldLine(label: '차량등록일', value: record.carRegisteredAt),
-              _FieldLine(label: '차량검사일', value: record.carInspectionAt),
-              _FieldLine(label: '차령만료일', value: record.carAgeExpiryAt),
+              _FieldBlock(label: '세차', value: record.carWash),
+              _FieldBlock(label: '실내세차', value: record.interiorWash),
+              _FieldBlock(label: '차량등록일', value: record.carRegisteredAt),
+              _FieldBlock(label: '차량검사일', value: record.carInspectionAt),
+              _FieldBlock(label: '차령만료일', value: record.carAgeExpiryAt),
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         _SectionCard(
           title: '차량 번호 세부',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _FieldLine(label: '차량번호(앞)', value: record.carNumberFront),
-              _FieldLine(label: '차량번호(중)', value: record.carNumberMiddle),
-              _FieldLine(label: '차량번호(네자리)', value: record.carNumberRear),
+              _FieldBlock(
+                label: '차량번호(앞)',
+                value: record.carNumberFront,
+                emphasize: true,
+              ),
+              _FieldBlock(
+                label: '차량번호(중)',
+                value: record.carNumberMiddle,
+                emphasize: true,
+              ),
+              _FieldBlock(
+                label: '차량번호(네자리)',
+                value: record.carNumberRear,
+                emphasize: true,
+              ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         _SectionCard(
           title: '메모 / 상태',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _FieldLine(label: '상태액션', value: record.statusAction),
-              _FieldLine(label: '비고', value: record.noteText),
+              _FieldBlock(label: '상태액션', value: record.statusAction),
+              _FieldBlock(label: '비고', value: record.noteText, multiline: true),
             ],
           ),
         ),
@@ -165,43 +197,74 @@ class _ScheduleDetailBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
       children: [
         Text(
           record.scheduleType.isEmpty ? '일정 디테일' : record.scheduleType,
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+          style: textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.4,
+          ),
         ),
         const SizedBox(height: 6),
         Text(
           record.timeLabel.isEmpty ? '-' : record.timeLabel,
-          style: Theme.of(context).textTheme.titleMedium,
+          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            record.carNumber.isEmpty ? '차량번호 미확인' : record.carNumber,
+            style: textTheme.titleSmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
         _SectionCard(
           title: '일정 정보',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _FieldLine(label: '일정번호', value: record.scheduleId),
-              _FieldLine(label: '일정유형', value: record.scheduleType),
-              _FieldLine(label: '일정시각', value: record.startAt),
-              _FieldLine(label: '차량번호', value: record.carNumber),
-              _FieldLine(label: '차종', value: record.carName),
-              _FieldLine(label: '위치', value: record.locationSummary),
-              _FieldLine(label: '상세정보', value: record.detailText),
+              _FieldBlock(
+                label: '일정번호',
+                value: record.scheduleId,
+                emphasize: true,
+              ),
+              _FieldBlock(label: '일정유형', value: record.scheduleType),
+              _FieldBlock(label: '일정시각', value: record.startAt),
+              _FieldBlock(
+                label: '차량번호',
+                value: record.carNumber,
+                emphasize: true,
+              ),
+              _FieldBlock(label: '차종', value: record.carName),
+              _FieldBlock(label: '위치', value: record.locationSummary),
+              _FieldBlock(
+                label: '상세정보',
+                value: record.detailText,
+                multiline: true,
+              ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         _SectionCard(
           title: '예약 연결',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _LinkedFieldLine(
+              _LinkedFieldBlock(
                 label: '예약번호',
                 value: record.reservationNumber,
                 enabled: record.reservationId.isNotEmpty,
@@ -214,7 +277,7 @@ class _ScheduleDetailBody extends StatelessWidget {
                       )
                     : null,
               ),
-              _FieldLine(label: '예약ID', value: record.reservationId),
+              _FieldBlock(label: '예약ID', value: record.reservationId),
             ],
           ),
         ),
@@ -231,14 +294,27 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
+            Text(
+              title,
+              style: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 14),
             child,
           ],
         ),
@@ -247,23 +323,56 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
-class _FieldLine extends StatelessWidget {
-  const _FieldLine({required this.label, required this.value});
+class _FieldBlock extends StatelessWidget {
+  const _FieldBlock({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+    this.multiline = false,
+  });
 
   final String label;
   final String value;
+  final bool emphasize;
+  final bool multiline;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final display = value.isEmpty ? '-' : value;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text('$label: ${value.isEmpty ? '-' : value}'),
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            display,
+            maxLines: multiline ? null : 2,
+            overflow: multiline ? null : TextOverflow.ellipsis,
+            style: (emphasize ? textTheme.titleMedium : textTheme.bodyLarge)
+                ?.copyWith(
+                  fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+                  height: 1.3,
+                ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _LinkedFieldLine extends StatelessWidget {
-  const _LinkedFieldLine({
+class _LinkedFieldBlock extends StatelessWidget {
+  const _LinkedFieldBlock({
     required this.label,
     required this.value,
     required this.enabled,
@@ -277,18 +386,36 @@ class _LinkedFieldLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final display = value.isEmpty ? '-' : value;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 14),
       child: InkWell(
         onTap: onTap,
-        child: Text(
-          '$label: $display',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: enabled ? Theme.of(context).colorScheme.primary : null,
-            decoration: enabled ? TextDecoration.underline : null,
-            fontWeight: enabled ? FontWeight.w700 : null,
-          ),
+        borderRadius: BorderRadius.circular(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: textTheme.labelMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              display,
+              style: textTheme.titleMedium?.copyWith(
+                color: enabled ? colorScheme.primary : null,
+                decoration: enabled ? TextDecoration.underline : null,
+                fontWeight: FontWeight.w800,
+                height: 1.3,
+              ),
+            ),
+          ],
         ),
       ),
     );
