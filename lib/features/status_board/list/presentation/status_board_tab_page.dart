@@ -52,7 +52,7 @@ class StatusBoardTabPage extends ConsumerWidget {
       case StatusBoardTab.longTerm:
         return [_LongTermTable(items: items)];
       case StatusBoardTab.schedule:
-        return [for (final item in items) _ScheduleCard(item: item)];
+        return _buildScheduleContent(context, items);
     }
   }
 
@@ -60,17 +60,61 @@ class StatusBoardTabPage extends ConsumerWidget {
     BuildContext context,
     List<StatusBoardRecord> items,
   ) {
+    final groups = <String, List<StatusBoardRecord>>{};
+    for (final item in items) {
+      final key = item.carName.isEmpty ? '차종 미확인' : item.carName;
+      groups.putIfAbsent(key, () => []).add(item);
+    }
+
     return [
-      Container(
-        decoration: _tableDecoration(context),
-        child: Column(
-          children: [
-            const _IdleGridHeader(),
-            for (var i = 0; i < items.length; i++)
-              _IdleDataRow(item: items[i], showDivider: i < items.length - 1),
-          ],
+      for (var index = 0; index < groups.entries.length; index++) ...[
+        Container(
+          decoration: _tableDecoration(context),
+          child: Column(
+            children: [
+              if (index == 0) const _IdleGridHeader(),
+              _IdleGroupHeader(
+                label: groups.entries.elementAt(index).key,
+                count: groups.entries.elementAt(index).value.length,
+                isFirst: index == 0,
+              ),
+              for (
+                var i = 0;
+                i < groups.entries.elementAt(index).value.length;
+                i++
+              )
+                _IdleDataRow(
+                  item: groups.entries.elementAt(index).value[i],
+                  showDivider:
+                      i < groups.entries.elementAt(index).value.length - 1,
+                ),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+      ],
+    ];
+  }
+
+  List<Widget> _buildScheduleContent(
+    BuildContext context,
+    List<StatusBoardRecord> items,
+  ) {
+    final groups = <String, List<StatusBoardRecord>>{};
+    for (final item in items) {
+      final parsed = item.sortAt;
+      final key = parsed == null
+          ? '미확인 일정'
+          : '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}';
+      groups.putIfAbsent(key, () => []).add(item);
+    }
+
+    return [
+      for (final entry in groups.entries) ...[
+        _ScheduleDateHeader(dateKey: entry.key, firstItem: entry.value.first),
+        for (final item in entry.value) _ScheduleCard(item: item),
+        const SizedBox(height: 8),
+      ],
     ];
   }
 
@@ -253,6 +297,31 @@ class _LongTermTable extends StatelessWidget {
   }
 }
 
+class _ScheduleDateHeader extends StatelessWidget {
+  const _ScheduleDateHeader({required this.dateKey, required this.firstItem});
+
+  final String dateKey;
+  final StatusBoardRecord firstItem;
+
+  @override
+  Widget build(BuildContext context) {
+    final parsed = firstItem.sortAt;
+    final color = _scheduleHeaderColor(context, parsed);
+    final label = parsed == null ? dateKey : _scheduleHeaderLabel(parsed);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w900,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
 class _ScheduleCard extends StatelessWidget {
   const _ScheduleCard({required this.item});
 
@@ -359,12 +428,20 @@ class _IdleDataRow extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             SizedBox(
-              width: 32,
+              width: 44,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _WashDot(active: _isActive(item.carWash)),
-                  _WashDot(active: _isActive(item.interiorWash)),
+                  _WashStatusIcon(
+                    active: _isActive(item.carWash),
+                    icon: Icons.local_car_wash_rounded,
+                    semanticLabel: '외부 세차',
+                  ),
+                  _WashStatusIcon(
+                    active: _isActive(item.interiorWash),
+                    icon: Icons.airline_seat_recline_normal_rounded,
+                    semanticLabel: '내부 세차',
+                  ),
                 ],
               ),
             ),
@@ -408,14 +485,50 @@ class _IdleGridHeader extends StatelessWidget {
           SizedBox(width: 82, child: Text('차종', style: textStyle)),
           const SizedBox(width: 10),
           SizedBox(
-            width: 32,
-            child: Center(child: Text('세', style: textStyle)),
+            width: 44,
+            child: Center(child: Text('세차', style: textStyle)),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text('주차지', style: textStyle, textAlign: TextAlign.right),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _IdleGroupHeader extends StatelessWidget {
+  const _IdleGroupHeader({
+    required this.label,
+    required this.count,
+    required this.isFirst,
+  });
+
+  final String label;
+  final int count;
+  final bool isFirst;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 7),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        border: Border(
+          top: isFirst
+              ? BorderSide.none
+              : BorderSide(color: Theme.of(context).dividerColor),
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
+      child: Text(
+        '$label ($count)',
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w800,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
     );
   }
@@ -612,20 +725,23 @@ class _HeaderColumn {
   final bool alignEnd;
 }
 
-class _WashDot extends StatelessWidget {
-  const _WashDot({required this.active});
+class _WashStatusIcon extends StatelessWidget {
+  const _WashStatusIcon({
+    required this.active,
+    required this.icon,
+    required this.semanticLabel,
+  });
 
   final bool active;
+  final IconData icon;
+  final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 12,
-      height: 12,
-      decoration: BoxDecoration(
-        color: active ? Colors.green : Colors.grey.shade300,
-        shape: BoxShape.circle,
-      ),
+    final color = active ? Colors.green.shade700 : Colors.grey.shade400;
+    return Tooltip(
+      message: semanticLabel,
+      child: Icon(icon, size: 16, color: color),
     );
   }
 }
@@ -685,4 +801,22 @@ String _fullDate(String value) {
     return value.substring(0, 10).replaceAll('-', '.');
   }
   return value;
+}
+
+String _scheduleHeaderLabel(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+  final weekday = weekdays[value.weekday - 1];
+  return '${value.year}.${two(value.month)}.${two(value.day)}($weekday)';
+}
+
+Color? _scheduleHeaderColor(BuildContext context, DateTime? value) {
+  if (value == null) return null;
+  if (value.weekday == DateTime.sunday) {
+    return const Color(0xFFB3261E);
+  }
+  if (value.weekday == DateTime.saturday) {
+    return Colors.blue.shade700;
+  }
+  return Theme.of(context).textTheme.titleMedium?.color;
 }
