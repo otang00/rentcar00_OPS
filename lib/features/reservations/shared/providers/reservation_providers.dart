@@ -249,14 +249,24 @@ final relatedSchedulesProvider =
           return const [];
         }
 
-        return items
-            .where(
-              (item) =>
-                  item.isScheduleEntry &&
-                  item.carNumber.isNotEmpty &&
-                  item.carNumber == target!.carNumber,
-            )
-            .toList();
+        final startOfToday = DateTime.now();
+        final todayFloor = DateTime(
+          startOfToday.year,
+          startOfToday.month,
+          startOfToday.day,
+        );
+
+        return items.where((item) {
+          if (!item.isScheduleEntry) return false;
+          if (item.carNumber.isEmpty || item.carNumber != target!.carNumber) {
+            return false;
+          }
+          final sortAt = item.sortAt;
+          if (sortAt == null) {
+            return true;
+          }
+          return !sortAt.isBefore(todayFloor);
+        }).toList();
       });
     });
 

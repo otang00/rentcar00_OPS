@@ -30,6 +30,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: AppRoutes.scheduleDetail,
+        builder: (context, state) {
+          final recordId = state.pathParameters['recordId']!;
+          return StatusBoardDetailPage(recordId: recordId);
+        },
+      ),
+      GoRoute(
         path: AppRoutes.search,
         builder: (context, state) => const SearchPage(),
       ),

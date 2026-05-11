@@ -269,6 +269,8 @@ class SupabaseOpsRepository {
       carNumberFront: (row['car_number_front'] as String? ?? '').trim(),
       carNumberMiddle: (row['car_number_middle'] as String? ?? '').trim(),
       carNumberRear: (row['car_number_rear'] as String? ?? '').trim(),
+      reservationId: '',
+      reservationNumber: '',
     );
   }
 
@@ -308,6 +310,8 @@ class SupabaseOpsRepository {
       scheduleType: scheduleType,
       scheduleDone: (row['schedule_done_raw'] as String? ?? '').trim(),
       detailText: (row['detail_text'] as String? ?? '').trim(),
+      reservationId: (row['reservation_id'] as String? ?? '').trim(),
+      reservationNumber: (row['reservation_number'] as String? ?? '').trim(),
       carRegisteredAt: linkedCar?.carRegisteredAt ?? '',
       carInspectionAt: linkedCar?.carInspectionAt ?? '',
       carAgeExpiryAt: linkedCar?.carAgeExpiryAt ?? '',

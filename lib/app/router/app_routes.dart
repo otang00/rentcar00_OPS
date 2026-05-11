@@ -4,6 +4,7 @@ class AppRoutes {
   static const home = '/';
   static const reservationDetail = '/reservation/:reservationId';
   static const statusBoardDetail = '/board/:recordId';
+  static const scheduleDetail = '/schedule/:recordId';
   static const search = '/search';
   static const sync = '/sync';
 }

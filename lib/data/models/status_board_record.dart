@@ -26,6 +26,8 @@ class StatusBoardRecord {
     this.scheduleType = '',
     this.scheduleDone = '',
     this.detailText = '',
+    this.reservationId = '',
+    this.reservationNumber = '',
     this.carRegisteredAt = '',
     this.carInspectionAt = '',
     this.carAgeExpiryAt = '',
@@ -58,6 +60,8 @@ class StatusBoardRecord {
   final String scheduleType;
   final String scheduleDone;
   final String detailText;
+  final String reservationId;
+  final String reservationNumber;
   final String carRegisteredAt;
   final String carInspectionAt;
   final String carAgeExpiryAt;

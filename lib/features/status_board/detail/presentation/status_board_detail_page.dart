@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:rentcar00_ops/app/router/app_routes.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 
@@ -13,24 +15,26 @@ class StatusBoardDetailPage extends ConsumerWidget {
     final recordAsync = ref.watch(statusBoardDetailProvider(recordId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('차량 디테일')),
+      appBar: AppBar(title: const Text('상세')),
       body: recordAsync.when(
         data: (record) {
           if (record == null) {
-            return const Center(child: Text('차량 정보를 찾을 수 없습니다.'));
+            return const Center(child: Text('정보를 찾을 수 없습니다.'));
           }
-          return _StatusBoardDetailBody(recordId: recordId, record: record);
+          if (record.isScheduleEntry) {
+            return _ScheduleDetailBody(record: record);
+          }
+          return _VehicleDetailBody(recordId: recordId, record: record);
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) =>
-            Center(child: Text('차량 디테일을 불러오지 못했습니다.\n$error')),
+        error: (error, stack) => Center(child: Text('상세를 불러오지 못했습니다.\n$error')),
       ),
     );
   }
 }
 
-class _StatusBoardDetailBody extends ConsumerWidget {
-  const _StatusBoardDetailBody({required this.recordId, required this.record});
+class _VehicleDetailBody extends ConsumerWidget {
+  const _VehicleDetailBody({required this.recordId, required this.record});
 
   final String recordId;
   final StatusBoardRecord record;
@@ -64,6 +68,41 @@ class _StatusBoardDetailBody extends ConsumerWidget {
         ),
         const SizedBox(height: 12),
         _SectionCard(
+          title: 'Related 일정',
+          child: relatedSchedulesAsync.when(
+            data: (items) {
+              if (items.isEmpty) {
+                return const Text('연결된 일정이 없습니다.');
+              }
+              return Column(
+                children: [
+                  for (final item in items)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        item.scheduleType.isEmpty
+                            ? item.timeLabel
+                            : '${item.scheduleType} · ${item.timeLabel}',
+                      ),
+                      subtitle: Text(
+                        item.locationSummary.isEmpty
+                            ? (item.detailText.isEmpty ? '-' : item.detailText)
+                            : item.locationSummary,
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push(
+                        '/schedule/${Uri.encodeComponent(item.recordId)}',
+                      ),
+                    ),
+                ],
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _SectionCard(
           title: '운행 정보',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -74,10 +113,6 @@ class _StatusBoardDetailBody extends ConsumerWidget {
               _FieldLine(label: '반납일', value: record.endAt),
               _FieldLine(label: '배차지', value: record.pickupLocation),
               _FieldLine(label: '주차지', value: record.parkingLocation),
-              if (record.scheduleType.isNotEmpty)
-                _FieldLine(label: '일정유형', value: record.scheduleType),
-              if (record.detailText.isNotEmpty)
-                _FieldLine(label: '상세정보', value: record.detailText),
             ],
           ),
         ),
@@ -118,35 +153,69 @@ class _StatusBoardDetailBody extends ConsumerWidget {
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _ScheduleDetailBody extends StatelessWidget {
+  const _ScheduleDetailBody({required this.record});
+
+  final StatusBoardRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          record.scheduleType.isEmpty ? '일정 디테일' : record.scheduleType,
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          record.timeLabel.isEmpty ? '-' : record.timeLabel,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 12),
         _SectionCard(
-          title: 'Related 일정',
-          child: relatedSchedulesAsync.when(
-            data: (items) {
-              if (items.isEmpty) {
-                return const Text('연결된 일정이 없습니다.');
-              }
-              return Column(
-                children: [
-                  for (final item in items)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        item.scheduleType.isEmpty
-                            ? item.timeLabel
-                            : '${item.scheduleType} · ${item.timeLabel}',
-                      ),
-                      subtitle: Text(
-                        item.locationSummary.isEmpty
-                            ? (item.detailText.isEmpty ? '-' : item.detailText)
-                            : item.locationSummary,
-                      ),
-                    ),
-                ],
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
+          title: '일정 정보',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _FieldLine(label: '일정번호', value: record.scheduleId),
+              _FieldLine(label: '일정유형', value: record.scheduleType),
+              _FieldLine(label: '일정시각', value: record.startAt),
+              _FieldLine(label: '차량번호', value: record.carNumber),
+              _FieldLine(label: '차종', value: record.carName),
+              _FieldLine(label: '위치', value: record.locationSummary),
+              _FieldLine(label: '상세정보', value: record.detailText),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _SectionCard(
+          title: '예약 연결',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _LinkedFieldLine(
+                label: '예약번호',
+                value: record.reservationNumber,
+                enabled: record.reservationId.isNotEmpty,
+                onTap: record.reservationId.isNotEmpty
+                    ? () => context.push(
+                        AppRoutes.reservationDetail.replaceFirst(
+                          ':reservationId',
+                          Uri.encodeComponent(record.reservationId),
+                        ),
+                      )
+                    : null,
+              ),
+              _FieldLine(label: '예약ID', value: record.reservationId),
+            ],
           ),
         ),
       ],
@@ -189,6 +258,39 @@ class _FieldLine extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text('$label: ${value.isEmpty ? '-' : value}'),
+    );
+  }
+}
+
+class _LinkedFieldLine extends StatelessWidget {
+  const _LinkedFieldLine({
+    required this.label,
+    required this.value,
+    required this.enabled,
+    this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final display = value.isEmpty ? '-' : value;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        child: Text(
+          '$label: $display',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: enabled ? Theme.of(context).colorScheme.primary : null,
+            decoration: enabled ? TextDecoration.underline : null,
+            fontWeight: enabled ? FontWeight.w700 : null,
+          ),
+        ),
+      ),
     );
   }
 }

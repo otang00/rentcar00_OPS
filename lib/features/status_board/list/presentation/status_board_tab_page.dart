@@ -60,28 +60,16 @@ class StatusBoardTabPage extends ConsumerWidget {
     BuildContext context,
     List<StatusBoardRecord> items,
   ) {
-    final groups = <String, List<StatusBoardRecord>>{};
-    for (final item in items) {
-      final key = item.carName.isEmpty ? '차종 미확인' : item.carName;
-      groups.putIfAbsent(key, () => []).add(item);
-    }
-
     return [
-      for (final entry in groups.entries) ...[
-        Container(
-          decoration: _tableDecoration(context),
-          child: Column(
-            children: [
-              for (var i = 0; i < entry.value.length; i++)
-                _IdleDataRow(
-                  item: entry.value[i],
-                  showDivider: i < entry.value.length - 1,
-                ),
-            ],
-          ),
+      Container(
+        decoration: _tableDecoration(context),
+        child: Column(
+          children: [
+            for (var i = 0; i < items.length; i++)
+              _IdleDataRow(item: items[i], showDivider: i < items.length - 1),
+          ],
         ),
-        const SizedBox(height: 8),
-      ],
+      ),
     ];
   }
 
@@ -114,7 +102,7 @@ class StatusBoardTabPage extends ConsumerWidget {
           final bTime = b.sortAt ?? DateTime(2999);
           final byTime = aTime.compareTo(bTime);
           if (byTime != 0) return byTime;
-          return compareText(a.customerName, b.customerName);
+          return compareText(a.carNumber, b.carNumber);
         });
       case StatusBoardTab.schedule:
         sorted.sort((a, b) {
@@ -275,11 +263,11 @@ class _ScheduleCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: () =>
-            context.push('/board/${Uri.encodeComponent(item.recordId)}'),
+            context.push('/schedule/${Uri.encodeComponent(item.recordId)}'),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               SizedBox(
                 width: 78,
@@ -339,18 +327,32 @@ class _IdleDataRow extends StatelessWidget {
               : null,
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Flexible(
-                    flex: 4,
+                    flex: 3,
                     child: Text(
                       item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    flex: 2,
+                    child: Text(
+                      item.carName.isEmpty ? '-' : item.carName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ),
@@ -436,6 +438,7 @@ class _GeneralTableRow extends StatelessWidget {
               : null,
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               flex: 3,
@@ -505,7 +508,7 @@ class _LongTermTableRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isEmphasized = _isRedDate(item.endAt);
+    final isEmphasized = _isPastDate(item.endAt);
     return InkWell(
       onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
       child: Container(
@@ -518,6 +521,7 @@ class _LongTermTableRow extends StatelessWidget {
               : null,
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               flex: 3,
@@ -602,9 +606,26 @@ bool _isActive(String value) {
       normalized == '1';
 }
 
-bool _isRedDate(String value) {
-  if (value.isEmpty) return false;
-  return value.contains('2026.04.') || value.contains('2026-04-');
+bool _isPastDate(String value) {
+  final parsed = _parseFlexibleDate(value);
+  if (parsed == null) return false;
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  return parsed.isBefore(today);
+}
+
+DateTime? _parseFlexibleDate(String value) {
+  if (value.isEmpty) return null;
+  final normalized = value
+      .trim()
+      .replaceAll('.', '-')
+      .replaceAll('/', '-')
+      .replaceAll(' 0:00:00', '')
+      .replaceAll(' 00:00:00', '');
+  if (normalized.length >= 10) {
+    return DateTime.tryParse(normalized.substring(0, 10));
+  }
+  return DateTime.tryParse(normalized);
 }
 
 String _shortDate(String value) {
