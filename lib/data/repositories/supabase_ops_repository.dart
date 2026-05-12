@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
@@ -14,6 +15,179 @@ class SupabaseOpsRepository {
   final SupabaseClient _client;
 
   SupabaseClient get client => _client;
+
+  Future<String> createReservationFromVehicle({
+    required StatusBoardRecord car,
+    required String reservationNumber,
+    required String customerName,
+    required String customerPhone,
+    required String customerBirthDate,
+    required String referralSource,
+    required String paymentAmount,
+    required DateTime startAt,
+    required DateTime endAt,
+    required String pickupLocation,
+    required String dropoffLocation,
+    required String noteText,
+  }) async {
+    final latestImportRunId = await _latestImportRunId();
+
+    final reservationId = _generateId(prefix: 'R');
+    final insertedReservation = await _client
+        .from('rc00_ops_reservations')
+        .insert({
+          'reservation_id': reservationId,
+          'reservation_number': reservationNumber.trim(),
+          'car_number': car.carNumber,
+          'car_name': car.carName,
+          'customer_name': customerName.trim(),
+          'customer_phone': customerPhone.trim(),
+          'customer_birth_date': customerBirthDate.trim(),
+          'referral_source': referralSource.trim(),
+          'payment_amount': paymentAmount.trim(),
+          'start_at': startAt.toIso8601String(),
+          'end_at': endAt.toIso8601String(),
+          'pickup_location': pickupLocation.trim(),
+          'dropoff_location': dropoffLocation.trim(),
+          'reservation_status': '예약중',
+          'note_text': noteText.trim(),
+          'meta_json': {
+            'created_via': 'status_board_vehicle_detail',
+            'source_record_id': car.recordId,
+          },
+        })
+        .select('id')
+        .single();
+
+    final reservationRefId = insertedReservation['id'] as String;
+    final tabKey = _deriveReservationTabKey(startAt, endAt);
+    final checkPayload = {
+      'customer_name_verified': customerName.trim().isEmpty
+          ? 'pending'
+          : 'done',
+      'customer_phone_verified': customerPhone.trim().isEmpty
+          ? 'pending'
+          : 'done',
+      'pickup_location_verified': pickupLocation.trim().isEmpty
+          ? 'pending'
+          : 'done',
+    };
+
+    await _client.from('rc00_ops_reservation_states').insert({
+      'reservation_id': reservationId,
+      'reservation_ref_id': reservationRefId,
+      'tab_key': tabKey,
+      'needs_attention': checkPayload.values.contains('pending'),
+      'warning_level': checkPayload.values.contains('pending')
+          ? 'warning'
+          : null,
+      'check_payload_json': checkPayload,
+      'memo_text': noteText.trim().isEmpty ? null : noteText.trim(),
+      'last_action_at': DateTime.now().toIso8601String(),
+    });
+
+    final pickupScheduleId = _generateId(prefix: 'SCH');
+    final returnScheduleId = _generateId(prefix: 'SCH');
+
+    await _client.from('rc00_ops_schedules').insert([
+      {
+        'source_import_run_id': latestImportRunId,
+        'schedule_id': pickupScheduleId,
+        'reservation_id': reservationId,
+        'reservation_number': reservationNumber.trim(),
+        'car_number': car.carNumber,
+        'car_name': car.carName,
+        'schedule_type_raw': '배차',
+        'schedule_at_raw': startAt.toIso8601String(),
+        'location_text': pickupLocation.trim(),
+        'detail_text': noteText.trim(),
+        'partial_return_raw': '',
+        'schedule_done_raw': '',
+        'payload_json': {
+          'created_via': 'status_board_vehicle_detail',
+          'reservation_id': reservationId,
+          'reservation_number': reservationNumber.trim(),
+          'status': '배차',
+        },
+      },
+      {
+        'source_import_run_id': latestImportRunId,
+        'schedule_id': returnScheduleId,
+        'reservation_id': reservationId,
+        'reservation_number': reservationNumber.trim(),
+        'car_number': car.carNumber,
+        'car_name': car.carName,
+        'schedule_type_raw': '반납',
+        'schedule_at_raw': endAt.toIso8601String(),
+        'location_text': dropoffLocation.trim(),
+        'detail_text': noteText.trim(),
+        'partial_return_raw': '',
+        'schedule_done_raw': '',
+        'payload_json': {
+          'created_via': 'status_board_vehicle_detail',
+          'reservation_id': reservationId,
+          'reservation_number': reservationNumber.trim(),
+          'status': '반납',
+        },
+      },
+    ]);
+
+    return reservationId;
+  }
+
+  Future<void> updateCarInstantStatus({
+    required String carRowId,
+    required String status,
+    required String statusAction,
+    required String customerName,
+    required String customerPhone,
+    required DateTime? startAt,
+    required DateTime? endAt,
+    required String pickupLocation,
+    required String parkingLocation,
+    required String noteText,
+  }) async {
+    await _client
+        .from('rc00_ops_cars')
+        .update({
+          'status': status,
+          'status_action': statusAction,
+          'customer_name': customerName.trim(),
+          'customer_phone': customerPhone.trim(),
+          'start_at': startAt == null ? '' : startAt.toIso8601String(),
+          'end_at': endAt == null ? '' : endAt.toIso8601String(),
+          'pickup_location': pickupLocation.trim(),
+          'parking_location': parkingLocation.trim(),
+          'note_text': noteText.trim(),
+        })
+        .eq('id', carRowId);
+  }
+
+  Future<void> updateParkingLocation({
+    required String carRowId,
+    required String parkingLocation,
+  }) async {
+    await _client
+        .from('rc00_ops_cars')
+        .update({
+          'parking_location': parkingLocation.trim(),
+          'status_action': '주차',
+        })
+        .eq('id', carRowId);
+  }
+
+  Future<void> setCarWashFlag({
+    required String carRowId,
+    required bool interior,
+    required bool active,
+  }) async {
+    await _client
+        .from('rc00_ops_cars')
+        .update({
+          interior ? 'interior_wash' : 'car_wash': active ? 'TRUE' : 'FALSE',
+        })
+        .eq('id', carRowId);
+  }
 
   Future<List<ReservationRecord>> fetchReservations() async {
     final reservationsResponse = await _client
@@ -39,13 +213,13 @@ class SupabaseOpsRepository {
       }
 
       final tabKey = state['tab_key'] as String? ?? TabKeys.pending;
-      final statusRaw = (row['status_raw'] as String?) ?? '';
+      final reservationStatus = (row['reservation_status'] as String?) ?? '';
       final checkPayload = _toStringMap(state['check_payload_json']);
       final warningLevel = state['warning_level'] as String?;
       final noteParts = <String>[
         if ((state['memo_text'] as String?)?.isNotEmpty ?? false)
           state['memo_text'] as String,
-        if (statusRaw.isNotEmpty) '원본상태: $statusRaw',
+        if (reservationStatus.isNotEmpty) '예약상태: $reservationStatus',
       ];
 
       records.add(
@@ -54,10 +228,13 @@ class SupabaseOpsRepository {
           reservationNumber: (row['reservation_number'] as String?) ?? '',
           customerName: (row['customer_name'] as String?) ?? '',
           customerPhone: (row['customer_phone'] as String?) ?? '',
+          customerBirthDate: (row['customer_birth_date'] as String?) ?? '',
+          referralSource: (row['referral_source'] as String?) ?? '',
+          paymentAmount: (row['payment_amount'] as String?) ?? '',
           carNumber: (row['car_number'] as String?) ?? '',
           carName: (row['car_name'] as String?) ?? '',
           tab: _tabFromKey(tabKey),
-          statusKey: statusRaw,
+          statusKey: reservationStatus,
           startAt: _parseDateTime(row['start_at']) ?? DateTime(2000),
           endAt: _parseDateTime(row['end_at']) ?? DateTime(2000),
           locationSummary: (row['pickup_location'] as String?) ?? '',
@@ -66,7 +243,7 @@ class SupabaseOpsRepository {
             checkPayload: checkPayload,
             warningLevel: warningLevel,
             tabKey: tabKey,
-            statusRaw: statusRaw,
+            statusRaw: reservationStatus,
           ),
           checkPayload: checkPayload,
           actionLogs: const [],
@@ -79,7 +256,7 @@ class SupabaseOpsRepository {
 
   Future<List<SyncRunEntry>> fetchSyncRuns() async {
     final response = await _client
-        .from('rc00_ops_sheet_sync_runs')
+        .from('rc00_ops_import_runs')
         .select()
         .order('started_at', ascending: false)
         .limit(20);
@@ -107,31 +284,16 @@ class SupabaseOpsRepository {
   }
 
   Future<List<StatusBoardRecord>> fetchStatusBoardRecords() async {
-    final syncRun = await _client
-        .from('rc00_ops_sheet_sync_runs')
-        .select('id')
-        .eq('status', 'success')
-        .order('started_at', ascending: false)
-        .limit(1)
-        .maybeSingle();
-
-    final syncRunId = syncRun?['id'] as String?;
-    if (syncRunId == null || syncRunId.isEmpty) {
-      return const [];
-    }
-
     final carsResponse = await _client
-        .from('rc00_ops_sheet_cars')
+        .from('rc00_ops_cars')
         .select()
-        .eq('sync_run_id', syncRunId)
-        .order('sheet_row_number', ascending: true);
+        .order('car_number', ascending: true);
 
     final schedulesResponse = await _client
-        .from('rc00_ops_sheet_schedules_raw')
+        .from('rc00_ops_schedules')
         .select()
-        .eq('sync_run_id', syncRunId)
         .inFilter('schedule_type_raw', ['배차', '반납'])
-        .order('sheet_row_number', ascending: true);
+        .order('created_at', ascending: true);
 
     final cars = carsResponse.map<StatusBoardRecord>(_toCarRecord).toList();
     final carByNumber = {
@@ -238,8 +400,8 @@ class SupabaseOpsRepository {
       status: status,
       customerName: (row['customer_name'] as String? ?? '').trim(),
       customerPhone: (row['customer_phone'] as String? ?? '').trim(),
-      startAt: (row['start_at'] as String? ?? '').trim(),
-      endAt: (row['end_at'] as String? ?? '').trim(),
+      startAt: _displayValue(row['start_at']),
+      endAt: _displayValue(row['end_at']),
       pickupLocation: (row['pickup_location'] as String? ?? '').trim(),
       parkingLocation: (row['parking_location'] as String? ?? '').trim(),
       noteText: noteText,
@@ -247,8 +409,8 @@ class SupabaseOpsRepository {
       carWash: carWash,
       interiorWash: interiorWash,
       timeLabel: _formatBoardPeriod(
-        (row['start_at'] as String? ?? '').trim(),
-        (row['end_at'] as String? ?? '').trim(),
+        _displayValue(row['start_at']),
+        _displayValue(row['end_at']),
       ),
       locationSummary: _joinNonEmpty([
         (row['pickup_location'] as String? ?? '').trim(),
@@ -261,8 +423,8 @@ class SupabaseOpsRepository {
         statusAction: statusAction,
       ),
       sortAt:
-          _parseFlexibleDateTime((row['end_at'] as String? ?? '').trim()) ??
-          _parseFlexibleDateTime((row['start_at'] as String? ?? '').trim()),
+          _parseFlexibleDateTime(_displayValue(row['end_at'])) ??
+          _parseFlexibleDateTime(_displayValue(row['start_at'])),
       carRegisteredAt: (row['car_registered_at'] as String? ?? '').trim(),
       carInspectionAt: (row['car_inspection_at'] as String? ?? '').trim(),
       carAgeExpiryAt: (row['car_age_expiry_at'] as String? ?? '').trim(),
@@ -296,14 +458,14 @@ class SupabaseOpsRepository {
       customerPhone: linkedCar?.customerPhone ?? '',
       startAt: scheduleAtRaw,
       endAt: '',
-      pickupLocation: (row['location_raw'] as String? ?? '').trim(),
+      pickupLocation: (row['location_text'] as String? ?? '').trim(),
       parkingLocation: linkedCar?.parkingLocation ?? '',
       noteText: linkedCar?.noteText ?? '',
       statusAction: scheduleType,
       carWash: linkedCar?.carWash ?? '',
       interiorWash: linkedCar?.interiorWash ?? '',
       timeLabel: _formatScheduleLabel(scheduleAtRaw),
-      locationSummary: (row['location_raw'] as String? ?? '').trim(),
+      locationSummary: (row['location_text'] as String? ?? '').trim(),
       primaryBadges: [scheduleType],
       sortAt: _parseFlexibleDateTime(scheduleAtRaw),
       scheduleId: (row['schedule_id'] as String? ?? '').trim(),
@@ -405,5 +567,45 @@ class SupabaseOpsRepository {
 
   String _joinNonEmpty(List<String> values, {String separator = ' · '}) {
     return values.where((value) => value.isNotEmpty).join(separator);
+  }
+
+  String _displayValue(dynamic value) {
+    if (value == null) return '';
+    if (value is String) return value.trim();
+    if (value is DateTime) return value.toIso8601String();
+    return value.toString().trim();
+  }
+
+  Future<String?> _latestImportRunId() async {
+    final row = await _client
+        .from('rc00_ops_import_runs')
+        .select('id')
+        .eq('status', 'success')
+        .order('started_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+    return row?['id'] as String?;
+  }
+
+  String _deriveReservationTabKey(DateTime startAt, DateTime endAt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final startDay = DateTime(startAt.year, startAt.month, startAt.day);
+    final endDay = DateTime(endAt.year, endAt.month, endAt.day);
+    if (endDay.isBefore(today)) return TabKeys.completed;
+    if (endDay == today) return TabKeys.returnDue;
+    if (startDay == today) return TabKeys.pickupToday;
+    if (startDay.isBefore(today)) return TabKeys.inUse;
+    return TabKeys.pending;
+  }
+
+  String _generateId({required String prefix}) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random.secure();
+    final suffix = List.generate(
+      8,
+      (_) => chars[random.nextInt(chars.length)],
+    ).join();
+    return '$prefix-${DateTime.now().millisecondsSinceEpoch}-$suffix';
   }
 }

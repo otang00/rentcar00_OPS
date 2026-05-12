@@ -67,6 +67,18 @@ class _ReservationDetailBody extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             _SectionCard(
+              title: '예약 정보',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('생년월일: ${_displayValue(reservation.customerBirthDate)}'),
+                  Text('소개처: ${_displayValue(reservation.referralSource)}'),
+                  Text('가격: ${_displayValue(reservation.paymentAmount)}'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
               title: '상태 요약',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,4 +213,9 @@ class _SectionCard extends StatelessWidget {
 String _formatDateTime(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(value.month)}/${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+}
+
+String _displayValue(String value) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? '-' : trimmed;
 }

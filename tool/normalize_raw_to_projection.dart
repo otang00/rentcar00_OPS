@@ -49,7 +49,7 @@ Future<void> main(List<String> args) async {
           customer_phone,
           status_raw,
           payload_json::text as payload_json
-        from public.rc00_ops_sheet_reservations_raw
+        from public.rc00_ops_reservations_raw
         where sync_run_id = @sync_run_id::uuid
         order by sheet_row_number asc
       '''),
@@ -72,8 +72,14 @@ Future<void> main(List<String> args) async {
       final carName = (mapped['car_name'] as String?)?.trim() ?? '';
       final customerName = (mapped['customer_name'] as String?)?.trim() ?? '';
       final customerPhone = (mapped['customer_phone'] as String?)?.trim() ?? '';
+      final customerBirthDate =
+          (mapped['customer_birth_date_raw'] as String?)?.trim() ?? '';
+      final referralSource =
+          (mapped['referral_source'] as String?)?.trim() ?? '';
+      final paymentAmount =
+          (mapped['payment_amount_raw'] as String?)?.trim() ?? '';
       final locationRaw = (mapped['location_raw'] as String?)?.trim() ?? '';
-      final statusRaw = (mapped['status_raw'] as String?)?.trim() ?? '';
+      final reservationStatus = (mapped['status_raw'] as String?)?.trim() ?? '';
       final startAt = _parseDateTime(
         (mapped['start_at_raw'] as String?)?.trim(),
       );
@@ -89,12 +95,13 @@ Future<void> main(List<String> args) async {
             car_name,
             customer_name,
             customer_phone,
+            customer_birth_date,
+            referral_source,
+            payment_amount,
             start_at,
             end_at,
             pickup_location,
-            status_raw,
-            source_sync_run_id,
-            source_reservation_raw_id,
+            reservation_status,
             last_synced_at,
             meta_json,
             updated_at
@@ -105,12 +112,13 @@ Future<void> main(List<String> args) async {
             @car_name,
             @customer_name,
             @customer_phone,
+            @customer_birth_date,
+            @referral_source,
+            @payment_amount,
             @start_at,
             @end_at,
             @pickup_location,
-            @status_raw,
-            @source_sync_run_id::uuid,
-            @source_reservation_raw_id::uuid,
+            @reservation_status,
             now(),
             @meta_json::jsonb,
             now()
@@ -124,19 +132,20 @@ Future<void> main(List<String> args) async {
           'car_name': carName,
           'customer_name': customerName,
           'customer_phone': customerPhone,
+          'customer_birth_date': customerBirthDate,
+          'referral_source': referralSource,
+          'payment_amount': paymentAmount,
           'start_at': startAt,
           'end_at': endAt,
           'pickup_location': locationRaw,
-          'status_raw': statusRaw,
-          'source_sync_run_id': targetSyncRunId,
-          'source_reservation_raw_id': mapped['id'],
+          'reservation_status': reservationStatus,
           'meta_json': metaJson,
         },
       );
 
       reservationCount++;
       final state = _deriveState(
-        statusRaw: statusRaw,
+        statusRaw: reservationStatus,
         startAt: startAt,
         endAt: endAt,
         customerName: customerName,
@@ -187,9 +196,14 @@ Future<void> main(List<String> args) async {
       stateCount++;
     }
 
+    final carCount = await _refreshOpsCars(conn, targetSyncRunId);
+    final scheduleCount = await _refreshOpsSchedules(conn, targetSyncRunId);
+
     stdout.writeln('normalized_sync_run_id=$targetSyncRunId');
     stdout.writeln('reservation_projection_count=$reservationCount');
     stdout.writeln('state_upsert_count=$stateCount');
+    stdout.writeln('ops_car_upsert_count=$carCount');
+    stdout.writeln('ops_schedule_upsert_count=$scheduleCount');
   } finally {
     await conn.close();
   }
@@ -198,7 +212,7 @@ Future<void> main(List<String> args) async {
 Future<String> _latestSyncRunId(Connection conn) async {
   final result = await conn.execute('''
     select id::text
-    from public.rc00_ops_sheet_sync_runs
+    from public.rc00_ops_import_runs
     order by started_at desc
     limit 1
   ''');
@@ -338,6 +352,123 @@ _NormalizedState _deriveState({
     memoText: isPending ? '예약중 기본 분류' : '정의되지 않은 상태값은 예약중으로 임시 분류',
     completedAt: null,
   );
+}
+
+Future<int> _refreshOpsCars(Connection conn, String syncRunId) async {
+  await conn.execute(
+    'delete from public.rc00_ops_cars where source_car_raw_id is not null',
+  );
+
+  final result = await conn.execute(
+    Sql.named('''
+      insert into public.rc00_ops_cars (
+        car_number,
+        car_name,
+        status,
+        car_wash,
+        interior_wash,
+        start_at,
+        end_at,
+        customer_name,
+        pickup_location,
+        customer_phone,
+        note_text,
+        parking_location,
+        car_registered_at,
+        car_inspection_at,
+        car_age_expiry_at,
+        car_number_front,
+        car_number_middle,
+        car_number_rear,
+        status_action,
+        source_import_run_id,
+        source_car_raw_id,
+        payload_json,
+        last_synced_at,
+        updated_at
+      )
+      select
+        raw.car_number,
+        raw.car_name,
+        raw.status,
+        raw.car_wash,
+        raw.interior_wash,
+        raw.start_at,
+        raw.end_at,
+        raw.customer_name,
+        raw.pickup_location,
+        raw.customer_phone,
+        raw.note_text,
+        raw.parking_location,
+        raw.car_registered_at,
+        raw.car_inspection_at,
+        raw.car_age_expiry_at,
+        raw.car_number_front,
+        raw.car_number_middle,
+        raw.car_number_rear,
+        raw.status_action,
+        raw.sync_run_id,
+        raw.id,
+        raw.payload_json,
+        now(),
+        now()
+      from public.rc00_ops_cars_raw raw
+      where raw.sync_run_id = @sync_run_id::uuid
+        and raw.car_number is not null
+        and btrim(raw.car_number) <> ''
+    '''),
+    parameters: {'sync_run_id': syncRunId},
+  );
+  return result.affectedRows;
+}
+
+Future<int> _refreshOpsSchedules(Connection conn, String syncRunId) async {
+  await conn.execute(
+    'delete from public.rc00_ops_schedules where source_schedule_raw_id is not null',
+  );
+
+  final result = await conn.execute(
+    Sql.named('''
+      insert into public.rc00_ops_schedules (
+        schedule_id,
+        reservation_id,
+        reservation_number,
+        car_number,
+        car_name,
+        schedule_type_raw,
+        schedule_at_raw,
+        location_text,
+        detail_text,
+        partial_return_raw,
+        schedule_done_raw,
+        source_import_run_id,
+        source_schedule_raw_id,
+        payload_json,
+        updated_at
+      )
+      select
+        raw.schedule_id,
+        raw.reservation_id,
+        raw.reservation_number,
+        raw.car_number,
+        raw.car_name,
+        raw.schedule_type_raw,
+        raw.schedule_at_raw,
+        raw.location_raw,
+        raw.detail_text,
+        raw.partial_return_raw,
+        raw.schedule_done_raw,
+        raw.sync_run_id,
+        raw.id,
+        raw.payload_json,
+        now()
+      from public.rc00_ops_schedules_raw raw
+      where raw.sync_run_id = @sync_run_id::uuid
+        and raw.schedule_type_raw in ('배차', '반납')
+    '''),
+    parameters: {'sync_run_id': syncRunId},
+  );
+  return result.affectedRows;
 }
 
 class _NormalizedState {

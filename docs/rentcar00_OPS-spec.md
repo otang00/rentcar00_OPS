@@ -150,13 +150,13 @@
 - 카드 선택 시 예약 상세 화면으로 이동한다.
 
 APK 운영 규칙:
-- Android APK를 다시 배포할 때는 매번 `versionCode` 를 증가시킨다.
-- 현재 기준 버전은 `1.0.0+5` 이다.
-- 다음 APK 배포 시에는 `+3`, 그다음은 `+4`처럼 build number를 1씩 올린다.
-- 앞으로 기본 배포물은 `전용 단일 release APK` 기준으로 고정한다.
+- Android APK를 다시 배포할 때는 매번 `versionCode` 를 1씩 증가시킨다.
+- 기본 배포물은 `arm64 전용 release APK` 기준으로 고정한다.
 - debug APK는 내부 테스트 외 기본 배포물로 쓰지 않는다.
 - Google Drive 업로드는 반드시 `rclone` 으로 한다.
-- 업로드 파일명에는 커밋 sha 또는 build number를 포함한다.
+- 업로드 위치는 `gdrive:rentcar00_OPS/apk/` 로 고정한다.
+- 업로드 파일명은 `rentcar00_ops-app-release-arm64-b<build>-<sha>.apk` 형식을 따른다.
+- zip 으로 우회하지 않고 APK 원본을 그대로 올린다.
 
 ## 8. 예약 상세 화면
 예약 상세 화면에는 아래 내용을 포함한다.

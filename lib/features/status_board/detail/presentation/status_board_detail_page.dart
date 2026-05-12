@@ -33,15 +33,170 @@ class StatusBoardDetailPage extends ConsumerWidget {
   }
 }
 
-class _VehicleDetailBody extends ConsumerWidget {
+class _VehicleDetailBody extends ConsumerStatefulWidget {
   const _VehicleDetailBody({required this.recordId, required this.record});
 
   final String recordId;
   final StatusBoardRecord record;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final relatedSchedulesAsync = ref.watch(relatedSchedulesProvider(recordId));
+  ConsumerState<_VehicleDetailBody> createState() => _VehicleDetailBodyState();
+}
+
+class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
+  bool _submitting = false;
+
+  StatusBoardRecord get record => widget.record;
+
+  Future<void> _runAction(Future<void> Function() action) async {
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    try {
+      await action();
+      if (!mounted) return;
+      ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(allReservationsProvider);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _createReservation() async {
+    final form = await showDialog<_ReservationCreateFormResult>(
+      context: context,
+      builder: (context) => _ReservationCreateDialog(record: record),
+    );
+    if (form == null) return;
+
+    await _runAction(() async {
+      final reservationId = await ref
+          .read(supabaseOpsRepositoryProvider)
+          .createReservationFromVehicle(
+            car: record,
+            reservationNumber: form.reservationNumber,
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            customerBirthDate: form.customerBirthDate,
+            referralSource: form.referralSource,
+            paymentAmount: form.paymentAmount,
+            startAt: form.startAt,
+            endAt: form.endAt,
+            pickupLocation: form.pickupLocation,
+            dropoffLocation: form.dropoffLocation,
+            noteText: form.noteText,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('예약원장과 일정 2건을 생성했습니다.')));
+      context.push(
+        AppRoutes.reservationDetail.replaceFirst(
+          ':reservationId',
+          Uri.encodeComponent(reservationId),
+        ),
+      );
+    });
+  }
+
+  Future<void> _openInstantStatus(String status, String statusAction) async {
+    final form = await showDialog<_InstantStatusFormResult>(
+      context: context,
+      builder: (context) =>
+          _InstantStatusDialog(record: record, title: statusAction),
+    );
+    if (form == null) return;
+
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .updateCarInstantStatus(
+            carRowId: carRowId,
+            status: status,
+            statusAction: statusAction,
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            startAt: form.startAt,
+            endAt: form.endAt,
+            pickupLocation: form.pickupLocation,
+            parkingLocation: form.parkingLocation,
+            noteText: form.noteText,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$statusAction 상태로 저장했습니다.')));
+    });
+  }
+
+  Future<void> _toggleWash({required bool interior}) async {
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    final current = interior ? record.interiorWash : record.carWash;
+    final next = !_isTruthy(current);
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .setCarWashFlag(carRowId: carRowId, interior: interior, active: next);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${interior ? '실내세차' : '외부세차'}를 ${next ? '완료' : '해제'}했습니다.',
+          ),
+        ),
+      );
+    });
+  }
+
+  Future<void> _editParking() async {
+    final parkingLocation = await showDialog<String>(
+      context: context,
+      builder: (context) =>
+          _ParkingLocationDialog(initialValue: record.parkingLocation),
+    );
+    if (parkingLocation == null) return;
+
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .updateParkingLocation(
+            carRowId: carRowId,
+            parkingLocation: parkingLocation,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('주차지를 저장했습니다.')));
+    });
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final relatedSchedulesAsync = ref.watch(
+      relatedSchedulesProvider(widget.recordId),
+    );
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -75,6 +230,63 @@ class _VehicleDetailBody extends ConsumerWidget {
               color: colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _SectionCard(
+          title: '기능',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_submitting) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 12),
+              ],
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ActionChipButton(
+                    label: '예약생성',
+                    onPressed: _submitting ? null : _createReservation,
+                  ),
+                  _ActionChipButton(
+                    label: '보험대차',
+                    onPressed: _submitting
+                        ? null
+                        : () => _openInstantStatus('보험', '배차 보험'),
+                  ),
+                  _ActionChipButton(
+                    label: '일반대차',
+                    onPressed: _submitting
+                        ? null
+                        : () => _openInstantStatus('일반', '배차 일반'),
+                  ),
+                  _ActionChipButton(
+                    label: '장기대차',
+                    onPressed: _submitting
+                        ? null
+                        : () => _openInstantStatus('장기', '배차 장기'),
+                  ),
+                  _ActionChipButton(
+                    label: _isTruthy(record.carWash) ? '외부세차 해제' : '외부세차',
+                    onPressed: _submitting
+                        ? null
+                        : () => _toggleWash(interior: false),
+                  ),
+                  _ActionChipButton(
+                    label: _isTruthy(record.interiorWash) ? '실내세차 해제' : '실내세차',
+                    onPressed: _submitting
+                        ? null
+                        : () => _toggleWash(interior: true),
+                  ),
+                  _ActionChipButton(
+                    label: '주차',
+                    onPressed: _submitting ? null : _editParking,
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 14),
@@ -184,6 +396,421 @@ class _VehicleDetailBody extends ConsumerWidget {
               _FieldBlock(label: '비고', value: record.noteText, multiline: true),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActionChipButton extends StatelessWidget {
+  const _ActionChipButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonal(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      ),
+      child: Text(label),
+    );
+  }
+}
+
+class _ReservationCreateDialog extends StatefulWidget {
+  const _ReservationCreateDialog({required this.record});
+
+  final StatusBoardRecord record;
+
+  @override
+  State<_ReservationCreateDialog> createState() =>
+      _ReservationCreateDialogState();
+}
+
+class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _reservationNumberController;
+  late final TextEditingController _customerNameController;
+  late final TextEditingController _customerPhoneController;
+  late final TextEditingController _customerBirthDateController;
+  late final TextEditingController _referralSourceController;
+  late final TextEditingController _paymentAmountController;
+  late final TextEditingController _pickupLocationController;
+  late final TextEditingController _dropoffLocationController;
+  late final TextEditingController _noteController;
+  late final TextEditingController _startAtController;
+  late final TextEditingController _endAtController;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    final end = start.add(const Duration(days: 1));
+    _reservationNumberController = TextEditingController();
+    _customerNameController = TextEditingController();
+    _customerPhoneController = TextEditingController();
+    _customerBirthDateController = TextEditingController();
+    _referralSourceController = TextEditingController();
+    _paymentAmountController = TextEditingController();
+    _pickupLocationController = TextEditingController();
+    _dropoffLocationController = TextEditingController();
+    _noteController = TextEditingController();
+    _startAtController = TextEditingController(
+      text: _formatEditorDateTime(start),
+    );
+    _endAtController = TextEditingController(text: _formatEditorDateTime(end));
+  }
+
+  Future<void> _pickDateTime(TextEditingController controller) async {
+    final now = DateTime.now();
+    final initial = _tryParseDateTime(controller.text.trim()) ?? now;
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (pickedTime == null || !mounted) return;
+
+    final combined = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    setState(() {
+      controller.text = _formatEditorDateTime(combined);
+    });
+  }
+
+  @override
+  void dispose() {
+    _reservationNumberController.dispose();
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
+    _customerBirthDateController.dispose();
+    _referralSourceController.dispose();
+    _paymentAmountController.dispose();
+    _pickupLocationController.dispose();
+    _dropoffLocationController.dispose();
+    _noteController.dispose();
+    _startAtController.dispose();
+    _endAtController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('예약생성'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _DialogTextField(
+                  controller: _reservationNumberController,
+                  label: '외부예약번호',
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _customerNameController,
+                  label: '이용자/고객명',
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _customerPhoneController,
+                  label: '고객번호',
+                ),
+                _DialogTextField(
+                  controller: _customerBirthDateController,
+                  label: '생년월일',
+                  hintText: '1990-01-31',
+                ),
+                _DialogTextField(
+                  controller: _referralSourceController,
+                  label: '소개처',
+                ),
+                _DialogTextField(
+                  controller: _paymentAmountController,
+                  label: '가격',
+                  hintText: '100000',
+                ),
+                _DialogTextField(
+                  controller: _startAtController,
+                  label: '배차일시',
+                  hintText: '2026-05-11 10:00',
+                  validator: _dateTimeValidator,
+                  readOnly: true,
+                  onTap: () => _pickDateTime(_startAtController),
+                  suffixIcon: const Icon(Icons.calendar_today_outlined),
+                ),
+                _DialogTextField(
+                  controller: _endAtController,
+                  label: '반납일시',
+                  hintText: '2026-05-12 10:00',
+                  validator: _dateTimeValidator,
+                  readOnly: true,
+                  onTap: () => _pickDateTime(_endAtController),
+                  suffixIcon: const Icon(Icons.calendar_today_outlined),
+                ),
+                _DialogTextField(
+                  controller: _pickupLocationController,
+                  label: '배차지',
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _dropoffLocationController,
+                  label: '반납지',
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _noteController,
+                  label: '비고',
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            final startAt = _tryParseDateTime(_startAtController.text.trim());
+            final endAt = _tryParseDateTime(_endAtController.text.trim());
+            if (startAt == null || endAt == null) return;
+            if (endAt.isBefore(startAt)) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('반납일시는 배차일시 이후여야 합니다.')),
+              );
+              return;
+            }
+            Navigator.of(context).pop(
+              _ReservationCreateFormResult(
+                reservationNumber: _reservationNumberController.text.trim(),
+                customerName: _customerNameController.text.trim(),
+                customerPhone: _customerPhoneController.text.trim(),
+                customerBirthDate: _customerBirthDateController.text.trim(),
+                referralSource: _referralSourceController.text.trim(),
+                paymentAmount: _paymentAmountController.text.trim(),
+                startAt: startAt,
+                endAt: endAt,
+                pickupLocation: _pickupLocationController.text.trim(),
+                dropoffLocation: _dropoffLocationController.text.trim(),
+                noteText: _noteController.text.trim(),
+              ),
+            );
+          },
+          child: const Text('생성'),
+        ),
+      ],
+    );
+  }
+}
+
+class _InstantStatusDialog extends StatefulWidget {
+  const _InstantStatusDialog({required this.record, required this.title});
+
+  final StatusBoardRecord record;
+  final String title;
+
+  @override
+  State<_InstantStatusDialog> createState() => _InstantStatusDialogState();
+}
+
+class _InstantStatusDialogState extends State<_InstantStatusDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _customerNameController;
+  late final TextEditingController _customerPhoneController;
+  late final TextEditingController _pickupLocationController;
+  late final TextEditingController _parkingLocationController;
+  late final TextEditingController _noteController;
+  late final TextEditingController _startAtController;
+  late final TextEditingController _endAtController;
+
+  @override
+  void initState() {
+    super.initState();
+    _customerNameController = TextEditingController(
+      text: widget.record.customerName,
+    );
+    _customerPhoneController = TextEditingController(
+      text: widget.record.customerPhone,
+    );
+    _pickupLocationController = TextEditingController(
+      text: widget.record.pickupLocation,
+    );
+    _parkingLocationController = TextEditingController(
+      text: widget.record.parkingLocation,
+    );
+    _noteController = TextEditingController(text: widget.record.noteText);
+    _startAtController = TextEditingController(text: widget.record.startAt);
+    _endAtController = TextEditingController(text: widget.record.endAt);
+  }
+
+  @override
+  void dispose() {
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
+    _pickupLocationController.dispose();
+    _parkingLocationController.dispose();
+    _noteController.dispose();
+    _startAtController.dispose();
+    _endAtController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _DialogTextField(
+                  controller: _customerNameController,
+                  label: '이용자/고객명',
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _customerPhoneController,
+                  label: '고객번호',
+                ),
+                _DialogTextField(
+                  controller: _startAtController,
+                  label: '대여일시',
+                  hintText: '2026-05-11 10:00',
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _endAtController,
+                  label: '반납일시',
+                  hintText: '2026-05-12 10:00',
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _pickupLocationController,
+                  label: '배차지',
+                ),
+                _DialogTextField(
+                  controller: _parkingLocationController,
+                  label: '주차지',
+                ),
+                _DialogTextField(
+                  controller: _noteController,
+                  label: '비고',
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            final startAt = _tryParseDateTime(_startAtController.text.trim());
+            final endAt = _tryParseDateTime(_endAtController.text.trim());
+            if (startAt == null || endAt == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('대여/반납 일시 형식을 확인해 주세요.')),
+              );
+              return;
+            }
+            Navigator.of(context).pop(
+              _InstantStatusFormResult(
+                customerName: _customerNameController.text.trim(),
+                customerPhone: _customerPhoneController.text.trim(),
+                startAt: startAt,
+                endAt: endAt,
+                pickupLocation: _pickupLocationController.text.trim(),
+                parkingLocation: _parkingLocationController.text.trim(),
+                noteText: _noteController.text.trim(),
+              ),
+            );
+          },
+          child: const Text('저장'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ParkingLocationDialog extends StatefulWidget {
+  const _ParkingLocationDialog({required this.initialValue});
+
+  final String initialValue;
+
+  @override
+  State<_ParkingLocationDialog> createState() => _ParkingLocationDialogState();
+}
+
+class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('주차지 수정'),
+      content: SizedBox(
+        width: 360,
+        child: _DialogTextField(
+          controller: _controller,
+          label: '주차지',
+          autofocus: true,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('저장'),
         ),
       ],
     );
@@ -420,4 +1047,137 @@ class _LinkedFieldBlock extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DialogTextField extends StatelessWidget {
+  const _DialogTextField({
+    required this.controller,
+    required this.label,
+    this.validator,
+    this.maxLines = 1,
+    this.hintText,
+    this.autofocus = false,
+    this.readOnly = false,
+    this.onTap,
+    this.suffixIcon,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String? Function(String?)? validator;
+  final int maxLines;
+  final String? hintText;
+  final bool autofocus;
+  final bool readOnly;
+  final VoidCallback? onTap;
+  final Widget? suffixIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextFormField(
+        controller: controller,
+        autofocus: autofocus,
+        validator: validator,
+        maxLines: maxLines,
+        readOnly: readOnly,
+        onTap: onTap,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hintText,
+          suffixIcon: suffixIcon,
+          border: const OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReservationCreateFormResult {
+  const _ReservationCreateFormResult({
+    required this.reservationNumber,
+    required this.customerName,
+    required this.customerPhone,
+    required this.customerBirthDate,
+    required this.referralSource,
+    required this.paymentAmount,
+    required this.startAt,
+    required this.endAt,
+    required this.pickupLocation,
+    required this.dropoffLocation,
+    required this.noteText,
+  });
+
+  final String reservationNumber;
+  final String customerName;
+  final String customerPhone;
+  final String customerBirthDate;
+  final String referralSource;
+  final String paymentAmount;
+  final DateTime startAt;
+  final DateTime endAt;
+  final String pickupLocation;
+  final String dropoffLocation;
+  final String noteText;
+}
+
+class _InstantStatusFormResult {
+  const _InstantStatusFormResult({
+    required this.customerName,
+    required this.customerPhone,
+    required this.startAt,
+    required this.endAt,
+    required this.pickupLocation,
+    required this.parkingLocation,
+    required this.noteText,
+  });
+
+  final String customerName;
+  final String customerPhone;
+  final DateTime startAt;
+  final DateTime endAt;
+  final String pickupLocation;
+  final String parkingLocation;
+  final String noteText;
+}
+
+String _formatEditorDateTime(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+}
+
+DateTime? _tryParseDateTime(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return null;
+  return DateTime.tryParse(raw.replaceFirst(' ', 'T')) ??
+      DateTime.tryParse(raw);
+}
+
+String? _requiredValidator(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return '필수 입력입니다.';
+  }
+  return null;
+}
+
+String? _dateTimeValidator(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return '필수 입력입니다.';
+  }
+  if (_tryParseDateTime(value) == null) {
+    return '예: 2026-05-11 10:00';
+  }
+  return null;
+}
+
+String? _extractRawRowId(String recordId, String prefix) {
+  final expected = '$prefix:';
+  if (!recordId.startsWith(expected)) return null;
+  return recordId.substring(expected.length);
+}
+
+bool _isTruthy(String value) {
+  final raw = value.trim().toLowerCase();
+  return raw == 'true' || raw == 'y' || raw == 'yes' || raw == '1';
 }

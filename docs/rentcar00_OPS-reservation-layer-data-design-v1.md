@@ -38,6 +38,8 @@
 - migration:
   - `projects/rentcar00_OPS/supabase/migrations/20260508154107_initial_rc00_ops_schema.sql`
   - `projects/rentcar00_OPS/supabase/migrations/20260509002000_simplify_reservation_states.sql`
+  - `projects/rentcar00_OPS/supabase/migrations/20260510121500_add_sheet1_cars_table.sql`
+  - `projects/rentcar00_OPS/supabase/migrations/20260511195000_split_raw_and_ops_tables.sql`
 
 ## 3. 원본 시트 구조
 ### 예약 시트 헤더
@@ -71,7 +73,7 @@
 ## 4. 원본 해석 기준
 - 예약 원장 생성 기준은 `예약` 시트다.
 - `일정` 시트는 연결 보강용이다.
-- projection 연결 우선순위는 아래와 같다.
+- ops 연결 우선순위는 아래와 같다.
   1. `예약ID`
   2. `예약번호` unique
   3. 그 외는 orphan raw 유지
@@ -132,41 +134,54 @@ dart run tool/inspect_google_sheets.dart <service-account.json> <spreadsheet-id>
 dart run tool/normalize_raw_to_projection.dart <db-password>
 ```
 
+주의:
+- 스크립트 이름은 아직 `projection` 이지만 현재 의미는 raw → ops 변환이다.
+
 ## 7. Supabase 구조
 한 줄 구조:
-`Google Sheets -> raw tables -> projection tables -> state tables -> app`
+`Google Sheets -> raw tables -> ops tables -> state tables -> app`
 
 ### raw 원본 계층
-1. `rc00_ops_sheet_sync_runs`
-2. `rc00_ops_sheet_reservations_raw`
-3. `rc00_ops_sheet_schedules_raw`
+1. `rc00_ops_import_runs`
+2. `rc00_ops_cars_raw`
+3. `rc00_ops_reservations_raw`
+4. `rc00_ops_schedules_raw`
 
-### projection 원장 계층
-4. `rc00_ops_reservations`
+규칙:
+- import 원본 보존 전용
+- 앱 운영 write 금지
+
+### ops 원장 계층
+5. `rc00_ops_cars`
+6. `rc00_ops_reservations`
+7. `rc00_ops_schedules`
 
 ### 현재 업무 상태 계층
-5. `rc00_ops_reservation_states`
+8. `rc00_ops_reservation_states`
 
 ### 실행 기록 계층
-6. `rc00_ops_action_logs`
-7. `rc00_ops_outbox`
+9. `rc00_ops_action_logs`
+10. `rc00_ops_outbox`
 
 ## 8. 테이블 생성 순서
-1. `rc00_ops_sheet_sync_runs`
-2. `rc00_ops_sheet_reservations_raw`
-3. `rc00_ops_sheet_schedules_raw`
-4. `rc00_ops_reservations`
-5. `rc00_ops_reservation_states`
-6. `rc00_ops_action_logs`
-7. `rc00_ops_outbox`
+1. `rc00_ops_import_runs`
+2. `rc00_ops_cars_raw`
+3. `rc00_ops_reservations_raw`
+4. `rc00_ops_schedules_raw`
+5. `rc00_ops_cars`
+6. `rc00_ops_reservations`
+7. `rc00_ops_schedules`
+8. `rc00_ops_reservation_states`
+9. `rc00_ops_action_logs`
+10. `rc00_ops_outbox`
 
 이 순서를 먼저 지키는 이유:
-- raw 가 먼저 있어야 projection 검증이 가능하다
-- projection 이 있어야 state 를 계산할 수 있다
+- raw 가 먼저 있어야 ops 검증이 가능하다
+- ops 원장이 있어야 state 를 계산할 수 있다
 - state 가 있어야 action / outbox 가 의미를 가진다
 
 ## 9. 최소 필드 기준
-### `rc00_ops_sheet_reservations_raw`
+### `rc00_ops_reservations_raw`
 - `sync_run_id`
 - `sheet_row_number`
 - `reservation_id`
@@ -185,7 +200,7 @@ dart run tool/normalize_raw_to_projection.dart <db-password>
 - `payload_json`
 - `imported_at`
 
-### `rc00_ops_sheet_schedules_raw`
+### `rc00_ops_schedules_raw`
 - `sync_run_id`
 - `sheet_row_number`
 - `schedule_id`
@@ -201,6 +216,24 @@ dart run tool/normalize_raw_to_projection.dart <db-password>
 - `schedule_done_raw`
 - `payload_json`
 - `imported_at`
+
+### `rc00_ops_cars_raw`
+- `sync_run_id`
+- `sheet_row_number`
+- `car_number`
+- `car_name`
+- `status`
+- `car_wash`
+- `interior_wash`
+- `start_at`
+- `end_at`
+- `customer_name`
+- `pickup_location`
+- `customer_phone`
+- `note_text`
+- `parking_location`
+- `status_action`
+- `payload_json`
 
 ### `rc00_ops_reservations`
 - `reservation_id`
@@ -221,6 +254,41 @@ dart run tool/normalize_raw_to_projection.dart <db-password>
 - `note_text`
 - `meta_json`
 
+### `rc00_ops_cars`
+- `car_number`
+- `car_name`
+- `status`
+- `car_wash`
+- `interior_wash`
+- `start_at`
+- `end_at`
+- `customer_name`
+- `pickup_location`
+- `customer_phone`
+- `note_text`
+- `parking_location`
+- `status_action`
+- `source_import_run_id`
+- `source_car_raw_id`
+- `payload_json`
+- `last_synced_at`
+
+### `rc00_ops_schedules`
+- `schedule_id`
+- `reservation_id`
+- `reservation_number`
+- `car_number`
+- `car_name`
+- `schedule_type_raw`
+- `schedule_at_raw`
+- `location_text`
+- `detail_text`
+- `partial_return_raw`
+- `schedule_done_raw`
+- `source_import_run_id`
+- `source_schedule_raw_id`
+- `payload_json`
+
 ### `rc00_ops_reservation_states`
 - `reservation_id`
 - `reservation_ref_id`
@@ -239,6 +307,7 @@ dart run tool/normalize_raw_to_projection.dart <db-password>
 - MVP 에서는 outbox dry-run 까지만 허용
 - AppSheet API 직접 호출 안 함
 - AppSheet/기존 봇은 시트 변경에 반응하는 후속 자동화 레이어로 본다
+- 앱 운영 write 는 `rc00_ops_cars / rc00_ops_reservations / rc00_ops_schedules` 에만 허용한다
 
 ## 11. 바로 볼 문서
 - 예약 UI / 상태 전이 / 업무 흐름: `rentcar00_OPS-reservation-layer-design-v1.md`

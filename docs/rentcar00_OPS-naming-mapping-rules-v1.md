@@ -26,7 +26,7 @@
 
 예:
 - `rc00_ops_reservations`
-- `rc00_ops_schedule_events`
+- `rc00_ops_schedules`
 - `rc00_ops_action_logs`
 - `rc00_ops_tab_pending`
 - `rc00_ops_action_request_delivery`
@@ -140,7 +140,9 @@
 - `car_name`
 
 원칙:
-- OPS source 는 시트다.
+- OPS raw source 는 시트다.
+- `*_raw` 는 import 원본 보존 전용이다.
+- raw 없는 이름은 앱이 실제로 읽고 쓰는 운영 테이블이다.
 - 차량 마스터 참조는 기존 `cars` 를 재사용한다.
 - 예약 source 를 기존 예약 테이블로 바꾸지 않는다.
 
@@ -148,11 +150,19 @@
 
 ## 5. 리소스명 규칙
 ### 5-1. 테이블
+#### RAW
+- `rc00_ops_import_runs`
+- `rc00_ops_cars_raw`
+- `rc00_ops_reservations_raw`
+- `rc00_ops_schedules_raw`
+
+#### OPS
+- `rc00_ops_cars`
 - `rc00_ops_reservations`
+- `rc00_ops_schedules`
 - `rc00_ops_reservation_states`
-- `rc00_ops_schedule_events`
 - `rc00_ops_action_logs`
-- `rc00_ops_sheet_sync_runs`
+- `rc00_ops_outbox`
 
 ### 5-2. 뷰
 - `rc00_ops_reservation_cards`

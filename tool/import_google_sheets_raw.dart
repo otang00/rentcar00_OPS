@@ -66,7 +66,7 @@ Future<void> main(List<String> args) async {
 
     await conn.execute(
       Sql.named('''
-        update public.rc00_ops_sheet_sync_runs
+        update public.rc00_ops_import_runs
         set status = @status,
             finished_at = now(),
             meta_json = @meta::jsonb
@@ -92,7 +92,7 @@ Future<void> main(List<String> args) async {
     if (conn != null && syncRunId != null) {
       await conn.execute(
         Sql.named('''
-          update public.rc00_ops_sheet_sync_runs
+          update public.rc00_ops_import_runs
           set status = @status,
               finished_at = now(),
               error_text = @error_text
@@ -129,7 +129,7 @@ Future<int> _insertCarRows(
 
     await conn.execute(
       Sql.named('''
-        insert into public.rc00_ops_sheet_cars (
+        insert into public.rc00_ops_cars_raw (
           sync_run_id,
           sheet_row_number,
           car_number,
@@ -225,7 +225,7 @@ Future<List<List<String>>> _readSheet(
 Future<String> _createSyncRun(Connection conn, String spreadsheetId) async {
   final result = await conn.execute(
     Sql.named('''
-      insert into public.rc00_ops_sheet_sync_runs (
+      insert into public.rc00_ops_import_runs (
         source_type,
         status,
         meta_json
@@ -262,7 +262,7 @@ Future<int> _insertReservationRows(
 
     await conn.execute(
       Sql.named('''
-        insert into public.rc00_ops_sheet_reservations_raw (
+        insert into public.rc00_ops_reservations_raw (
           sync_run_id,
           sheet_row_number,
           reservation_id,
@@ -339,7 +339,7 @@ Future<int> _insertScheduleRows(
 
     await conn.execute(
       Sql.named('''
-        insert into public.rc00_ops_sheet_schedules_raw (
+        insert into public.rc00_ops_schedules_raw (
           sync_run_id,
           sheet_row_number,
           schedule_id,

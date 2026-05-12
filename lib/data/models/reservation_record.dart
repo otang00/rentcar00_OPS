@@ -7,6 +7,9 @@ class ReservationRecord {
     required this.reservationNumber,
     required this.customerName,
     required this.customerPhone,
+    required this.customerBirthDate,
+    required this.referralSource,
+    required this.paymentAmount,
     required this.carNumber,
     required this.carName,
     required this.tab,
@@ -24,6 +27,9 @@ class ReservationRecord {
   final String reservationNumber;
   final String customerName;
   final String customerPhone;
+  final String customerBirthDate;
+  final String referralSource;
+  final String paymentAmount;
   final String carNumber;
   final String carName;
   final ReservationTab tab;
@@ -41,6 +47,9 @@ class ReservationRecord {
     String? reservationNumber,
     String? customerName,
     String? customerPhone,
+    String? customerBirthDate,
+    String? referralSource,
+    String? paymentAmount,
     String? carNumber,
     String? carName,
     ReservationTab? tab,
@@ -58,6 +67,9 @@ class ReservationRecord {
       reservationNumber: reservationNumber ?? this.reservationNumber,
       customerName: customerName ?? this.customerName,
       customerPhone: customerPhone ?? this.customerPhone,
+      customerBirthDate: customerBirthDate ?? this.customerBirthDate,
+      referralSource: referralSource ?? this.referralSource,
+      paymentAmount: paymentAmount ?? this.paymentAmount,
       carNumber: carNumber ?? this.carNumber,
       carName: carName ?? this.carName,
       tab: tab ?? this.tab,

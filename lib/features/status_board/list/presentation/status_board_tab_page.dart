@@ -516,6 +516,9 @@ class _IdleGroupHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 7),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: isFirst
+            ? null
+            : const BorderRadius.vertical(top: Radius.circular(12)),
         border: Border(
           top: isFirst
               ? BorderSide.none

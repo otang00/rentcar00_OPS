@@ -59,43 +59,29 @@
 - 원본 시트 `예약상태` 값은 `status_raw` 로 유지한다.
 - 탭 계산은 `status_raw + start_at + end_at` 기준을 우선한다.
 - Google Sheets write는 실운영 트리거이므로 **최종 phase 전까지 금지**한다.
-- 초기 단계는 read-only import + 내부 상태 저장 + outbox dry-run까지만 허용한다.
+- RAW 테이블은 import 원본 보존 전용이며 앱 운영 write 금지다.
+- 앱 운영 write 는 `rc00_ops_cars / rc00_ops_reservations / rc00_ops_schedules` 에만 허용한다.
 
 ## 5. 현재 phase
 현재 기준 phase:
-- **Phase 3 앱 골격 완료 / Supabase 연결 준비 단계**
+- **Phase 5 raw/ops 분리 이후 예약 처리 로직 보강 단계**
 
-현재 완료:
-- 제품 기준 문서 정리
-- 설계 문서 정리
-- DB 구조 초안 정리
-- 네이밍 규칙 정리
-- 시트 write 금지 원칙 반영
-- 액션 → 체크 → status 표 잠금
-- outbound 최소 항목 잠금
-- Flutter 제작 구조 잠금
-- raw import / 레거시 일정 정규화 규칙 잠금
-- Flutter 프로젝트 생성 및 메인 라우팅 구성
-- 5탭 메인 구조 / 공용 상세 / Sync / Search 화면 골격 구현
-- 메인 카드를 한 줄 중심 얇은 리스트로 축약
-- Supabase 프로젝트 생성
-- 앱용 공개 env 와 작업용 secret env 분리
+완료 이력:
+- 지난 구현/배포/마이그레이션 완료 내역은 archive 문서로 이동했다.
 
 현재 진행 대상:
-- Flutter dotenv 연결
-- Supabase client 초기화
-- Supabase CRUD / repository 뼈대 생성
+- 예약 normalize 기준 재정리
+- `rc00_ops_reservations` 와 `rc00_ops_schedules` 연결 보강
+- 예약 액션 상세 write 규칙 보강
 - outbox dry-run 검증 시나리오 정리
 
 ## 6. 다음 작업 순서
-1. Flutter dotenv 연결
-2. Supabase client 초기화 및 연결 검증
-3. `rentcar00_OPS-reservation-layer-data-design-v1.md` 기준으로 Supabase 스키마 / migration 작성
-4. mock repository → Supabase repository 교체
-5. read-only sync 화면 / importer 구조 연결
-6. 액션 / 체크 / status 로직 연결
-7. outbox dry-run 연결
-8. 마지막 phase 전까지는 시트 apply 금지 유지
+1. 예약 normalize 기준 재정리
+2. `rc00_ops_reservations` 와 `rc00_ops_schedules` 연결 보강
+3. 예약 액션 / 체크 / status write 규칙 보강
+4. outbox dry-run 연결
+5. AppSheet 원본과 충돌 없는 최소 write 경계 재확인
+6. 마지막 phase 전까지는 시트 apply 금지 유지
 
 ## 7. 업무 흐름 요약
 이 앱은 상단 `예약 / 현황판` 2개 레이어를 가지지만,
