@@ -163,11 +163,13 @@ IMS 전송 전 아래를 점검한다.
   - AI파서 사용 시 원문 전체 메모 저장
 - Phase 4: IMS payload mapper / compact memo / preflight validation 초안 반영
 - Phase 5: 파서 서버 `POST /ims/create-reservation` endpoint 초안 반영
-- 미완료:
-  - endpoint 실호출 검증
+- 완료:
   - 예약생성 IMS 체크 UI 연결
   - 성공/실패 확인줄 연결
+- 미완료:
+  - endpoint 실호출 검증
   - 실제 IMS 저장 테스트
+  - 예약 상세/원장 독립 액션 연결
 
 ## 12. 실구현 진입 기준
 아래가 준비되면 UI 연결과 실테스트 단계로 진입 가능으로 본다.

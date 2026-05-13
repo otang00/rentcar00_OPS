@@ -4,10 +4,12 @@
 예약 원장 형식 잠금 + IMS 예약추가 구조 설계.
 
 ## 2. 현재 범위
-- Phase 3. AI파서 후처리 보강 진행 완료
-- Phase 4. IMS projection / memo builder 준비 코드 반영
-- Phase 5. 서버측 IMS endpoint 초안 반영
-- 아직 IMS 실제 저장 테스트와 앱 IMS 체크 UI 연결은 하지 않았다.
+- Phase 3. AI파서 후처리 보강 완료
+- Phase 4. IMS projection / memo builder 준비 코드 반영 완료
+- Phase 5. 서버측 IMS endpoint 초안 반영 완료
+- Phase 6. 예약생성 IMS 체크 UI 연결 완료
+- Phase 7. 성공/실패 확인줄 연결 완료
+- 아직 IMS dry-run / 실제 저장 테스트는 하지 않았다.
 
 ## 3. 오늘 잠금 스냅샷 (2026-05-13 23:54 KST)
 - IMS 예약추가는 **파싱 기능의 부속이 아니라 원장 기반 독립 기능**으로 본다.
@@ -63,7 +65,6 @@
 - 파서 서버 `POST /ims/create-reservation` endpoint 초안 반영 완료
 
 ## 7. 다음 단계 미리보기
-- Phase 5. IMS endpoint request/response shape 최종 점검
-- Phase 6. 앱 예약생성 IMS 체크 UI 연결
-- Phase 7. 성공/실패 확인줄 연결
-- Phase 8. dry-run / 실제 저장 테스트
+- Phase 8. IMS endpoint dry-run 호출 검증
+- Phase 9. 실제 저장 테스트
+- Phase 10. 예약 상세/원장 독립 `IMS 예약추가` 액션 연결

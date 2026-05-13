@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
+import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
+import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
+import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
+import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/status_board/detail/data/reservation_ai_parser_client.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
@@ -92,9 +96,53 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
             noteText: form.noteText,
           );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('예약원장과 일정 2건을 생성했습니다.')));
+
+      if (form.imsChecked) {
+        final reservation = _buildReservationRecordForIms(
+          reservationId: reservationId,
+          form: form,
+        );
+        final payloadResult = buildImsReservationPayload(reservation);
+
+        if (!payloadResult.isValid) {
+          _showImsFailure(
+            'payload 오류: ${payloadResult.errors.join(', ')} · 예약원장은 생성됨',
+          );
+        } else {
+          try {
+            final client = ImsReservationClient(
+              baseUrl: appEnv.aiParserBaseUrl,
+            );
+            final result = await client.createReservation(
+              payloadResult.payload,
+            );
+            if (!mounted) return;
+
+            if (result.isSuccess) {
+              _showImsSuccess(
+                carNumber: reservation.carNumber,
+                startAt: reservation.startAt,
+                dryRun: result.code == 'DRY_RUN',
+              );
+            } else {
+              _showImsFailure(
+                result.message.isEmpty ? result.code : result.message,
+              );
+            }
+          } on ImsReservationClientException catch (error) {
+            if (!mounted) return;
+            _showImsFailure(error.message);
+          } catch (error) {
+            if (!mounted) return;
+            _showImsFailure('$error');
+          }
+        }
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('예약원장과 일정 2건을 생성했습니다.')));
+      }
+
       context.push(
         AppRoutes.reservationDetail.replaceFirst(
           ':reservationId',
@@ -190,6 +238,60 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         context,
       ).showSnackBar(const SnackBar(content: Text('주차지를 저장했습니다.')));
     });
+  }
+
+  ReservationRecord _buildReservationRecordForIms({
+    required String reservationId,
+    required _ReservationCreateFormResult form,
+  }) {
+    return ReservationRecord(
+      reservationId: reservationId,
+      reservationNumber: form.reservationNumber,
+      customerName: form.customerName,
+      customerPhone: form.customerPhone,
+      customerBirthDate: form.customerBirthDate,
+      referralSource: form.referralSource,
+      paymentAmount: form.paymentAmount,
+      carNumber: record.carNumber,
+      carName: record.carName,
+      tab: ReservationTab.pending,
+      statusKey: '예약중',
+      startAt: form.startAt,
+      endAt: form.endAt,
+      locationSummary: form.pickupLocation,
+      noteText: form.noteText,
+      primaryBadges: const [],
+      checkPayload: const {},
+      actionLogs: const [],
+    );
+  }
+
+  void _showImsSuccess({
+    required String carNumber,
+    required DateTime startAt,
+    required bool dryRun,
+  }) {
+    final label = dryRun ? 'IMS 예약성공-DRY_RUN' : 'IMS 예약성공';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.green,
+        content: Text(
+          '$label(${carNumber.trim()}, ${_formatEditorDateTime(startAt)})',
+        ),
+      ),
+    );
+  }
+
+  void _showImsFailure(String reason) {
+    final trimmed = reason.trim();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'IMS예약실패(${trimmed.isEmpty ? 'unknown error' : trimmed})',
+        ),
+      ),
+    );
   }
 
   void _showError(String message) {
@@ -454,6 +556,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
   late final TextEditingController _startAtController;
   late final TextEditingController _endAtController;
   bool _aiParsing = false;
+  bool _imsChecked = false;
 
   @override
   void initState() {
@@ -689,6 +792,18 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
         ),
       ),
       actions: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Checkbox(
+              value: _imsChecked,
+              onChanged: (value) {
+                setState(() => _imsChecked = value ?? false);
+              },
+            ),
+            const Text('IMS'),
+          ],
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('취소'),
@@ -724,6 +839,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                 pickupLocation: _pickupLocationController.text.trim(),
                 dropoffLocation: _dropoffLocationController.text.trim(),
                 noteText: _noteController.text.trim(),
+                imsChecked: _imsChecked,
               ),
             );
           },
@@ -1320,6 +1436,7 @@ class _ReservationCreateFormResult {
     required this.pickupLocation,
     required this.dropoffLocation,
     required this.noteText,
+    required this.imsChecked,
   });
 
   final String reservationNumber;
@@ -1333,6 +1450,7 @@ class _ReservationCreateFormResult {
   final String pickupLocation;
   final String dropoffLocation;
   final String noteText;
+  final bool imsChecked;
 }
 
 class _InstantStatusFormResult {
