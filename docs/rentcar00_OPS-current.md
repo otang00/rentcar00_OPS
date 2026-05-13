@@ -4,10 +4,10 @@
 예약 원장 형식 잠금 + IMS 예약추가 구조 설계.
 
 ## 2. 현재 범위
-- Phase 1. 기준 문서 잠금
-- Phase 2. 원장 형식 정규화 규칙 잠금
-- 아직 구현은 하지 않는다.
-- 문서 기준 확정 후 전체 검토와 문서 커밋까지만 진행한다.
+- Phase 3. AI파서 후처리 보강 진행 완료
+- Phase 4. IMS projection / memo builder 준비 코드 반영
+- Phase 5. 서버측 IMS endpoint 초안 반영
+- 아직 IMS 실제 저장 테스트와 앱 IMS 체크 UI 연결은 하지 않았다.
 
 ## 3. 오늘 잠금 스냅샷 (2026-05-13 23:54 KST)
 - IMS 예약추가는 **파싱 기능의 부속이 아니라 원장 기반 독립 기능**으로 본다.
@@ -54,14 +54,16 @@
 - 생년월일은 원장 필수값으로 유지
 - IMS 메모는 원장 메모 전체가 아니라 **별도 builder 로 축약 생성**
 
-## 6. 이번 단계 종료 조건
-- main / current / roadmap 문서 역할이 분리돼 있다.
-- 원장 canonical schema 의 저장 형식이 문서로 잠겨 있다.
-- IMS payload 로 어떻게 변환할지 방향이 문서로 잠겨 있다.
-- 실구현 직전 다음 phase 를 바로 시작할 수 있는 수준까지 준비돼 있다.
+## 6. 현재 완료 상태
+- main / current / roadmap 문서 역할 분리 완료
+- 원장 canonical schema 저장 형식 잠금 완료
+- AI파서 사용 시 원문 전체 메모 저장 반영 완료
+- 6자리 생년월일 / 전화번호 / 금액 저장 정규화 반영 완료
+- 원장 → IMS payload mapper / compact memo / preflight validation 코드 초안 반영 완료
+- 파서 서버 `POST /ims/create-reservation` endpoint 초안 반영 완료
 
 ## 7. 다음 단계 미리보기
-- Phase 3. AI파서 후처리 규칙 문서화 및 구현 준비
-- Phase 4. IMS projection / memo builder 계약 잠금
-- Phase 5. 서버측 IMS endpoint 설계 고정
-- Phase 6. 앱 예약생성 IMS 체크 UX 연결
+- Phase 5. IMS endpoint request/response shape 최종 점검
+- Phase 6. 앱 예약생성 IMS 체크 UI 연결
+- Phase 7. 성공/실패 확인줄 연결
+- Phase 8. dry-run / 실제 저장 테스트

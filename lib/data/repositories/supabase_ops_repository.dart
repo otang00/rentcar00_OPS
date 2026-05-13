@@ -31,26 +31,35 @@ class SupabaseOpsRepository {
     required String noteText,
   }) async {
     final latestImportRunId = await _latestImportRunId();
+    final normalizedReservationNumber = reservationNumber.trim();
+    final normalizedCustomerName = customerName.trim();
+    final normalizedCustomerPhone = _digitsOnly(customerPhone);
+    final normalizedCustomerBirthDate = _normalizeBirthDate(customerBirthDate);
+    final normalizedReferralSource = referralSource.trim();
+    final normalizedPaymentAmount = _digitsOnly(paymentAmount);
+    final normalizedPickupLocation = pickupLocation.trim();
+    final normalizedDropoffLocation = dropoffLocation.trim();
+    final normalizedNoteText = noteText.trim();
 
     final reservationId = _generateId(prefix: 'R');
     final insertedReservation = await _client
         .from('rc00_ops_reservations')
         .insert({
           'reservation_id': reservationId,
-          'reservation_number': reservationNumber.trim(),
+          'reservation_number': normalizedReservationNumber,
           'car_number': car.carNumber,
           'car_name': car.carName,
-          'customer_name': customerName.trim(),
-          'customer_phone': customerPhone.trim(),
-          'customer_birth_date': customerBirthDate.trim(),
-          'referral_source': referralSource.trim(),
-          'payment_amount': paymentAmount.trim(),
+          'customer_name': normalizedCustomerName,
+          'customer_phone': normalizedCustomerPhone,
+          'customer_birth_date': normalizedCustomerBirthDate,
+          'referral_source': normalizedReferralSource,
+          'payment_amount': normalizedPaymentAmount,
           'start_at': startAt.toIso8601String(),
           'end_at': endAt.toIso8601String(),
-          'pickup_location': pickupLocation.trim(),
-          'dropoff_location': dropoffLocation.trim(),
+          'pickup_location': normalizedPickupLocation,
+          'dropoff_location': normalizedDropoffLocation,
           'reservation_status': '예약중',
-          'note_text': noteText.trim(),
+          'note_text': normalizedNoteText,
           'meta_json': {
             'created_via': 'status_board_vehicle_detail',
             'source_record_id': car.recordId,
@@ -62,13 +71,13 @@ class SupabaseOpsRepository {
     final reservationRefId = insertedReservation['id'] as String;
     final tabKey = _deriveReservationTabKey(startAt, endAt);
     final checkPayload = {
-      'customer_name_verified': customerName.trim().isEmpty
+      'customer_name_verified': normalizedCustomerName.isEmpty
           ? 'pending'
           : 'done',
-      'customer_phone_verified': customerPhone.trim().isEmpty
+      'customer_phone_verified': normalizedCustomerPhone.isEmpty
           ? 'pending'
           : 'done',
-      'pickup_location_verified': pickupLocation.trim().isEmpty
+      'pickup_location_verified': normalizedPickupLocation.isEmpty
           ? 'pending'
           : 'done',
     };
@@ -82,7 +91,7 @@ class SupabaseOpsRepository {
           ? 'warning'
           : null,
       'check_payload_json': checkPayload,
-      'memo_text': noteText.trim().isEmpty ? null : noteText.trim(),
+      'memo_text': normalizedNoteText.isEmpty ? null : normalizedNoteText,
       'last_action_at': DateTime.now().toIso8601String(),
     });
 
@@ -94,19 +103,19 @@ class SupabaseOpsRepository {
         'source_import_run_id': latestImportRunId,
         'schedule_id': pickupScheduleId,
         'reservation_id': reservationId,
-        'reservation_number': reservationNumber.trim(),
+        'reservation_number': normalizedReservationNumber,
         'car_number': car.carNumber,
         'car_name': car.carName,
         'schedule_type_raw': '배차',
         'schedule_at_raw': startAt.toIso8601String(),
-        'location_text': pickupLocation.trim(),
-        'detail_text': noteText.trim(),
+        'location_text': normalizedPickupLocation,
+        'detail_text': normalizedNoteText,
         'partial_return_raw': '',
         'schedule_done_raw': '',
         'payload_json': {
           'created_via': 'status_board_vehicle_detail',
           'reservation_id': reservationId,
-          'reservation_number': reservationNumber.trim(),
+          'reservation_number': normalizedReservationNumber,
           'status': '배차',
         },
       },
@@ -114,19 +123,19 @@ class SupabaseOpsRepository {
         'source_import_run_id': latestImportRunId,
         'schedule_id': returnScheduleId,
         'reservation_id': reservationId,
-        'reservation_number': reservationNumber.trim(),
+        'reservation_number': normalizedReservationNumber,
         'car_number': car.carNumber,
         'car_name': car.carName,
         'schedule_type_raw': '반납',
         'schedule_at_raw': endAt.toIso8601String(),
-        'location_text': dropoffLocation.trim(),
-        'detail_text': noteText.trim(),
+        'location_text': normalizedDropoffLocation,
+        'detail_text': normalizedNoteText,
         'partial_return_raw': '',
         'schedule_done_raw': '',
         'payload_json': {
           'created_via': 'status_board_vehicle_detail',
           'reservation_id': reservationId,
-          'reservation_number': reservationNumber.trim(),
+          'reservation_number': normalizedReservationNumber,
           'status': '반납',
         },
       },
@@ -607,5 +616,26 @@ class SupabaseOpsRepository {
       (_) => chars[random.nextInt(chars.length)],
     ).join();
     return '$prefix-${DateTime.now().millisecondsSinceEpoch}-$suffix';
+  }
+
+  String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D+'), '');
+
+  String _normalizeBirthDate(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return '';
+
+    final compact = text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (compact.length == 8) {
+      return '${compact.substring(0, 4)}-${compact.substring(4, 6)}-${compact.substring(6, 8)}';
+    }
+    if (compact.length == 6) {
+      final currentYearTwoDigits = DateTime.now().year % 100;
+      final yy = int.tryParse(compact.substring(0, 2));
+      if (yy == null) return text;
+      final year = yy <= currentYearTwoDigits ? 2000 + yy : 1900 + yy;
+      return '$year-${compact.substring(2, 4)}-${compact.substring(4, 6)}';
+    }
+
+    return text.replaceAll(RegExp(r'[./]'), '-');
   }
 }

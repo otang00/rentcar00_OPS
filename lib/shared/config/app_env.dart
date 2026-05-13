@@ -7,6 +7,7 @@ class AppEnv {
     required this.supabaseUrl,
     required this.supabaseAnonKey,
     required this.supabasePublishableKey,
+    required this.aiParserBaseUrl,
   });
 
   final String projectName;
@@ -14,6 +15,7 @@ class AppEnv {
   final String supabaseUrl;
   final String supabaseAnonKey;
   final String supabasePublishableKey;
+  final String aiParserBaseUrl;
 
   static AppEnv fromDotenv(DotEnv env) {
     String read(String key) {
@@ -30,6 +32,7 @@ class AppEnv {
       supabaseUrl: read('SUPABASE_URL'),
       supabaseAnonKey: read('SUPABASE_ANON_KEY'),
       supabasePublishableKey: read('SUPABASE_PUBLISHABLE_KEY'),
+      aiParserBaseUrl: env.maybeGet('AI_PARSER_BASE_URL')?.trim() ?? '',
     );
   }
 }

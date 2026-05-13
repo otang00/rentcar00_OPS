@@ -155,10 +155,25 @@ IMS 전송 전 아래를 점검한다.
 - IMS 입력 DOM/정책이 바뀌면 서버측 실행 계층 보정이 필요하다.
 - 원장 형식을 느슨하게 두면 이후 mapper 에서 예외처리가 급증한다.
 
-## 11. 실구현 진입 기준
-아래가 준비되면 구현 시작 가능으로 본다.
+## 11. 현재 구현 진행 메모
+- Phase 1~2 문서 잠금 완료
+- Phase 3: AI파서 후처리 보강 반영
+  - 6자리 생년월일 정규화
+  - 전화/금액 저장 정규화
+  - AI파서 사용 시 원문 전체 메모 저장
+- Phase 4: IMS payload mapper / compact memo / preflight validation 초안 반영
+- Phase 5: 파서 서버 `POST /ims/create-reservation` endpoint 초안 반영
+- 미완료:
+  - endpoint 실호출 검증
+  - 예약생성 IMS 체크 UI 연결
+  - 성공/실패 확인줄 연결
+  - 실제 IMS 저장 테스트
+
+## 12. 실구현 진입 기준
+아래가 준비되면 UI 연결과 실테스트 단계로 진입 가능으로 본다.
 - 문서 기준 확정
 - canonical schema 확정
 - IMS payload 매핑 확정
 - memo builder 분리 원칙 확정
 - 예약생성 UX 결과 문구 확정
+- IMS endpoint dry-run 확인

@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
+import 'package:rentcar00_ops/features/status_board/detail/data/reservation_ai_parser_client.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
+import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 
 class StatusBoardDetailPage extends ConsumerWidget {
   const StatusBoardDetailPage({super.key, required this.recordId});
@@ -62,9 +64,13 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
   }
 
   Future<void> _createReservation() async {
+    final appEnv = ref.read(appEnvProvider);
     final form = await showDialog<_ReservationCreateFormResult>(
       context: context,
-      builder: (context) => _ReservationCreateDialog(record: record),
+      builder: (context) => _ReservationCreateDialog(
+        record: record,
+        aiParserBaseUrl: appEnv.aiParserBaseUrl,
+      ),
     );
     if (form == null) return;
 
@@ -421,9 +427,13 @@ class _ActionChipButton extends StatelessWidget {
 }
 
 class _ReservationCreateDialog extends StatefulWidget {
-  const _ReservationCreateDialog({required this.record});
+  const _ReservationCreateDialog({
+    required this.record,
+    required this.aiParserBaseUrl,
+  });
 
   final StatusBoardRecord record;
+  final String aiParserBaseUrl;
 
   @override
   State<_ReservationCreateDialog> createState() =>
@@ -443,6 +453,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
   late final TextEditingController _noteController;
   late final TextEditingController _startAtController;
   late final TextEditingController _endAtController;
+  bool _aiParsing = false;
 
   @override
   void initState() {
@@ -463,6 +474,79 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
       text: _formatEditorDateTime(start),
     );
     _endAtController = TextEditingController(text: _formatEditorDateTime(end));
+  }
+
+  Future<void> _openAiParserInput() async {
+    if (_aiParsing) return;
+
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) =>
+          _AiParserTextInputDialog(aiParserBaseUrl: widget.aiParserBaseUrl),
+    );
+    if (text == null || text.trim().isEmpty || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _aiParsing = true);
+
+    try {
+      final client = ReservationAiParserClient(baseUrl: widget.aiParserBaseUrl);
+      final result = await client.parseText(text);
+      if (!mounted) return;
+      _applyAiParserResult(result, sourceText: text);
+
+      final message = [
+        if (result.missing.isNotEmpty) '누락: ${result.missing.join(', ')}',
+        if (result.warnings.isNotEmpty) '경고: ${result.warnings.join(', ')}',
+        if (result.missing.isEmpty && result.warnings.isEmpty)
+          'AI파서 결과를 입력했습니다.',
+      ].join('\n');
+
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } on ReservationAiParserException catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('AI파서 호출 실패\n$error')));
+    } finally {
+      if (mounted) setState(() => _aiParsing = false);
+    }
+  }
+
+  void _applyAiParserResult(
+    ReservationAiParseResult result, {
+    required String sourceText,
+  }) {
+    final fields = result.fields;
+
+    void fillIfNotEmpty(TextEditingController controller, String? value) {
+      if (value == null || value.trim().isEmpty) return;
+      controller.text = value.trim();
+    }
+
+    fillIfNotEmpty(_reservationNumberController, fields.reservationNumber);
+    fillIfNotEmpty(_customerNameController, fields.customerName);
+    fillIfNotEmpty(_customerPhoneController, fields.customerPhone);
+    fillIfNotEmpty(_customerBirthDateController, fields.birthDate);
+    fillIfNotEmpty(_referralSourceController, fields.referrer);
+    fillIfNotEmpty(_paymentAmountController, fields.price);
+    fillIfNotEmpty(_pickupLocationController, fields.pickupLocation);
+    fillIfNotEmpty(_dropoffLocationController, fields.returnLocation);
+    fillIfNotEmpty(_noteController, sourceText);
+
+    final parsedStartAt = _normalizeAiDateTime(fields.pickupAt);
+    final parsedEndAt = _normalizeAiDateTime(fields.returnAt);
+    fillIfNotEmpty(_startAtController, parsedStartAt);
+    fillIfNotEmpty(_endAtController, parsedEndAt);
+  }
+
+  String? _normalizeAiDateTime(String? value) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) return null;
+    final parsed = DateTime.tryParse(text.replaceFirst(' ', 'T'));
+    if (parsed == null) return text;
+    return _formatEditorDateTime(parsed);
   }
 
   Future<void> _pickDateTime(TextEditingController controller) async {
@@ -514,7 +598,22 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('예약생성'),
+      title: Row(
+        children: [
+          const Expanded(child: Text('예약생성')),
+          TextButton.icon(
+            onPressed: _aiParsing ? null : _openAiParserInput,
+            icon: _aiParsing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome_outlined),
+            label: const Text('AI파서'),
+          ),
+        ],
+      ),
       content: SizedBox(
         width: 420,
         child: Form(
@@ -610,10 +709,16 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
               _ReservationCreateFormResult(
                 reservationNumber: _reservationNumberController.text.trim(),
                 customerName: _customerNameController.text.trim(),
-                customerPhone: _customerPhoneController.text.trim(),
-                customerBirthDate: _customerBirthDateController.text.trim(),
+                customerPhone: _normalizePhoneForStorage(
+                  _customerPhoneController.text,
+                ),
+                customerBirthDate: _normalizeBirthDateForStorage(
+                  _customerBirthDateController.text,
+                ),
                 referralSource: _referralSourceController.text.trim(),
-                paymentAmount: _paymentAmountController.text.trim(),
+                paymentAmount: _normalizeMoneyForStorage(
+                  _paymentAmountController.text,
+                ),
                 startAt: startAt,
                 endAt: endAt,
                 pickupLocation: _pickupLocationController.text.trim(),
@@ -1094,6 +1199,114 @@ class _DialogTextField extends StatelessWidget {
   }
 }
 
+class _AiParserTextInputDialog extends StatefulWidget {
+  const _AiParserTextInputDialog({required this.aiParserBaseUrl});
+
+  final String aiParserBaseUrl;
+
+  @override
+  State<_AiParserTextInputDialog> createState() =>
+      _AiParserTextInputDialogState();
+}
+
+class _AiParserTextInputDialogState extends State<_AiParserTextInputDialog> {
+  late final TextEditingController _controller;
+  bool? _isConnected;
+  bool _checkingConnection = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkConnection();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkConnection() async {
+    if (_checkingConnection) return;
+    setState(() => _checkingConnection = true);
+
+    try {
+      final client = ReservationAiParserClient(baseUrl: widget.aiParserBaseUrl);
+      final ok = await client.checkHealth();
+      if (!mounted) return;
+      setState(() => _isConnected = ok);
+    } on ReservationAiParserException {
+      if (!mounted) return;
+      setState(() => _isConnected = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isConnected = false);
+    } finally {
+      if (mounted) setState(() => _checkingConnection = false);
+    }
+  }
+
+  Widget _buildConnectionIcon() {
+    if (_checkingConnection) {
+      return const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+    if (_isConnected == true) {
+      return const Icon(Icons.check_circle, color: Colors.green);
+    }
+    if (_isConnected == false) {
+      return const Icon(Icons.error, color: Colors.redAccent);
+    }
+    return const Icon(Icons.help_outline);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Expanded(child: Text('AI파서 원문 입력')),
+          IconButton(
+            onPressed: _checkingConnection ? null : _checkConnection,
+            tooltip: _isConnected == true
+                ? 'AI파서 연결됨'
+                : _isConnected == false
+                ? 'AI파서 연결 실패 - 다시 확인'
+                : 'AI파서 연결 확인',
+            icon: _buildConnectionIcon(),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 420,
+        child: _DialogTextField(
+          controller: _controller,
+          label: '예약 원문',
+          autofocus: true,
+          maxLines: 8,
+          hintText: '예약 원문을 그대로 붙여넣어 주세요.',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('해석'),
+        ),
+      ],
+    );
+  }
+}
+
 class _ReservationCreateFormResult {
   const _ReservationCreateFormResult({
     required this.reservationNumber,
@@ -1175,6 +1388,33 @@ String? _extractRawRowId(String recordId, String prefix) {
   final expected = '$prefix:';
   if (!recordId.startsWith(expected)) return null;
   return recordId.substring(expected.length);
+}
+
+String _normalizePhoneForStorage(String value) {
+  return value.replaceAll(RegExp(r'\D+'), '');
+}
+
+String _normalizeMoneyForStorage(String value) {
+  return value.replaceAll(RegExp(r'\D+'), '');
+}
+
+String _normalizeBirthDateForStorage(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return '';
+
+  final digits = trimmed.replaceAll(RegExp(r'\D+'), '');
+  if (digits.length == 8) {
+    return '${digits.substring(0, 4)}-${digits.substring(4, 6)}-${digits.substring(6, 8)}';
+  }
+  if (digits.length == 6) {
+    final currentYearTwoDigits = DateTime.now().year % 100;
+    final yy = int.tryParse(digits.substring(0, 2));
+    if (yy == null) return trimmed;
+    final year = yy <= currentYearTwoDigits ? 2000 + yy : 1900 + yy;
+    return '$year-${digits.substring(2, 4)}-${digits.substring(4, 6)}';
+  }
+
+  return trimmed.replaceAll(RegExp(r'[./]'), '-');
 }
 
 bool _isTruthy(String value) {
