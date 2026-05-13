@@ -240,6 +240,43 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     });
   }
 
+  Future<void> _completeReturn() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('반납 완료'),
+        content: const Text('차량을 대기중으로 전환하고 세차 상태와 주차지를 초기화합니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('완료'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .completeCarReturn(carRowId: carRowId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('반납 완료 처리했습니다.')));
+    });
+  }
+
   ReservationRecord _buildReservationRecordForIms({
     required String reservationId,
     required _ReservationCreateFormResult form,
@@ -307,6 +344,8 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     );
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final idleActions = _isIdleStatus(record.status);
+    final inServiceActions = _isInServiceStatus(record.status);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
@@ -354,28 +393,35 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _ActionChipButton(
-                    label: '예약생성',
-                    onPressed: _submitting ? null : _createReservation,
-                  ),
-                  _ActionChipButton(
-                    label: '보험대차',
-                    onPressed: _submitting
-                        ? null
-                        : () => _openInstantStatus('보험', '배차 보험'),
-                  ),
-                  _ActionChipButton(
-                    label: '일반대차',
-                    onPressed: _submitting
-                        ? null
-                        : () => _openInstantStatus('일반', '배차 일반'),
-                  ),
-                  _ActionChipButton(
-                    label: '장기대차',
-                    onPressed: _submitting
-                        ? null
-                        : () => _openInstantStatus('장기', '배차 장기'),
-                  ),
+                  if (idleActions) ...[
+                    _ActionChipButton(
+                      label: '예약생성',
+                      onPressed: _submitting ? null : _createReservation,
+                    ),
+                    _ActionChipButton(
+                      label: '보험대차',
+                      onPressed: _submitting
+                          ? null
+                          : () => _openInstantStatus('보험', '배차 보험'),
+                    ),
+                    _ActionChipButton(
+                      label: '일반대차',
+                      onPressed: _submitting
+                          ? null
+                          : () => _openInstantStatus('일반', '배차 일반'),
+                    ),
+                    _ActionChipButton(
+                      label: '장기대차',
+                      onPressed: _submitting
+                          ? null
+                          : () => _openInstantStatus('장기', '배차 장기'),
+                    ),
+                  ],
+                  if (inServiceActions)
+                    _ActionChipButton(
+                      label: '반납 완료',
+                      onPressed: _submitting ? null : _completeReturn,
+                    ),
                   _ActionChipButton(
                     label: _isTruthy(record.carWash) ? '외부세차 해제' : '외부세차',
                     onPressed: _submitting
@@ -1038,10 +1084,101 @@ class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
   }
 }
 
-class _ScheduleDetailBody extends StatelessWidget {
+class _ScheduleDetailBody extends ConsumerStatefulWidget {
   const _ScheduleDetailBody({required this.record});
 
   final StatusBoardRecord record;
+
+  @override
+  ConsumerState<_ScheduleDetailBody> createState() =>
+      _ScheduleDetailBodyState();
+}
+
+class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
+  bool _submitting = false;
+
+  StatusBoardRecord get record => widget.record;
+
+  Future<void> _runScheduleAction(Future<void> Function() action) async {
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    try {
+      await action();
+      if (!mounted) return;
+      ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(allReservationsProvider);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _completeSchedule() async {
+    final scheduleRowId = _extractRawRowId(record.recordId, 'schedule');
+    if (scheduleRowId == null) {
+      _showError('일정 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runScheduleAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .completeSchedule(
+            scheduleRowId: scheduleRowId,
+            scheduleType: record.scheduleType,
+            reservationId: record.reservationId,
+            carNumber: record.carNumber,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('일정완료 처리했습니다.')));
+      context.pop();
+    });
+  }
+
+  Future<void> _deleteSchedule() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('일정삭제'),
+        content: const Text('이 일정을 삭제합니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final scheduleRowId = _extractRawRowId(record.recordId, 'schedule');
+    if (scheduleRowId == null) {
+      _showError('일정 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runScheduleAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .deleteSchedule(scheduleRowId: scheduleRowId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('일정을 삭제했습니다.')));
+      context.pop();
+    });
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1076,6 +1213,33 @@ class _ScheduleDetailBody extends StatelessWidget {
               color: colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _SectionCard(
+          title: '기능',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_submitting) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 12),
+              ],
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ActionChipButton(
+                    label: '일정완료',
+                    onPressed: _submitting ? null : _completeSchedule,
+                  ),
+                  _ActionChipButton(
+                    label: '일정삭제',
+                    onPressed: _submitting ? null : _deleteSchedule,
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 14),
@@ -1533,6 +1697,16 @@ String _normalizeBirthDateForStorage(String value) {
   }
 
   return trimmed.replaceAll(RegExp(r'[./]'), '-');
+}
+
+bool _isIdleStatus(String status) {
+  final normalized = status.trim();
+  return normalized == '대기' || normalized == '대기중';
+}
+
+bool _isInServiceStatus(String status) {
+  final normalized = status.trim();
+  return normalized == '보험' || normalized == '일반' || normalized == '장기';
 }
 
 bool _isTruthy(String value) {

@@ -1,3 +1,11 @@
+# rentcar00_OPS IMS Roadmap Archive
+
+원본 파일: `docs/rentcar00_OPS-ims-roadmap.md`
+아카이브 시각: 2026-05-14 KST
+사유: IMS 예약추가 1차 구현, dry-run, 실저장/삭제 검증, 예약 상세 독립 액션까지 완료되어 root roadmap 에서 archive 로 이동한다.
+
+---
+
 # rentcar00_OPS IMS Roadmap
 
 ## 1. 문서 역할

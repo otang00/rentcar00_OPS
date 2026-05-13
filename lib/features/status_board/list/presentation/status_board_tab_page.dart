@@ -161,6 +161,290 @@ class StatusBoardTabPage extends ConsumerWidget {
   }
 }
 
+class StatusBoardScheduleFab extends ConsumerStatefulWidget {
+  const StatusBoardScheduleFab({super.key});
+
+  @override
+  ConsumerState<StatusBoardScheduleFab> createState() =>
+      _StatusBoardScheduleFabState();
+}
+
+class _StatusBoardScheduleFabState
+    extends ConsumerState<StatusBoardScheduleFab> {
+  bool _submitting = false;
+
+  Future<void> _openCreateSchedule() async {
+    if (_submitting) return;
+
+    final form = await showDialog<_ScheduleCreateFormResult>(
+      context: context,
+      builder: (context) => const _ScheduleCreateDialog(),
+    );
+    if (form == null) return;
+
+    setState(() => _submitting = true);
+    try {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .createScheduleOnly(
+            scheduleType: form.scheduleType,
+            scheduleAt: form.scheduleAt,
+            carNumber: form.carNumber,
+            carName: form.carName,
+            locationText: form.locationText,
+            detailText: form.detailText,
+          );
+      if (!mounted) return;
+      ref.invalidate(allStatusBoardRecordsProvider);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('일정을 생성했습니다.')));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      onPressed: _submitting ? null : _openCreateSchedule,
+      tooltip: '일정 생성',
+      child: _submitting
+          ? const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.add),
+    );
+  }
+}
+
+class _ScheduleCreateDialog extends StatefulWidget {
+  const _ScheduleCreateDialog();
+
+  @override
+  State<_ScheduleCreateDialog> createState() => _ScheduleCreateDialogState();
+}
+
+class _ScheduleCreateDialogState extends State<_ScheduleCreateDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _scheduleTypes = const ['배차', '반납'];
+  late String _scheduleType;
+  late final TextEditingController _scheduleAtController;
+  late final TextEditingController _carNumberController;
+  late final TextEditingController _carNameController;
+  late final TextEditingController _locationController;
+  late final TextEditingController _detailController;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    final initial = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+    );
+    _scheduleType = _scheduleTypes.first;
+    _scheduleAtController = TextEditingController(
+      text: _formatScheduleEditorDateTime(initial),
+    );
+    _carNumberController = TextEditingController();
+    _carNameController = TextEditingController();
+    _locationController = TextEditingController();
+    _detailController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _scheduleAtController.dispose();
+    _carNumberController.dispose();
+    _carNameController.dispose();
+    _locationController.dispose();
+    _detailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDateTime() async {
+    final now = DateTime.now();
+    final initial =
+        _tryParseScheduleDateTime(_scheduleAtController.text.trim()) ?? now;
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (pickedTime == null || !mounted) return;
+
+    final combined = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+    setState(() {
+      _scheduleAtController.text = _formatScheduleEditorDateTime(combined);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('일정 생성'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _scheduleType,
+                    decoration: const InputDecoration(
+                      labelText: '일정유형',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      for (final type in _scheduleTypes)
+                        DropdownMenuItem(value: type, child: Text(type)),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _scheduleType = value);
+                    },
+                  ),
+                ),
+                _ScheduleDialogTextField(
+                  controller: _scheduleAtController,
+                  label: '일정시각',
+                  validator: _scheduleDateTimeValidator,
+                  readOnly: true,
+                  onTap: _pickDateTime,
+                  suffixIcon: const Icon(Icons.calendar_today_outlined),
+                ),
+                _ScheduleDialogTextField(
+                  controller: _carNumberController,
+                  label: '차량번호',
+                ),
+                _ScheduleDialogTextField(
+                  controller: _carNameController,
+                  label: '차종',
+                ),
+                _ScheduleDialogTextField(
+                  controller: _locationController,
+                  label: '위치',
+                ),
+                _ScheduleDialogTextField(
+                  controller: _detailController,
+                  label: '상세정보',
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            final scheduleAt = _tryParseScheduleDateTime(
+              _scheduleAtController.text.trim(),
+            );
+            if (scheduleAt == null) return;
+            Navigator.of(context).pop(
+              _ScheduleCreateFormResult(
+                scheduleType: _scheduleType,
+                scheduleAt: scheduleAt,
+                carNumber: _carNumberController.text.trim(),
+                carName: _carNameController.text.trim(),
+                locationText: _locationController.text.trim(),
+                detailText: _detailController.text.trim(),
+              ),
+            );
+          },
+          child: const Text('생성'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScheduleDialogTextField extends StatelessWidget {
+  const _ScheduleDialogTextField({
+    required this.controller,
+    required this.label,
+    this.validator,
+    this.maxLines = 1,
+    this.readOnly = false,
+    this.onTap,
+    this.suffixIcon,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String? Function(String?)? validator;
+  final int maxLines;
+  final bool readOnly;
+  final VoidCallback? onTap;
+  final Widget? suffixIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextFormField(
+        controller: controller,
+        validator: validator,
+        maxLines: maxLines,
+        readOnly: readOnly,
+        onTap: onTap,
+        decoration: InputDecoration(
+          labelText: label,
+          suffixIcon: suffixIcon,
+          border: const OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScheduleCreateFormResult {
+  const _ScheduleCreateFormResult({
+    required this.scheduleType,
+    required this.scheduleAt,
+    required this.carNumber,
+    required this.carName,
+    required this.locationText,
+    required this.detailText,
+  });
+
+  final String scheduleType;
+  final DateTime scheduleAt;
+  final String carNumber;
+  final String carName;
+  final String locationText;
+  final String detailText;
+}
+
 class _InsuranceCard extends StatelessWidget {
   const _InsuranceCard({required this.item});
 
@@ -822,4 +1106,26 @@ Color? _scheduleHeaderColor(BuildContext context, DateTime? value) {
     return Colors.blue.shade700;
   }
   return Theme.of(context).textTheme.titleMedium?.color;
+}
+
+String _formatScheduleEditorDateTime(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+}
+
+DateTime? _tryParseScheduleDateTime(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return null;
+  return DateTime.tryParse(raw.replaceFirst(' ', 'T')) ??
+      DateTime.tryParse(raw);
+}
+
+String? _scheduleDateTimeValidator(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return '필수 입력입니다.';
+  }
+  if (_tryParseScheduleDateTime(value) == null) {
+    return '예: 2026-05-11 10:00';
+  }
+  return null;
 }

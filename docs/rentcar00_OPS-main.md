@@ -60,7 +60,7 @@
   - IMS 메모는 원장 메모 전체가 아니라 별도 builder 로 축약 생성
 
 ### 예약 상세
-- 예약 상세는 현재 조회 중심이다.
+- 예약 상세는 조회 중심에서 시작했지만, 현재는 `IMS 예약추가` 1건은 실행 가능하다.
 - 상세에서 표시하는 핵심 정보:
   - 예약번호
   - 고객명
@@ -85,6 +85,10 @@
   - 일정
 - 차량 상세에서 예약 상세로 진입 가능해야 한다.
 - 현황판의 목적은 재설계보다 운영 익숙함 유지다.
+- 차량 상세는 상태 기준 액션 분기를 지원한다.
+- 일정 상세는 `일정완료` / `일정삭제` 액션을 지원한다.
+- 일정 탭은 FAB 기반 일정 단독 생성 흐름을 지원한다.
+- 다음 구현 우선순위는 UI 톤 정리와 모달/입력/액션 시각 통일이다.
 
 ## 4. 현재 구현 상태
 ### 완료
@@ -99,12 +103,22 @@
   - 가격
 - 예약 상세에 위 3개 필드 표시 반영 완료
 - 원격 migration 반영 완료
+- AI파서 버튼/입력 dialog/자동채움 반영 완료
+- 예약생성 `IMS` 체크박스 및 IMS 전송 반영 완료
+- 예약 상세 `IMS 예약추가` 버튼 반영 완료
+- IMS dry-run / 실저장 / 즉시 삭제 검증 완료
+- 차량 상세 상태별 액션 분기 반영 완료
+- 차량 상세 `반납 완료` 반영 완료
+- 일정 상세 `일정완료` / `일정삭제` 반영 완료
+- 일정 탭 FAB 기반 일정 단독 생성 반영 완료
 
 ### 현재 확인된 운영 이슈
 - Android release APK는 현재 설치 검증상 파일 자체는 정상이다.
 - 다만 release 빌드가 아직 `debug signing` 기준이다.
-- 업로드된 APK 파일명은 arm64 전용처럼 보이지만 실제 산출물은 universal APK다.
-- 배포 기준은 아직 완전히 잠기지 않았다.
+- 업로드 파일명은 arm64 기준으로 운영하지만 실제 산출물은 universal APK다.
+- 최신 배포본은 `b14 / 11c4627` 기준으로 업로드 완료 상태다.
+- 현황판/일정 액션 기능은 구현됐지만 실데이터 클릭 동선 재확인은 더 필요하다.
+- 다음 phase 는 화이트 배경 + 블루/스카이블루 포인트 기준 UI 톤 정리다.
 
 ## 5. 기준 경로
 ### 앱 코드
@@ -122,9 +136,13 @@
 ## 6. 기준 문서
 - 메인 기준 문서: `docs/rentcar00_OPS-main.md`
 - 현재 진행 문서: `docs/rentcar00_OPS-current.md`
-- IMS 구조/로드맵 기준: `docs/rentcar00_OPS-ims-roadmap.md`
+- 현재 UI 준비는 `docs/rentcar00_OPS-current.md` 기준으로 본다.
 
 ## 7. 과거 문서 위치
 - 기존 루트 기준 문서 스냅샷: `docs/archive/root-current-2026-05-12/`
 - 그 이전 탐색/설계 기록: `docs/archive/`
 - 이전 current 스냅샷: `docs/archive/rentcar00_OPS-current-ai-parser-snapshot-2026-05-13.md`
+- IMS 완료 current 스냅샷: `docs/archive/rentcar00_OPS-current-ims-complete-2026-05-14.md`
+- IMS 완료 roadmap 스냅샷: `docs/archive/rentcar00_OPS-ims-roadmap-complete-2026-05-14.md`
+- 현황판 액션 완료 current 스냅샷: `docs/archive/rentcar00_OPS-current-status-board-actions-complete-2026-05-14.md`
+- 현황판 액션 완료 roadmap 스냅샷: `docs/archive/rentcar00_OPS-status-board-actions-roadmap-complete-2026-05-14.md`

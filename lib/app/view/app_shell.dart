@@ -101,6 +101,11 @@ class AppShell extends ConsumerWidget {
         OpsLayer.reservations => ReservationTabPage(tab: reservationTab),
         OpsLayer.statusBoard => StatusBoardTabPage(tab: statusBoardTab),
       },
+      floatingActionButton:
+          layer == OpsLayer.statusBoard &&
+              statusBoardTab == StatusBoardTab.schedule
+          ? const StatusBoardScheduleFab()
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
         onDestinationSelected: (index) {

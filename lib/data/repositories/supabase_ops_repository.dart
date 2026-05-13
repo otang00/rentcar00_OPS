@@ -172,6 +172,90 @@ class SupabaseOpsRepository {
         .eq('id', carRowId);
   }
 
+  Future<void> completeCarReturn({required String carRowId}) async {
+    await _client
+        .from('rc00_ops_cars')
+        .update({
+          'status': '대기중',
+          'status_action': '반납 완료',
+          'car_wash': 'FALSE',
+          'interior_wash': 'FALSE',
+          'parking_location': '수푸레',
+        })
+        .eq('id', carRowId);
+  }
+
+  Future<void> createScheduleOnly({
+    required String scheduleType,
+    required DateTime scheduleAt,
+    required String carNumber,
+    required String carName,
+    required String locationText,
+    required String detailText,
+  }) async {
+    final latestImportRunId = await _latestImportRunId();
+    final normalizedScheduleType = scheduleType.trim();
+    final normalizedCarNumber = carNumber.trim();
+    final normalizedCarName = carName.trim();
+    final normalizedLocationText = locationText.trim();
+    final normalizedDetailText = detailText.trim();
+
+    await _client.from('rc00_ops_schedules').insert({
+      'source_import_run_id': latestImportRunId,
+      'schedule_id': _generateId(prefix: 'SCH'),
+      'reservation_id': '',
+      'reservation_number': '',
+      'car_number': normalizedCarNumber,
+      'car_name': normalizedCarName,
+      'schedule_type_raw': normalizedScheduleType,
+      'schedule_at_raw': scheduleAt.toIso8601String(),
+      'location_text': normalizedLocationText,
+      'detail_text': normalizedDetailText,
+      'partial_return_raw': '',
+      'schedule_done_raw': '',
+      'payload_json': {
+        'created_via': 'status_board_schedule_tab',
+        'status': normalizedScheduleType,
+      },
+    });
+  }
+
+  Future<void> completeSchedule({
+    required String scheduleRowId,
+    required String scheduleType,
+    required String reservationId,
+    required String carNumber,
+  }) async {
+    await _client
+        .from('rc00_ops_schedules')
+        .update({'schedule_done_raw': 'TRUE'})
+        .eq('id', scheduleRowId);
+
+    if (scheduleType.trim() != '배차' || carNumber.trim().isEmpty) {
+      return;
+    }
+
+    final reservationEndAt = reservationId.trim().isEmpty
+        ? null
+        : await _findReservationEndAt(reservationId.trim());
+
+    final updatePayload = <String, dynamic>{
+      'status': '일반',
+      'status_action': '일정완료',
+      if (reservationEndAt != null && reservationEndAt.isNotEmpty)
+        'end_at': reservationEndAt,
+    };
+
+    await _client
+        .from('rc00_ops_cars')
+        .update(updatePayload)
+        .eq('car_number', carNumber.trim());
+  }
+
+  Future<void> deleteSchedule({required String scheduleRowId}) async {
+    await _client.from('rc00_ops_schedules').delete().eq('id', scheduleRowId);
+  }
+
   Future<void> updateParkingLocation({
     required String carRowId,
     required String parkingLocation,
@@ -389,7 +473,7 @@ class SupabaseOpsRepository {
   StatusBoardRecord _toCarRecord(Map<String, dynamic> row) {
     final status = (row['status'] as String? ?? '').trim();
     final tab = switch (status) {
-      '대기' => StatusBoardTab.idle,
+      '대기' || '대기중' => StatusBoardTab.idle,
       '보험' => StatusBoardTab.insurance,
       '일반' => StatusBoardTab.general,
       '장기' => StatusBoardTab.longTerm,
@@ -594,6 +678,15 @@ class SupabaseOpsRepository {
         .limit(1)
         .maybeSingle();
     return row?['id'] as String?;
+  }
+
+  Future<String?> _findReservationEndAt(String reservationId) async {
+    final row = await _client
+        .from('rc00_ops_reservations')
+        .select('end_at')
+        .eq('reservation_id', reservationId)
+        .maybeSingle();
+    return _displayValue(row?['end_at']);
   }
 
   String _deriveReservationTabKey(DateTime startAt, DateTime endAt) {
