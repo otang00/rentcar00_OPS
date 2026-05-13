@@ -431,6 +431,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
+                alignment: WrapAlignment.center,
                 children: [
                   _ActionChipButton(
                     label: '예약',
@@ -470,7 +471,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                     ),
                   if (idleActions)
                     _ActionChipButton(
-                      label: '외세',
+                      label: '외부',
                       icon: _isTruthy(record.carWash)
                           ? Icons.local_car_wash_rounded
                           : Icons.local_car_wash_outlined,
@@ -481,7 +482,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                     ),
                   if (idleActions)
                     _ActionChipButton(
-                      label: '실세',
+                      label: '실내',
                       icon: _isTruthy(record.interiorWash)
                           ? Icons.airline_seat_recline_normal_rounded
                           : Icons.airline_seat_recline_normal_outlined,
@@ -1382,6 +1383,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
+                alignment: WrapAlignment.center,
                 children: [
                   _ActionChipButton(
                     label: '완료',

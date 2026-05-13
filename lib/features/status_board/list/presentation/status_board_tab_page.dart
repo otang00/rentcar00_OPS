@@ -475,9 +475,13 @@ class _ServiceStatusCard extends StatelessWidget {
             value.isEmpty ? '-' : value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: (emphasize ? textTheme.titleSmall : textTheme.bodySmall)
+            style: (emphasize
+                    ? textTheme.titleSmall
+                    : (flex == 2 ? textTheme.titleSmall : textTheme.bodySmall))
                 ?.copyWith(
-                  fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+                  fontWeight: emphasize || flex == 2
+                      ? FontWeight.w800
+                      : FontWeight.w600,
                   color: color,
                 ),
           ),
@@ -553,7 +557,7 @@ class _ScheduleDateHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
           fontWeight: FontWeight.w900,
           color: color,
         ),
@@ -595,7 +599,7 @@ class _ScheduleCard extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: Theme.of(
                     context,
-                  ).textTheme.titleLarge?.copyWith(
+                  ).textTheme.headlineSmall?.copyWith(
                     color: colorScheme.primary,
                     fontWeight: FontWeight.w900,
                     letterSpacing: -0.3,
