@@ -155,8 +155,12 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
   Future<void> _openInstantStatus(String status, String statusAction) async {
     final form = await showDialog<_InstantStatusFormResult>(
       context: context,
-      builder: (context) =>
-          _InstantStatusDialog(record: record, title: statusAction),
+      builder: (context) => _InstantStatusDialog(
+        record: record,
+        title: statusAction,
+        initialStatus: status,
+        statusAction: statusAction,
+      ),
     );
     if (form == null) return;
 
@@ -171,8 +175,8 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
           .read(supabaseOpsRepositoryProvider)
           .updateCarInstantStatus(
             carRowId: carRowId,
-            status: status,
-            statusAction: statusAction,
+            status: form.status,
+            statusAction: form.statusAction,
             customerName: form.customerName,
             customerPhone: form.customerPhone,
             startAt: form.startAt,
@@ -184,7 +188,48 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('$statusAction 상태로 저장했습니다.')));
+      ).showSnackBar(SnackBar(content: Text('${form.statusAction} 상태로 저장했습니다.')));
+    });
+  }
+
+  Future<void> _editVehicleStatus() async {
+    final form = await showDialog<_InstantStatusFormResult>(
+      context: context,
+      builder: (context) => _InstantStatusDialog(
+        record: record,
+        title: '차량 상태 수정',
+        initialStatus: _normalizeEditableStatus(record.status),
+        statusAction: '상태 수정',
+        allowStatusSelection: true,
+      ),
+    );
+    if (form == null) return;
+
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .updateCarInstantStatus(
+            carRowId: carRowId,
+            status: form.status,
+            statusAction: form.statusAction,
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            startAt: form.startAt,
+            endAt: form.endAt,
+            pickupLocation: form.pickupLocation,
+            parkingLocation: form.parkingLocation,
+            noteText: form.noteText,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('차량 상태를 수정했습니다.')));
     });
   }
 
@@ -339,9 +384,11 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     final idleActions = _isIdleStatus(record.status);
     final inServiceActions = _isInServiceStatus(record.status);
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+    return Stack(
       children: [
+        ListView(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 108),
+          children: [
         Text(
           record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
           style: textTheme.headlineMedium?.copyWith(
@@ -385,26 +432,30 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  _ActionChipButton(
+                    label: '예약',
+                    icon: Icons.add_card_rounded,
+                    emphasis: _ActionChipEmphasis.primary,
+                    onPressed: _submitting ? null : _createReservation,
+                  ),
                   if (idleActions) ...[
                     _ActionChipButton(
-                      label: '예약생성',
-                      emphasis: _ActionChipEmphasis.primary,
-                      onPressed: _submitting ? null : _createReservation,
-                    ),
-                    _ActionChipButton(
-                      label: '보험대차',
+                      label: '보험',
+                      icon: Icons.shield_outlined,
                       onPressed: _submitting
                           ? null
                           : () => _openInstantStatus('보험', '배차 보험'),
                     ),
                     _ActionChipButton(
-                      label: '일반대차',
+                      label: '일반',
+                      icon: Icons.directions_car_filled_outlined,
                       onPressed: _submitting
                           ? null
                           : () => _openInstantStatus('일반', '배차 일반'),
                     ),
                     _ActionChipButton(
-                      label: '장기대차',
+                      label: '장기',
+                      icon: Icons.event_repeat_outlined,
                       onPressed: _submitting
                           ? null
                           : () => _openInstantStatus('장기', '배차 장기'),
@@ -412,26 +463,39 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   ],
                   if (inServiceActions)
                     _ActionChipButton(
-                      label: '반납 완료',
+                      label: '반납',
+                      icon: Icons.assignment_return_outlined,
                       emphasis: _ActionChipEmphasis.primary,
                       onPressed: _submitting ? null : _completeReturn,
                     ),
-                  _ActionChipButton(
-                    label: _isTruthy(record.carWash) ? '외부세차 해제' : '외부세차',
-                    onPressed: _submitting
-                        ? null
-                        : () => _toggleWash(interior: false),
-                  ),
-                  _ActionChipButton(
-                    label: _isTruthy(record.interiorWash) ? '실내세차 해제' : '실내세차',
-                    onPressed: _submitting
-                        ? null
-                        : () => _toggleWash(interior: true),
-                  ),
-                  _ActionChipButton(
-                    label: '주차',
-                    onPressed: _submitting ? null : _editParking,
-                  ),
+                  if (idleActions)
+                    _ActionChipButton(
+                      label: '외세',
+                      icon: _isTruthy(record.carWash)
+                          ? Icons.local_car_wash_rounded
+                          : Icons.local_car_wash_outlined,
+                      active: _isTruthy(record.carWash),
+                      onPressed: _submitting
+                          ? null
+                          : () => _toggleWash(interior: false),
+                    ),
+                  if (idleActions)
+                    _ActionChipButton(
+                      label: '실세',
+                      icon: _isTruthy(record.interiorWash)
+                          ? Icons.airline_seat_recline_normal_rounded
+                          : Icons.airline_seat_recline_normal_outlined,
+                      active: _isTruthy(record.interiorWash),
+                      onPressed: _submitting
+                          ? null
+                          : () => _toggleWash(interior: true),
+                    ),
+                  if (idleActions)
+                    _ActionChipButton(
+                      label: '주차',
+                      icon: Icons.local_parking_outlined,
+                      onPressed: _submitting ? null : _editParking,
+                    ),
                 ],
               ),
             ],
@@ -545,6 +609,18 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
             ],
           ),
         ),
+          ],
+        ),
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FloatingActionButton.small(
+            heroTag: 'vehicle-status-edit-fab',
+            onPressed: _submitting ? null : _editVehicleStatus,
+            tooltip: '차량 상태 수정',
+            child: const Icon(Icons.edit_square),
+          ),
+        ),
       ],
     );
   }
@@ -553,49 +629,70 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
 class _ActionChipButton extends StatelessWidget {
   const _ActionChipButton({
     required this.label,
+    required this.icon,
     required this.onPressed,
     this.emphasis = _ActionChipEmphasis.standard,
+    this.active = false,
   });
 
   final String label;
+  final IconData icon;
   final VoidCallback? onPressed;
   final _ActionChipEmphasis emphasis;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isPrimary = emphasis == _ActionChipEmphasis.primary;
     final isDanger = emphasis == _ActionChipEmphasis.danger;
+    final isActive = active && !isDanger;
     final foreground = isDanger
         ? const Color(0xFFB42318)
-        : isPrimary
-        ? colorScheme.onPrimary
-        : colorScheme.primary;
+        : (isPrimary || isActive)
+            ? colorScheme.onPrimary
+            : colorScheme.primary;
     final background = isDanger
         ? const Color(0xFFFFF1F0)
-        : isPrimary
-        ? colorScheme.primary
-        : const Color(0xFFE3F2FD);
+        : (isPrimary || isActive)
+            ? colorScheme.primary
+            : const Color(0xFFEAF5FF);
     final borderColor = isDanger
         ? const Color(0xFFFFC9C5)
-        : isPrimary
-        ? colorScheme.primary
-        : const Color(0xFFBBDEFB);
+        : (isPrimary || isActive)
+            ? colorScheme.primary
+            : const Color(0xFFBBDEFB);
 
-    return FilledButton.tonal(
-      onPressed: onPressed,
-      style: FilledButton.styleFrom(
-        backgroundColor: background,
-        foregroundColor: foreground,
-        disabledBackgroundColor: colorScheme.surfaceContainerHighest,
-        disabledForegroundColor: colorScheme.onSurfaceVariant,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: borderColor),
+    return SizedBox(
+      width: 72,
+      child: FilledButton.tonal(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: background,
+          foregroundColor: foreground,
+          disabledBackgroundColor: colorScheme.surfaceContainerHighest,
+          disabledForegroundColor: colorScheme.onSurfaceVariant,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: borderColor),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: foreground,
+              ),
+            ),
+          ],
         ),
       ),
-      child: Text(label),
     );
   }
 }
@@ -925,10 +1022,19 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
 }
 
 class _InstantStatusDialog extends StatefulWidget {
-  const _InstantStatusDialog({required this.record, required this.title});
+  const _InstantStatusDialog({
+    required this.record,
+    required this.title,
+    required this.initialStatus,
+    required this.statusAction,
+    this.allowStatusSelection = false,
+  });
 
   final StatusBoardRecord record;
   final String title;
+  final String initialStatus;
+  final String statusAction;
+  final bool allowStatusSelection;
 
   @override
   State<_InstantStatusDialog> createState() => _InstantStatusDialogState();
@@ -936,6 +1042,8 @@ class _InstantStatusDialog extends StatefulWidget {
 
 class _InstantStatusDialogState extends State<_InstantStatusDialog> {
   final _formKey = GlobalKey<FormState>();
+  static const _statusOptions = ['대기중', '보험', '일반', '장기'];
+  late String _selectedStatus;
   late final TextEditingController _customerNameController;
   late final TextEditingController _customerPhoneController;
   late final TextEditingController _pickupLocationController;
@@ -947,6 +1055,7 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
   @override
   void initState() {
     super.initState();
+    _selectedStatus = widget.initialStatus;
     _customerNameController = TextEditingController(
       text: widget.record.customerName,
     );
@@ -976,6 +1085,8 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
     super.dispose();
   }
 
+  bool get _requiresTripFields => !_isIdleStatus(_selectedStatus);
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -988,10 +1099,26 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (widget.allowStatusSelection)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _selectedStatus,
+                      decoration: const InputDecoration(labelText: '차량상태'),
+                      items: [
+                        for (final status in _statusOptions)
+                          DropdownMenuItem(value: status, child: Text(status)),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() => _selectedStatus = value);
+                      },
+                    ),
+                  ),
                 _DialogTextField(
                   controller: _customerNameController,
                   label: '이용자/고객명',
-                  validator: _requiredValidator,
+                  validator: _requiresTripFields ? _requiredValidator : null,
                 ),
                 _DialogTextField(
                   controller: _customerPhoneController,
@@ -1001,13 +1128,13 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                   controller: _startAtController,
                   label: '대여일시',
                   hintText: '2026-05-11 10:00',
-                  validator: _requiredValidator,
+                  validator: _requiresTripFields ? _requiredValidator : null,
                 ),
                 _DialogTextField(
                   controller: _endAtController,
                   label: '반납일시',
                   hintText: '2026-05-12 10:00',
-                  validator: _requiredValidator,
+                  validator: _requiresTripFields ? _requiredValidator : null,
                 ),
                 _DialogTextField(
                   controller: _pickupLocationController,
@@ -1035,9 +1162,11 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
         FilledButton(
           onPressed: () {
             if (!_formKey.currentState!.validate()) return;
-            final startAt = _tryParseDateTime(_startAtController.text.trim());
-            final endAt = _tryParseDateTime(_endAtController.text.trim());
-            if (startAt == null || endAt == null) {
+            final startAtRaw = _startAtController.text.trim();
+            final endAtRaw = _endAtController.text.trim();
+            final startAt = startAtRaw.isEmpty ? null : _tryParseDateTime(startAtRaw);
+            final endAt = endAtRaw.isEmpty ? null : _tryParseDateTime(endAtRaw);
+            if (_requiresTripFields && (startAt == null || endAt == null)) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('대여/반납 일시 형식을 확인해 주세요.')),
               );
@@ -1045,12 +1174,16 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
             }
             Navigator.of(context).pop(
               _InstantStatusFormResult(
+                status: _selectedStatus,
+                statusAction: widget.statusAction,
                 customerName: _customerNameController.text.trim(),
                 customerPhone: _customerPhoneController.text.trim(),
                 startAt: startAt,
                 endAt: endAt,
                 pickupLocation: _pickupLocationController.text.trim(),
-                parkingLocation: _parkingLocationController.text.trim(),
+                parkingLocation: _pickupLocationController.text.trim().isEmpty
+                    ? _parkingLocationController.text.trim()
+                    : _parkingLocationController.text.trim(),
                 noteText: _noteController.text.trim(),
               ),
             );
@@ -1251,12 +1384,14 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                 runSpacing: 8,
                 children: [
                   _ActionChipButton(
-                    label: '일정완료',
+                    label: '완료',
+                    icon: Icons.task_alt_outlined,
                     emphasis: _ActionChipEmphasis.primary,
                     onPressed: _submitting ? null : _completeSchedule,
                   ),
                   _ActionChipButton(
-                    label: '일정삭제',
+                    label: '삭제',
+                    icon: Icons.delete_outline,
                     emphasis: _ActionChipEmphasis.danger,
                     onPressed: _submitting ? null : _deleteSchedule,
                   ),
@@ -1683,6 +1818,8 @@ class _ReservationCreateFormResult {
 
 class _InstantStatusFormResult {
   const _InstantStatusFormResult({
+    required this.status,
+    required this.statusAction,
     required this.customerName,
     required this.customerPhone,
     required this.startAt,
@@ -1692,10 +1829,12 @@ class _InstantStatusFormResult {
     required this.noteText,
   });
 
+  final String status;
+  final String statusAction;
   final String customerName;
   final String customerPhone;
-  final DateTime startAt;
-  final DateTime endAt;
+  final DateTime? startAt;
+  final DateTime? endAt;
   final String pickupLocation;
   final String parkingLocation;
   final String noteText;
@@ -1761,6 +1900,15 @@ String _normalizeBirthDateForStorage(String value) {
   }
 
   return trimmed.replaceAll(RegExp(r'[./]'), '-');
+}
+
+String _normalizeEditableStatus(String status) {
+  final normalized = status.trim();
+  if (normalized == '대기') return '대기중';
+  if (normalized == '보험' || normalized == '일반' || normalized == '장기') {
+    return normalized;
+  }
+  return '대기중';
 }
 
 bool _isIdleStatus(String status) {

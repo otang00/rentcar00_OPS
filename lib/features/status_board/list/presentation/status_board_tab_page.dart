@@ -46,11 +46,9 @@ class StatusBoardTabPage extends ConsumerWidget {
       case StatusBoardTab.idle:
         return _buildIdleContent(context, items);
       case StatusBoardTab.insurance:
-        return [for (final item in items) _InsuranceCard(item: item)];
       case StatusBoardTab.general:
-        return [_GeneralTable(items: items)];
       case StatusBoardTab.longTerm:
-        return [_LongTermTable(items: items)];
+        return [for (final item in items) _ServiceStatusCard(item: item)];
       case StatusBoardTab.schedule:
         return _buildScheduleContent(context, items);
     }
@@ -452,137 +450,88 @@ class _ScheduleCreateFormResult {
   final String detailText;
 }
 
-class _InsuranceCard extends StatelessWidget {
-  const _InsuranceCard({required this.item});
+class _ServiceStatusCard extends StatelessWidget {
+  const _ServiceStatusCard({required this.item});
 
   final StatusBoardRecord item;
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    Widget cell(
+      String value, {
+      required int flex,
+      bool alignEnd = false,
+      bool emphasize = false,
+      Color? color,
+    }) {
+      return Expanded(
+        flex: flex,
+        child: Align(
+          alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+          child: Text(
+            value.isEmpty ? '-' : value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: (emphasize ? textTheme.titleSmall : textTheme.bodySmall)
+                ?.copyWith(
+                  fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+                  color: color,
+                ),
+          ),
+        ),
+      );
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 0,
+      color: Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: Theme.of(context).dividerColor),
+        side: BorderSide(color: colorScheme.outlineVariant),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: () =>
             context.push('/board/${Uri.encodeComponent(item.recordId)}'),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                item.pickupLocation.isEmpty ? '(배차지없음)' : item.pickupLocation,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              if (item.noteText.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  item.noteText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+              Row(
+                children: [
+                  cell(
+                    item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+                    flex: 4,
+                    emphasize: true,
                   ),
-                ),
-              ],
-              const SizedBox(height: 18),
-              Text(
-                item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
+                  const SizedBox(width: 8),
+                  cell(_compactDate6(item.startAt), flex: 2, alignEnd: true),
+                  const SizedBox(width: 8),
+                  cell(
+                    _compactDate6(item.endAt),
+                    flex: 2,
+                    alignEnd: true,
+                    color: const Color(0xFF8B1E1E),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                item.carName.isEmpty ? '(차종없음)' : item.carName,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                _fullDate(item.startAt),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'GO TO DETAILS',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w800,
-                ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  cell(item.customerName, flex: 3),
+                  const SizedBox(width: 8),
+                  cell(item.carName, flex: 3),
+                  const SizedBox(width: 8),
+                  cell(item.pickupLocation, flex: 4, alignEnd: true),
+                ],
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _GeneralTable extends StatelessWidget {
-  const _GeneralTable({required this.items});
-
-  final List<StatusBoardRecord> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: _tableDecoration(context),
-      child: Column(
-        children: [
-          const _TableHeader(
-            columns: [
-              _HeaderColumn('차량번호', flex: 3),
-              _HeaderColumn('차종', flex: 2),
-              _HeaderColumn('대여', flex: 2, alignEnd: true),
-              _HeaderColumn('반납', flex: 2, alignEnd: true),
-            ],
-          ),
-          for (var i = 0; i < items.length; i++)
-            _GeneralTableRow(item: items[i], showDivider: i < items.length - 1),
-        ],
-      ),
-    );
-  }
-}
-
-class _LongTermTable extends StatelessWidget {
-  const _LongTermTable({required this.items});
-
-  final List<StatusBoardRecord> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: _tableDecoration(context),
-      child: Column(
-        children: [
-          const _TableHeader(
-            columns: [
-              _HeaderColumn('차량번호', flex: 3),
-              _HeaderColumn('차종', flex: 2),
-              _HeaderColumn('반납년월일', flex: 3, alignEnd: true),
-              _HeaderColumn('임차인', flex: 3),
-            ],
-          ),
-          for (var i = 0; i < items.length; i++)
-            _LongTermTableRow(
-              item: items[i],
-              showDivider: i < items.length - 1,
-            ),
-        ],
       ),
     );
   }
@@ -640,14 +589,16 @@ class _ScheduleCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               SizedBox(
-                width: 78,
+                width: 64,
                 child: Text(
-                  item.timeLabel,
+                  _scheduleTimeOnly(item),
+                  textAlign: TextAlign.center,
                   style: Theme.of(
                     context,
-                  ).textTheme.labelLarge?.copyWith(
+                  ).textTheme.titleLarge?.copyWith(
                     color: colorScheme.primary,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
                   ),
                 ),
               ),
@@ -840,197 +791,6 @@ class _IdleGroupHeader extends StatelessWidget {
   }
 }
 
-class _TableHeader extends StatelessWidget {
-  const _TableHeader({required this.columns});
-
-  final List<_HeaderColumn> columns;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-      ),
-      child: Row(
-        children: [
-          for (final column in columns)
-            Expanded(
-              flex: column.flex,
-              child: Align(
-                alignment: column.alignEnd
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: Text(
-                  column.label,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GeneralTableRow extends StatelessWidget {
-  const _GeneralTableRow({required this.item, required this.showDivider});
-
-  final StatusBoardRecord item;
-  final bool showDivider;
-
-  @override
-  Widget build(BuildContext context) {
-    final returnDue = item.endAt.isNotEmpty;
-    return InkWell(
-      onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-        decoration: BoxDecoration(
-          border: showDivider
-              ? Border(
-                  bottom: BorderSide(color: Theme.of(context).dividerColor),
-                )
-              : null,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Text(
-                item.carNumber,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
-              ),
-            ),
-            Expanded(flex: 2, child: Text(item.carName)),
-            Expanded(
-              flex: 2,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  _shortDate(item.startAt),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.blue,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (returnDue)
-                      const Padding(
-                        padding: EdgeInsets.only(right: 4),
-                        child: Icon(
-                          Icons.arrow_downward,
-                          size: 14,
-                          color: Color(0xFF8B1E1E),
-                        ),
-                      ),
-                    Text(
-                      _shortDate(item.endAt),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF8B1E1E),
-                        fontWeight: FontWeight.w800,
-                        decoration: returnDue
-                            ? TextDecoration.underline
-                            : TextDecoration.none,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LongTermTableRow extends StatelessWidget {
-  const _LongTermTableRow({required this.item, required this.showDivider});
-
-  final StatusBoardRecord item;
-  final bool showDivider;
-
-  @override
-  Widget build(BuildContext context) {
-    final isEmphasized = _isPastDate(item.endAt);
-    return InkWell(
-      onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-        decoration: BoxDecoration(
-          border: showDivider
-              ? Border(
-                  bottom: BorderSide(color: Theme.of(context).dividerColor),
-                )
-              : null,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Text(
-                item.carNumber,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
-              ),
-            ),
-            Expanded(flex: 2, child: Text(item.carName)),
-            Expanded(
-              flex: 3,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  _fullDate(item.endAt),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isEmphasized ? const Color(0xFF8B1E1E) : null,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-            Expanded(
-              flex: 3,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 10),
-                child: Text(
-                  item.customerName.isEmpty ? '-' : item.customerName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HeaderColumn {
-  const _HeaderColumn(this.label, {required this.flex, this.alignEnd = false});
-
-  final String label;
-  final int flex;
-  final bool alignEnd;
-}
-
 class _WashStatusIcon extends StatelessWidget {
   const _WashStatusIcon({
     required this.active,
@@ -1068,14 +828,6 @@ bool _isActive(String value) {
       normalized == '1';
 }
 
-bool _isPastDate(String value) {
-  final parsed = _parseFlexibleDate(value);
-  if (parsed == null) return false;
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  return parsed.isBefore(today);
-}
-
 DateTime? _parseFlexibleDate(String value) {
   if (value.isEmpty) return null;
   var normalized = value.trim();
@@ -1090,23 +842,19 @@ DateTime? _parseFlexibleDate(String value) {
   return DateTime.tryParse(normalized);
 }
 
-String _shortDate(String value) {
-  if (value.isEmpty) return '-';
-  if (value.length >= 10 && value.contains('-')) {
-    return value.substring(5, 10);
-  }
-  if (value.length >= 10 && value.contains('.')) {
-    return value.substring(5, 10);
-  }
-  return value;
+String _compactDate6(String value) {
+  final parsed = _parseFlexibleDate(value);
+  if (parsed == null) return '-';
+  String two(int n) => n.toString().padLeft(2, '0');
+  final yy = (parsed.year % 100).toString().padLeft(2, '0');
+  return '$yy${two(parsed.month)}${two(parsed.day)}';
 }
 
-String _fullDate(String value) {
-  if (value.isEmpty) return '-';
-  if (value.length >= 10 && value.contains('-')) {
-    return value.substring(0, 10).replaceAll('-', '.');
-  }
-  return value;
+String _scheduleTimeOnly(StatusBoardRecord item) {
+  final parsed = item.sortAt ?? _parseFlexibleDate(item.startAt);
+  if (parsed == null) return item.timeLabel;
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(parsed.hour)}:${two(parsed.minute)}';
 }
 
 String _scheduleHeaderLabel(DateTime value) {
