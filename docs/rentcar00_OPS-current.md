@@ -9,7 +9,9 @@
 - Phase 5. 서버측 IMS endpoint 초안 반영 완료
 - Phase 6. 예약생성 IMS 체크 UI 연결 완료
 - Phase 7. 성공/실패 확인줄 연결 완료
-- 아직 IMS dry-run / 실제 저장 테스트는 하지 않았다.
+- Phase 8. IMS dry-run 호출 검증 완료
+- Phase 9. IMS 실제 저장 후 즉시 삭제 검증 완료
+- Phase 10. 예약 상세/원장 독립 `IMS 예약추가` 액션 연결 완료
 
 ## 3. 오늘 잠금 스냅샷 (2026-05-13 23:54 KST)
 - IMS 예약추가는 **파싱 기능의 부속이 아니라 원장 기반 독립 기능**으로 본다.
@@ -61,10 +63,13 @@
 - 원장 canonical schema 저장 형식 잠금 완료
 - AI파서 사용 시 원문 전체 메모 저장 반영 완료
 - 6자리 생년월일 / 전화번호 / 금액 저장 정규화 반영 완료
-- 원장 → IMS payload mapper / compact memo / preflight validation 코드 초안 반영 완료
-- 파서 서버 `POST /ims/create-reservation` endpoint 초안 반영 완료
+- 원장 → IMS payload mapper / compact memo / preflight validation 반영 완료
+- 파서 서버 `POST /ims/create-reservation` endpoint 반영 완료
+- 운영 43110 기준 IMS dry-run 검증 완료
+- 실제 차량번호(`101호4701`) 기준 IMS 저장 → 삭제 → 재확인 완료
+- 예약 상세 화면 `IMS 예약추가` 버튼 반영 완료
 
 ## 7. 다음 단계 미리보기
-- Phase 8. IMS endpoint dry-run 호출 검증
-- Phase 9. 실제 저장 테스트
-- Phase 10. 예약 상세/원장 독립 `IMS 예약추가` 액션 연결
+- 현황판 차량 상태별 액션 분기 설계
+- 대기 차량 배차 액션 정리
+- 보험/장기/일반 반납 버튼 및 상태 초기화 구현

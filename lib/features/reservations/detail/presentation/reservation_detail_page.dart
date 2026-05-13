@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
+import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
+import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 
 class ReservationDetailPage extends ConsumerWidget {
   const ReservationDetailPage({super.key, required this.reservationId});
@@ -30,19 +33,89 @@ class ReservationDetailPage extends ConsumerWidget {
   }
 }
 
-class _ReservationDetailBody extends ConsumerWidget {
+class _ReservationDetailBody extends ConsumerStatefulWidget {
   const _ReservationDetailBody({required this.reservationId});
 
   final String reservationId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final reservationAsync = ref.watch(
-      reservationDetailProvider(reservationId),
+  ConsumerState<_ReservationDetailBody> createState() =>
+      _ReservationDetailBodyState();
+}
+
+class _ReservationDetailBodyState
+    extends ConsumerState<_ReservationDetailBody> {
+  bool _imsSubmitting = false;
+
+  Future<void> _submitImsReservation() async {
+    if (_imsSubmitting) return;
+
+    final reservation = ref
+        .read(reservationDetailProvider(widget.reservationId))
+        .valueOrNull;
+    if (reservation == null) return;
+
+    final buildResult = buildImsReservationPayload(reservation);
+    if (!buildResult.isValid) {
+      _showSnack(
+        'IMS 예약실패(${buildResult.errors.join(', ')})',
+        backgroundColor: Colors.red.shade700,
+      );
+      return;
+    }
+
+    final appEnv = ref.read(appEnvProvider);
+    setState(() => _imsSubmitting = true);
+
+    try {
+      final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
+      final result = await client.createReservation(buildResult.payload);
+      if (!mounted) return;
+
+      if (result.isSuccess) {
+        _showSnack(
+          'IMS 예약성공(${reservation.carNumber}, ${_formatDateTime(reservation.startAt)})',
+          backgroundColor: Colors.green.shade700,
+        );
+        return;
+      }
+
+      _showSnack(
+        'IMS 예약실패(${result.message.isEmpty ? result.code : result.message})',
+        backgroundColor: Colors.red.shade700,
+      );
+    } on ImsReservationClientException catch (error) {
+      if (!mounted) return;
+      _showSnack(
+        'IMS 예약실패(${error.message})',
+        backgroundColor: Colors.red.shade700,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('IMS 예약실패($error)', backgroundColor: Colors.red.shade700);
+    } finally {
+      if (mounted) setState(() => _imsSubmitting = false);
+    }
+  }
+
+  void _showSnack(String message, {required Color backgroundColor}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: backgroundColor),
     );
-    final actionsAsync = ref.watch(reservationActionsProvider(reservationId));
-    final logsAsync = ref.watch(actionLogsProvider(reservationId));
-    final outboxPreviewAsync = ref.watch(outboxPreviewProvider(reservationId));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reservationAsync = ref.watch(
+      reservationDetailProvider(widget.reservationId),
+    );
+    final actionsAsync = ref.watch(
+      reservationActionsProvider(widget.reservationId),
+    );
+    final logsAsync = ref.watch(actionLogsProvider(widget.reservationId));
+    final outboxPreviewAsync = ref.watch(
+      outboxPreviewProvider(widget.reservationId),
+    );
 
     return reservationAsync.when(
       data: (reservation) {
@@ -106,7 +179,19 @@ class _ReservationDetailBody extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('현재는 Supabase read-only 단계입니다.'),
+                  FilledButton.tonalIcon(
+                    onPressed: _imsSubmitting ? null : _submitImsReservation,
+                    icon: _imsSubmitting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cloud_upload_outlined),
+                    label: const Text('IMS 예약추가'),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('기존 액션은 아직 read-only 상태입니다.'),
                   const SizedBox(height: 12),
                   if (actions.isEmpty) const Text('이 탭은 조회 중심입니다.'),
                   for (final action in actions)
