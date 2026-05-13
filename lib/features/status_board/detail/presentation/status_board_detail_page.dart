@@ -243,19 +243,11 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
   Future<void> _completeReturn() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('반납 완료'),
-        content: const Text('차량을 대기중으로 전환하고 세차 상태와 주차지를 초기화합니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('완료'),
-          ),
-        ],
+      builder: (context) => _ConfirmActionDialog(
+        icon: Icons.assignment_turned_in_outlined,
+        title: '반납 완료',
+        message: '차량을 대기중으로 전환하고 세차 상태와 주차지를 초기화합니다.',
+        confirmLabel: '완료',
       ),
     );
     if (confirmed != true) return;
@@ -396,6 +388,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   if (idleActions) ...[
                     _ActionChipButton(
                       label: '예약생성',
+                      emphasis: _ActionChipEmphasis.primary,
                       onPressed: _submitting ? null : _createReservation,
                     ),
                     _ActionChipButton(
@@ -420,6 +413,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   if (inServiceActions)
                     _ActionChipButton(
                       label: '반납 완료',
+                      emphasis: _ActionChipEmphasis.primary,
                       onPressed: _submitting ? null : _completeReturn,
                     ),
                   _ActionChipButton(
@@ -557,22 +551,56 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
 }
 
 class _ActionChipButton extends StatelessWidget {
-  const _ActionChipButton({required this.label, required this.onPressed});
+  const _ActionChipButton({
+    required this.label,
+    required this.onPressed,
+    this.emphasis = _ActionChipEmphasis.standard,
+  });
 
   final String label;
   final VoidCallback? onPressed;
+  final _ActionChipEmphasis emphasis;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isPrimary = emphasis == _ActionChipEmphasis.primary;
+    final isDanger = emphasis == _ActionChipEmphasis.danger;
+    final foreground = isDanger
+        ? const Color(0xFFB42318)
+        : isPrimary
+        ? colorScheme.onPrimary
+        : colorScheme.primary;
+    final background = isDanger
+        ? const Color(0xFFFFF1F0)
+        : isPrimary
+        ? colorScheme.primary
+        : const Color(0xFFE3F2FD);
+    final borderColor = isDanger
+        ? const Color(0xFFFFC9C5)
+        : isPrimary
+        ? colorScheme.primary
+        : const Color(0xFFBBDEFB);
+
     return FilledButton.tonal(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
+        backgroundColor: background,
+        foregroundColor: foreground,
+        disabledBackgroundColor: colorScheme.surfaceContainerHighest,
+        disabledForegroundColor: colorScheme.onSurfaceVariant,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: borderColor),
+        ),
       ),
       child: Text(label),
     );
   }
 }
+
+enum _ActionChipEmphasis { standard, primary, danger }
 
 class _ReservationCreateDialog extends StatefulWidget {
   const _ReservationCreateDialog({
@@ -1139,19 +1167,12 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
   Future<void> _deleteSchedule() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('일정삭제'),
-        content: const Text('이 일정을 삭제합니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('삭제'),
-          ),
-        ],
+      builder: (context) => const _ConfirmActionDialog(
+        icon: Icons.delete_outline,
+        title: '일정삭제',
+        message: '이 일정을 삭제합니다.',
+        confirmLabel: '삭제',
+        danger: true,
       ),
     );
     if (confirmed != true) return;
@@ -1231,10 +1252,12 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                 children: [
                   _ActionChipButton(
                     label: '일정완료',
+                    emphasis: _ActionChipEmphasis.primary,
                     onPressed: _submitting ? null : _completeSchedule,
                   ),
                   _ActionChipButton(
                     label: '일정삭제',
+                    emphasis: _ActionChipEmphasis.danger,
                     onPressed: _submitting ? null : _deleteSchedule,
                   ),
                 ],
@@ -1472,9 +1495,50 @@ class _DialogTextField extends StatelessWidget {
           labelText: label,
           hintText: hintText,
           suffixIcon: suffixIcon,
-          border: const OutlineInputBorder(),
         ),
       ),
+    );
+  }
+}
+
+class _ConfirmActionDialog extends StatelessWidget {
+  const _ConfirmActionDialog({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.confirmLabel,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String confirmLabel;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final actionColor = danger ? const Color(0xFFB42318) : colorScheme.primary;
+
+    return AlertDialog(
+      icon: Icon(icon, color: actionColor),
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: actionColor,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(confirmLabel),
+        ),
+      ],
     );
   }
 }

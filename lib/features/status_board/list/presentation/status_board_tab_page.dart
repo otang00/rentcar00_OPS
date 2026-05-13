@@ -206,14 +206,20 @@ class _StatusBoardScheduleFabState
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return FloatingActionButton(
       onPressed: _submitting ? null : _openCreateSchedule,
       tooltip: '일정 생성',
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: _submitting
-          ? const SizedBox(
+          ? SizedBox(
               width: 22,
               height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: colorScheme.onPrimary,
+              ),
             )
           : const Icon(Icons.add),
     );
@@ -300,7 +306,10 @@ class _ScheduleCreateDialogState extends State<_ScheduleCreateDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return AlertDialog(
+      icon: Icon(Icons.event_available_outlined, color: colorScheme.primary),
       title: const Text('일정 생성'),
       content: SizedBox(
         width: 420,
@@ -316,7 +325,6 @@ class _ScheduleCreateDialogState extends State<_ScheduleCreateDialog> {
                     initialValue: _scheduleType,
                     decoration: const InputDecoration(
                       labelText: '일정유형',
-                      border: OutlineInputBorder(),
                     ),
                     items: [
                       for (final type in _scheduleTypes)
@@ -420,7 +428,6 @@ class _ScheduleDialogTextField extends StatelessWidget {
         decoration: InputDecoration(
           labelText: label,
           suffixIcon: suffixIcon,
-          border: const OutlineInputBorder(),
         ),
       ),
     );
@@ -613,9 +620,18 @@ class _ScheduleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
       child: InkWell(
+        borderRadius: BorderRadius.circular(14),
         onTap: () =>
             context.push('/schedule/${Uri.encodeComponent(item.recordId)}'),
         child: Padding(
@@ -629,7 +645,10 @@ class _ScheduleCard extends StatelessWidget {
                   item.timeLabel,
                   style: Theme.of(
                     context,
-                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+                  ).textTheme.labelLarge?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
