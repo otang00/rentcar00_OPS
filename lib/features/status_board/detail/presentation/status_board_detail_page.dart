@@ -439,12 +439,14 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   label: '예약',
                   icon: Icons.add_card_rounded,
                   emphasis: _ActionChipEmphasis.primary,
+                  expand: true,
                   onPressed: _submitting ? null : _createReservation,
                 ),
                 if (idleActions) ...[
                   _ActionChipButton(
                     label: '보험',
                     icon: Icons.shield_outlined,
+                    expand: true,
                     onPressed: _submitting
                         ? null
                         : () => _openInstantStatus('보험', '배차 보험'),
@@ -452,6 +454,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   _ActionChipButton(
                     label: '일반',
                     icon: Icons.directions_car_filled_outlined,
+                    expand: true,
                     onPressed: _submitting
                         ? null
                         : () => _openInstantStatus('일반', '배차 일반'),
@@ -459,6 +462,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   _ActionChipButton(
                     label: '장기',
                     icon: Icons.event_repeat_outlined,
+                    expand: true,
                     onPressed: _submitting
                         ? null
                         : () => _openInstantStatus('장기', '배차 장기'),
@@ -469,12 +473,14 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                     label: '반납',
                     icon: Icons.assignment_return_outlined,
                     emphasis: _ActionChipEmphasis.primary,
+                    expand: true,
                     onPressed: _submitting ? null : _completeReturn,
                   ),
                 if (inServiceActions && hasPhone)
                   _ActionChipButton(
                     label: '전화',
                     icon: Icons.call_outlined,
+                    expand: true,
                     onPressed: _submitting
                         ? null
                         : () =>
@@ -484,6 +490,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   _ActionChipButton(
                     label: '문자',
                     icon: Icons.sms_outlined,
+                    expand: true,
                     onPressed: _submitting
                         ? null
                         : () => tryLaunchSms(context, record.customerPhone),
@@ -495,6 +502,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                         ? Icons.local_car_wash_rounded
                         : Icons.local_car_wash_outlined,
                     active: _isTruthy(record.carWash),
+                    expand: true,
                     onPressed: _submitting
                         ? null
                         : () => _toggleWash(interior: false),
@@ -506,6 +514,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                         ? Icons.airline_seat_recline_normal_rounded
                         : Icons.airline_seat_recline_normal_outlined,
                     active: _isTruthy(record.interiorWash),
+                    expand: true,
                     onPressed: _submitting
                         ? null
                         : () => _toggleWash(interior: true),
@@ -514,6 +523,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   _ActionChipButton(
                     label: '주차',
                     icon: Icons.local_parking_outlined,
+                    expand: true,
                     onPressed: _submitting ? null : _editParking,
                   ),
               ],
@@ -656,6 +666,7 @@ class _ActionChipButton extends StatelessWidget {
     required this.onPressed,
     this.emphasis = _ActionChipEmphasis.standard,
     this.active = false,
+    this.expand = false,
   });
 
   final String label;
@@ -663,6 +674,7 @@ class _ActionChipButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final _ActionChipEmphasis emphasis;
   final bool active;
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
@@ -686,41 +698,45 @@ class _ActionChipButton extends StatelessWidget {
         ? colorScheme.primary
         : const Color(0xFFBBDEFB);
 
-    return SizedBox.expand(
-      child: FilledButton.tonal(
-        onPressed: onPressed,
-        style: FilledButton.styleFrom(
-          backgroundColor: background,
-          foregroundColor: foreground,
-          disabledBackgroundColor: colorScheme.surfaceContainerHighest,
-          disabledForegroundColor: colorScheme.onSurfaceVariant,
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-          minimumSize: const Size(0, 0),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: borderColor),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 17),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: foreground,
-                fontSize: 10,
-                letterSpacing: -0.2,
-              ),
-            ),
-          ],
+    final button = FilledButton.tonal(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: background,
+        foregroundColor: foreground,
+        disabledBackgroundColor: colorScheme.surfaceContainerHighest,
+        disabledForegroundColor: colorScheme.onSurfaceVariant,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        minimumSize: const Size(0, 0),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: borderColor),
         ),
       ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 17),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: foreground,
+              fontSize: 10,
+              letterSpacing: -0.2,
+            ),
+          ),
+        ],
+      ),
     );
+
+    if (expand) {
+      return SizedBox.expand(child: button);
+    }
+
+    return SizedBox(width: 60, height: 56, child: button);
   }
 }
 
@@ -1409,21 +1425,26 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                 const LinearProgressIndicator(),
                 const SizedBox(height: 12),
               ],
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 4,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
+                childAspectRatio: 1.05,
                 children: [
                   _ActionChipButton(
                     label: '완료',
                     icon: Icons.task_alt_outlined,
                     emphasis: _ActionChipEmphasis.primary,
+                    expand: true,
                     onPressed: _submitting ? null : _completeSchedule,
                   ),
                   if (hasPhone)
                     _ActionChipButton(
                       label: '전화',
                       icon: Icons.call_outlined,
+                      expand: true,
                       onPressed: _submitting
                           ? null
                           : () => tryLaunchPhoneCall(
@@ -1435,6 +1456,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                     _ActionChipButton(
                       label: '문자',
                       icon: Icons.sms_outlined,
+                      expand: true,
                       onPressed: _submitting
                           ? null
                           : () => tryLaunchSms(context, record.customerPhone),
@@ -1443,6 +1465,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                     label: '삭제',
                     icon: Icons.delete_outline,
                     emphasis: _ActionChipEmphasis.danger,
+                    expand: true,
                     onPressed: _submitting ? null : _deleteSchedule,
                   ),
                 ],

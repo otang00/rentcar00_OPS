@@ -478,7 +478,7 @@ class _ServiceStatusCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style:
                 (emphasize
-                        ? textTheme.titleLarge
+                        ? textTheme.titleMedium
                         : (flex <= 3
                               ? textTheme.titleSmall
                               : textTheme.bodyMedium))
@@ -565,23 +565,26 @@ class _DateInfoCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      flex: 2,
+    return SizedBox(
+      width: 76,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Flexible(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.right,
-              style:
-                  (emphasizeValue
-                          ? Theme.of(context).textTheme.titleLarge
-                          : Theme.of(context).textTheme.titleMedium)
-                      ?.copyWith(color: color, fontWeight: FontWeight.w900),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                value,
+                maxLines: 1,
+                textAlign: TextAlign.right,
+                style:
+                    (emphasizeValue
+                            ? Theme.of(context).textTheme.titleLarge
+                            : Theme.of(context).textTheme.titleMedium)
+                        ?.copyWith(color: color, fontWeight: FontWeight.w900),
+              ),
             ),
           ),
           const SizedBox(width: 2),
