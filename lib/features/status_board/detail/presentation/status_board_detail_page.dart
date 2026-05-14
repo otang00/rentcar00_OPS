@@ -187,9 +187,9 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
             noteText: form.noteText,
           );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${form.statusAction} 상태로 저장했습니다.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${form.statusAction} 상태로 저장했습니다.')),
+      );
     });
   }
 
@@ -391,243 +391,247 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         ListView(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 108),
           children: [
-        Text(
-          record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
-          style: textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.4,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          record.carName.isEmpty ? '차종 미확인' : record.carName,
-          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            record.status.isEmpty
-                ? record.tab.label
-                : '${record.tab.label} · ${record.status}',
-            style: textTheme.titleSmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+            Text(
+              record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
+              style: textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.4,
+              ),
             ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '기능',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_submitting) ...[
-                const LinearProgressIndicator(),
-                const SizedBox(height: 12),
-              ],
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
+            const SizedBox(height: 6),
+            Text(
+              record.carName.isEmpty ? '차종 미확인' : record.carName,
+              style: textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                record.status.isEmpty
+                    ? record.tab.label
+                    : '${record.tab.label} · ${record.status}',
+                style: textTheme.titleSmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (_submitting) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 10),
+            ],
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 4,
+              crossAxisSpacing: 6,
+              mainAxisSpacing: 6,
+              childAspectRatio: 1.05,
+              children: [
+                _ActionChipButton(
+                  label: '예약',
+                  icon: Icons.add_card_rounded,
+                  emphasis: _ActionChipEmphasis.primary,
+                  onPressed: _submitting ? null : _createReservation,
+                ),
+                if (idleActions) ...[
                   _ActionChipButton(
-                    label: '예약',
-                    icon: Icons.add_card_rounded,
-                    emphasis: _ActionChipEmphasis.primary,
-                    onPressed: _submitting ? null : _createReservation,
+                    label: '보험',
+                    icon: Icons.shield_outlined,
+                    onPressed: _submitting
+                        ? null
+                        : () => _openInstantStatus('보험', '배차 보험'),
                   ),
-                  if (idleActions) ...[
-                    _ActionChipButton(
-                      label: '보험',
-                      icon: Icons.shield_outlined,
-                      onPressed: _submitting
-                          ? null
-                          : () => _openInstantStatus('보험', '배차 보험'),
-                    ),
-                    _ActionChipButton(
-                      label: '일반',
-                      icon: Icons.directions_car_filled_outlined,
-                      onPressed: _submitting
-                          ? null
-                          : () => _openInstantStatus('일반', '배차 일반'),
-                    ),
-                    _ActionChipButton(
-                      label: '장기',
-                      icon: Icons.event_repeat_outlined,
-                      onPressed: _submitting
-                          ? null
-                          : () => _openInstantStatus('장기', '배차 장기'),
-                    ),
-                  ],
-                  if (inServiceActions)
-                    _ActionChipButton(
-                      label: '반납',
-                      icon: Icons.assignment_return_outlined,
-                      emphasis: _ActionChipEmphasis.primary,
-                      onPressed: _submitting ? null : _completeReturn,
-                    ),
-                  if (inServiceActions && hasPhone)
-                    _ActionChipButton(
-                      label: '전화',
-                      icon: Icons.call_outlined,
-                      onPressed: _submitting
-                          ? null
-                          : () => tryLaunchPhoneCall(context, record.customerPhone),
-                    ),
-                  if (inServiceActions && hasPhone)
-                    _ActionChipButton(
-                      label: '문자',
-                      icon: Icons.sms_outlined,
-                      onPressed: _submitting
-                          ? null
-                          : () => tryLaunchSms(context, record.customerPhone),
-                    ),
-                  if (idleActions)
-                    _ActionChipButton(
-                      label: '외부',
-                      icon: _isTruthy(record.carWash)
-                          ? Icons.local_car_wash_rounded
-                          : Icons.local_car_wash_outlined,
-                      active: _isTruthy(record.carWash),
-                      onPressed: _submitting
-                          ? null
-                          : () => _toggleWash(interior: false),
-                    ),
-                  if (idleActions)
-                    _ActionChipButton(
-                      label: '실내',
-                      icon: _isTruthy(record.interiorWash)
-                          ? Icons.airline_seat_recline_normal_rounded
-                          : Icons.airline_seat_recline_normal_outlined,
-                      active: _isTruthy(record.interiorWash),
-                      onPressed: _submitting
-                          ? null
-                          : () => _toggleWash(interior: true),
-                    ),
-                  if (idleActions)
-                    _ActionChipButton(
-                      label: '주차',
-                      icon: Icons.local_parking_outlined,
-                      onPressed: _submitting ? null : _editParking,
-                    ),
+                  _ActionChipButton(
+                    label: '일반',
+                    icon: Icons.directions_car_filled_outlined,
+                    onPressed: _submitting
+                        ? null
+                        : () => _openInstantStatus('일반', '배차 일반'),
+                  ),
+                  _ActionChipButton(
+                    label: '장기',
+                    icon: Icons.event_repeat_outlined,
+                    onPressed: _submitting
+                        ? null
+                        : () => _openInstantStatus('장기', '배차 장기'),
+                  ),
                 ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: 'Related 일정',
-          child: relatedSchedulesAsync.when(
-            data: (items) {
-              if (items.isEmpty) {
-                return const Text('연결된 일정이 없습니다.');
-              }
-              return Column(
-                children: [
-                  for (final item in items)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: Text(
-                        item.scheduleType.isEmpty
-                            ? item.timeLabel
-                            : '${item.scheduleType} · ${item.timeLabel}',
-                        style: textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
+                if (inServiceActions)
+                  _ActionChipButton(
+                    label: '반납',
+                    icon: Icons.assignment_return_outlined,
+                    emphasis: _ActionChipEmphasis.primary,
+                    onPressed: _submitting ? null : _completeReturn,
+                  ),
+                if (inServiceActions && hasPhone)
+                  _ActionChipButton(
+                    label: '전화',
+                    icon: Icons.call_outlined,
+                    onPressed: _submitting
+                        ? null
+                        : () =>
+                              tryLaunchPhoneCall(context, record.customerPhone),
+                  ),
+                if (inServiceActions && hasPhone)
+                  _ActionChipButton(
+                    label: '문자',
+                    icon: Icons.sms_outlined,
+                    onPressed: _submitting
+                        ? null
+                        : () => tryLaunchSms(context, record.customerPhone),
+                  ),
+                if (idleActions)
+                  _ActionChipButton(
+                    label: '외부',
+                    icon: _isTruthy(record.carWash)
+                        ? Icons.local_car_wash_rounded
+                        : Icons.local_car_wash_outlined,
+                    active: _isTruthy(record.carWash),
+                    onPressed: _submitting
+                        ? null
+                        : () => _toggleWash(interior: false),
+                  ),
+                if (idleActions)
+                  _ActionChipButton(
+                    label: '실내',
+                    icon: _isTruthy(record.interiorWash)
+                        ? Icons.airline_seat_recline_normal_rounded
+                        : Icons.airline_seat_recline_normal_outlined,
+                    active: _isTruthy(record.interiorWash),
+                    onPressed: _submitting
+                        ? null
+                        : () => _toggleWash(interior: true),
+                  ),
+                if (idleActions)
+                  _ActionChipButton(
+                    label: '주차',
+                    icon: Icons.local_parking_outlined,
+                    onPressed: _submitting ? null : _editParking,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _SectionCard(
+              title: 'Related 일정',
+              child: relatedSchedulesAsync.when(
+                data: (items) {
+                  if (items.isEmpty) {
+                    return const Text('연결된 일정이 없습니다.');
+                  }
+                  return Column(
+                    children: [
+                      for (final item in items)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(
+                            item.scheduleType.isEmpty
+                                ? item.timeLabel
+                                : '${item.scheduleType} · ${item.timeLabel}',
+                            style: textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          subtitle: Text(
+                            item.locationSummary.isEmpty
+                                ? (item.detailText.isEmpty
+                                      ? '-'
+                                      : item.detailText)
+                                : item.locationSummary,
+                            style: textTheme.bodyMedium?.copyWith(height: 1.3),
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push(
+                            '/schedule/${Uri.encodeComponent(item.recordId)}',
+                          ),
                         ),
-                      ),
-                      subtitle: Text(
-                        item.locationSummary.isEmpty
-                            ? (item.detailText.isEmpty ? '-' : item.detailText)
-                            : item.locationSummary,
-                        style: textTheme.bodyMedium?.copyWith(height: 1.3),
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => context.push(
-                        '/schedule/${Uri.encodeComponent(item.recordId)}',
-                      ),
-                    ),
+                    ],
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _SectionCard(
+              title: '운행 정보',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _FieldBlock(
+                    label: '임차인',
+                    value: record.customerName,
+                    emphasize: true,
+                  ),
+                  _FieldBlock(label: '고객번호', value: record.customerPhone),
+                  _FieldBlock(label: '대여일', value: record.startAt),
+                  _FieldBlock(label: '반납일', value: record.endAt),
+                  _FieldBlock(label: '배차지', value: record.pickupLocation),
+                  _FieldBlock(label: '주차지', value: record.parkingLocation),
                 ],
-              );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '운행 정보',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(
-                label: '임차인',
-                value: record.customerName,
-                emphasize: true,
               ),
-              _FieldBlock(label: '고객번호', value: record.customerPhone),
-              _FieldBlock(label: '대여일', value: record.startAt),
-              _FieldBlock(label: '반납일', value: record.endAt),
-              _FieldBlock(label: '배차지', value: record.pickupLocation),
-              _FieldBlock(label: '주차지', value: record.parkingLocation),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '차량 관리 정보',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(label: '세차', value: record.carWash),
-              _FieldBlock(label: '실내세차', value: record.interiorWash),
-              _FieldBlock(label: '차량등록일', value: record.carRegisteredAt),
-              _FieldBlock(label: '차량검사일', value: record.carInspectionAt),
-              _FieldBlock(label: '차령만료일', value: record.carAgeExpiryAt),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '차량 번호 세부',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(
-                label: '차량번호(앞)',
-                value: record.carNumberFront,
-                emphasize: true,
+            ),
+            const SizedBox(height: 14),
+            _SectionCard(
+              title: '차량 관리 정보',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _FieldBlock(label: '세차', value: record.carWash),
+                  _FieldBlock(label: '실내세차', value: record.interiorWash),
+                  _FieldBlock(label: '차량등록일', value: record.carRegisteredAt),
+                  _FieldBlock(label: '차량검사일', value: record.carInspectionAt),
+                  _FieldBlock(label: '차령만료일', value: record.carAgeExpiryAt),
+                ],
               ),
-              _FieldBlock(
-                label: '차량번호(중)',
-                value: record.carNumberMiddle,
-                emphasize: true,
+            ),
+            const SizedBox(height: 14),
+            _SectionCard(
+              title: '차량 번호 세부',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _FieldBlock(
+                    label: '차량번호(앞)',
+                    value: record.carNumberFront,
+                    emphasize: true,
+                  ),
+                  _FieldBlock(
+                    label: '차량번호(중)',
+                    value: record.carNumberMiddle,
+                    emphasize: true,
+                  ),
+                  _FieldBlock(
+                    label: '차량번호(네자리)',
+                    value: record.carNumberRear,
+                    emphasize: true,
+                  ),
+                ],
               ),
-              _FieldBlock(
-                label: '차량번호(네자리)',
-                value: record.carNumberRear,
-                emphasize: true,
+            ),
+            const SizedBox(height: 14),
+            _SectionCard(
+              title: '메모 / 상태',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _FieldBlock(label: '상태액션', value: record.statusAction),
+                  _FieldBlock(
+                    label: '비고',
+                    value: record.noteText,
+                    multiline: true,
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '메모 / 상태',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(label: '상태액션', value: record.statusAction),
-              _FieldBlock(label: '비고', value: record.noteText, multiline: true),
-            ],
-          ),
-        ),
+            ),
           ],
         ),
         Positioned(
@@ -669,21 +673,20 @@ class _ActionChipButton extends StatelessWidget {
     final foreground = isDanger
         ? const Color(0xFFB42318)
         : (isPrimary || isActive)
-            ? colorScheme.onPrimary
-            : colorScheme.primary;
+        ? colorScheme.onPrimary
+        : colorScheme.primary;
     final background = isDanger
         ? const Color(0xFFFFF1F0)
         : (isPrimary || isActive)
-            ? colorScheme.primary
-            : const Color(0xFFEAF5FF);
+        ? colorScheme.primary
+        : const Color(0xFFEAF5FF);
     final borderColor = isDanger
         ? const Color(0xFFFFC9C5)
         : (isPrimary || isActive)
-            ? colorScheme.primary
-            : const Color(0xFFBBDEFB);
+        ? colorScheme.primary
+        : const Color(0xFFBBDEFB);
 
-    return SizedBox(
-      width: 72,
+    return SizedBox.expand(
       child: FilledButton.tonal(
         onPressed: onPressed,
         style: FilledButton.styleFrom(
@@ -691,7 +694,8 @@ class _ActionChipButton extends StatelessWidget {
           foregroundColor: foreground,
           disabledBackgroundColor: colorScheme.surfaceContainerHighest,
           disabledForegroundColor: colorScheme.onSurfaceVariant,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          minimumSize: const Size(0, 0),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(color: borderColor),
@@ -700,13 +704,17 @@ class _ActionChipButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 20),
-            const SizedBox(height: 4),
+            Icon(icon, size: 17),
+            const SizedBox(height: 3),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 fontWeight: FontWeight.w800,
                 color: foreground,
+                fontSize: 10,
+                letterSpacing: -0.2,
               ),
             ),
           ],
@@ -1183,7 +1191,9 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
             if (!_formKey.currentState!.validate()) return;
             final startAtRaw = _startAtController.text.trim();
             final endAtRaw = _endAtController.text.trim();
-            final startAt = startAtRaw.isEmpty ? null : _tryParseDateTime(startAtRaw);
+            final startAt = startAtRaw.isEmpty
+                ? null
+                : _tryParseDateTime(startAtRaw);
             final endAt = endAtRaw.isEmpty ? null : _tryParseDateTime(endAtRaw);
             if (_requiresTripFields && (startAt == null || endAt == null)) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -1416,7 +1426,10 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                       icon: Icons.call_outlined,
                       onPressed: _submitting
                           ? null
-                          : () => tryLaunchPhoneCall(context, record.customerPhone),
+                          : () => tryLaunchPhoneCall(
+                              context,
+                              record.customerPhone,
+                            ),
                     ),
                   if (hasPhone)
                     _ActionChipButton(

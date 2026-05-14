@@ -321,9 +321,7 @@ class _ScheduleCreateDialogState extends State<_ScheduleCreateDialog> {
                   padding: const EdgeInsets.only(bottom: 10),
                   child: DropdownButtonFormField<String>(
                     initialValue: _scheduleType,
-                    decoration: const InputDecoration(
-                      labelText: '일정유형',
-                    ),
+                    decoration: const InputDecoration(labelText: '일정유형'),
                     items: [
                       for (final type in _scheduleTypes)
                         DropdownMenuItem(value: type, child: Text(type)),
@@ -423,10 +421,7 @@ class _ScheduleDialogTextField extends StatelessWidget {
         maxLines: maxLines,
         readOnly: readOnly,
         onTap: onTap,
-        decoration: InputDecoration(
-          labelText: label,
-          suffixIcon: suffixIcon,
-        ),
+        decoration: InputDecoration(labelText: label, suffixIcon: suffixIcon),
       ),
     );
   }
@@ -459,6 +454,12 @@ class _ServiceStatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
+    final returnAt = _parseFlexibleDateTime(item.endAt);
+    final isReturnOverdue =
+        returnAt != null && returnAt.isBefore(DateTime.now());
+    final returnColor = isReturnOverdue
+        ? const Color(0xFFD32F2F)
+        : Colors.black87;
 
     Widget cell(
       String value, {
@@ -475,22 +476,25 @@ class _ServiceStatusCard extends StatelessWidget {
             value.isEmpty ? '-' : value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: (emphasize
-                    ? textTheme.titleSmall
-                    : (flex == 2 ? textTheme.titleSmall : textTheme.bodySmall))
-                ?.copyWith(
-                  fontWeight: emphasize || flex == 2
-                      ? FontWeight.w800
-                      : FontWeight.w600,
-                  color: color,
-                ),
+            style:
+                (emphasize
+                        ? textTheme.titleLarge
+                        : (flex <= 3
+                              ? textTheme.titleSmall
+                              : textTheme.bodyMedium))
+                    ?.copyWith(
+                      fontWeight: emphasize || flex == 2
+                          ? FontWeight.w800
+                          : FontWeight.w600,
+                      color: color,
+                    ),
           ),
         ),
       );
     }
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
       color: Colors.white,
       shape: RoundedRectangleBorder(
@@ -502,8 +506,9 @@ class _ServiceStatusCard extends StatelessWidget {
         onTap: () =>
             context.push('/board/${Uri.encodeComponent(item.recordId)}'),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
@@ -512,30 +517,76 @@ class _ServiceStatusCard extends StatelessWidget {
                     flex: 4,
                     emphasize: true,
                   ),
-                  const SizedBox(width: 8),
-                  cell(_compactDate6(item.startAt), flex: 2, alignEnd: true),
-                  const SizedBox(width: 8),
-                  cell(
-                    _compactDate6(item.endAt),
-                    flex: 2,
-                    alignEnd: true,
-                    color: const Color(0xFF8B1E1E),
+                  const SizedBox(width: 4),
+                  _DateInfoCell(
+                    value: _compactDate6(item.startAt),
+                    color: const Color(0xFF1976D2),
+                    icon: Icons.arrow_upward_rounded,
+                  ),
+                  const SizedBox(width: 4),
+                  _DateInfoCell(
+                    value: _compactDate6(item.endAt),
+                    color: returnColor,
+                    icon: Icons.arrow_downward_rounded,
+                    emphasizeValue: true,
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   cell(item.customerName, flex: 3),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   cell(item.carName, flex: 3),
-                  const SizedBox(width: 8),
-                  cell(item.pickupLocation, flex: 4, alignEnd: true),
+                  const SizedBox(width: 4),
+                  cell(item.pickupLocation, flex: 2, alignEnd: true),
                 ],
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DateInfoCell extends StatelessWidget {
+  const _DateInfoCell({
+    required this.value,
+    required this.color,
+    required this.icon,
+    this.emphasizeValue = false,
+  });
+
+  final String value;
+  final Color color;
+  final IconData icon;
+  final bool emphasizeValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      flex: 2,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style:
+                  (emphasizeValue
+                          ? Theme.of(context).textTheme.titleLarge
+                          : Theme.of(context).textTheme.titleMedium)
+                      ?.copyWith(color: color, fontWeight: FontWeight.w900),
+            ),
+          ),
+          const SizedBox(width: 2),
+          Icon(icon, size: 15, color: color),
+        ],
       ),
     );
   }
@@ -588,21 +639,23 @@ class _ScheduleCard extends StatelessWidget {
         onTap: () =>
             context.push('/schedule/${Uri.encodeComponent(item.recordId)}'),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               SizedBox(
-                width: 64,
-                child: Text(
-                  _scheduleTimeOnly(item),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.headlineSmall?.copyWith(
-                    color: colorScheme.primary,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.3,
+                width: 70,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _scheduleTimeOnly(item),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.2,
+                    ),
                   ),
                 ),
               ),
@@ -611,18 +664,27 @@ class _ScheduleCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${item.carNumber} · ${item.scheduleType}',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.carNumber.isEmpty ? '-' : item.carNumber,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _ScheduleTypeBadge(scheduleType: item.scheduleType),
+                      ],
                     ),
                     const SizedBox(height: 2),
                     Text(
                       item.locationSummary.isEmpty ? '-' : item.locationSummary,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
                 ),
@@ -631,6 +693,35 @@ class _ScheduleCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ScheduleTypeBadge extends StatelessWidget {
+  const _ScheduleTypeBadge({required this.scheduleType});
+
+  final String scheduleType;
+
+  @override
+  Widget build(BuildContext context) {
+    final isReturn = scheduleType.trim() == '반납';
+    final color = isReturn ? const Color(0xFFD32F2F) : const Color(0xFF1976D2);
+    final label = scheduleType.trim().isEmpty ? '일정' : scheduleType.trim();
+    final icon = isReturn ? Icons.arrow_downward : Icons.arrow_upward;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 2),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -672,7 +763,7 @@ class _IdleDataRow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             SizedBox(
-              width: 82,
+              width: 68,
               child: Text(
                 item.carName.isEmpty ? '-' : item.carName,
                 maxLines: 1,
@@ -684,17 +775,18 @@ class _IdleDataRow extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 6),
             SizedBox(
               width: 44,
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
                   _WashStatusIcon(
                     active: _isActive(item.carWash),
                     icon: Icons.local_car_wash_rounded,
                     semanticLabel: '외부 세차',
                   ),
+                  const SizedBox(width: 4),
                   _WashStatusIcon(
                     active: _isActive(item.interiorWash),
                     icon: Icons.airline_seat_recline_normal_rounded,
@@ -703,7 +795,7 @@ class _IdleDataRow extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 item.parkingLocation.isEmpty ? '-' : item.parkingLocation,
@@ -740,13 +832,16 @@ class _IdleGridHeader extends StatelessWidget {
         children: [
           SizedBox(width: 112, child: Text('차량번호', style: textStyle)),
           const SizedBox(width: 8),
-          SizedBox(width: 82, child: Text('차종', style: textStyle)),
-          const SizedBox(width: 10),
+          SizedBox(width: 68, child: Text('차종', style: textStyle)),
+          const SizedBox(width: 6),
           SizedBox(
             width: 44,
-            child: Center(child: Text('세차', style: textStyle)),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('세차', style: textStyle),
+            ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 6),
           Expanded(
             child: Text('주차지', style: textStyle, textAlign: TextAlign.right),
           ),
@@ -808,7 +903,7 @@ class _WashStatusIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? Colors.green.shade700 : Colors.grey.shade400;
+    final color = active ? Colors.blue.shade700 : Colors.grey.shade400;
     return Tooltip(
       message: semanticLabel,
       child: Icon(icon, size: 16, color: color),
@@ -844,6 +939,18 @@ DateTime? _parseFlexibleDate(String value) {
     return DateTime.tryParse(normalized.substring(0, 10));
   }
   return DateTime.tryParse(normalized);
+}
+
+DateTime? _parseFlexibleDateTime(String value) {
+  if (value.isEmpty) return null;
+  final raw = value.trim();
+  if (raw.isEmpty) return null;
+
+  final isoCandidate = raw.replaceFirst(' ', 'T');
+  final isoParsed = DateTime.tryParse(isoCandidate);
+  if (isoParsed != null) return isoParsed;
+
+  return _parseFlexibleDate(raw);
 }
 
 String _compactDate6(String value) {

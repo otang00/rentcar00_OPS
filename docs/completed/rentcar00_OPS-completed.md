@@ -1,0 +1,287 @@
+# rentcar00_OPS Completed
+
+이 문서는 `rentcar00_OPS`의 **완료 기능 단일 문서**다.
+완료된 기능은 날짜순으로 누적하고, 각 항목마다 사용자 표면 / 실제 동작 / 핵심 파일 / 검증 / 1차 장애 확인 포인트를 남긴다.
+
+---
+
+## 2026-05-14 — 현황판/상세 UI 밀도 조정 + APK 재배포 완료
+### 사용자 표면
+- 차량 상세의 기능 버튼이 4열 고정 정렬로 더 단정하게 보인다.
+- 기능 영역에서 별도 `기능` 제목/카드가 빠지고 버튼이 더 작고 촘촘하게 배치된다.
+- 일정 카드 시간 `HH:MM` 이 잘리지 않게 유지된다.
+- 일반/보험/장기 카드에서 차량번호와 날짜가 더 크게 보이고, 카드 상하 여백이 더 얇아진다.
+- 배차/반납 글씨는 빠지고 날짜와 화살표만 남는다.
+- 반납일이 지난 카드는 빨간색, 지나지 않은 카드는 검정색으로 보인다.
+- 대기 탭 세차 완료색이 초록이 아니라 파란색으로 보인다.
+
+### 실제 동작
+- 상세 기능 액션을 `GridView.count(crossAxisCount: 4)` 로 정렬해 버튼 수가 달라도 4열 기준으로 맞춘다.
+- 액션 버튼은 더 작은 아이콘/텍스트 밀도로 재조정했다.
+- 일정 카드 시간 칸은 폭을 유지하고 `FittedBox` 로 `HH:MM` 잘림을 막는다.
+- 일반/보험/장기 카드의 padding, 간격, 텍스트 크기 비율을 다시 조정해 카드 밀도를 높였다.
+- 배차/반납 날짜 셀은 라벨 없이 날짜 + 화살표만 표시한다.
+- 반납일 overdue 여부는 `endAt < now` 기준으로 계산해 색상을 분기한다.
+- APK는 `arm64 release` 로 다시 빌드해 `b18` 산출물로 업로드했다.
+
+### 핵심 파일
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `pubspec.yaml`
+
+### 검증
+- `dart format lib/features/status_board/list/presentation/status_board_tab_page.dart lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `dart analyze lib/features/status_board/list/presentation/status_board_tab_page.dart lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `flutter build apk --release --target-platform android-arm64`
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b18-86fd8a6.apk`
+- 결과: `No issues found`, APK 업로드 확인 완료
+
+### 1차 장애 확인 포인트
+1. 기능 버튼 수가 적거나 많을 때도 4열 정렬이 어색하지 않은지
+2. 일정 카드 시간 `HH:MM` 이 실제 기기에서 잘리지 않는지
+3. 일반/보험/장기 카드의 주소 영역 축소가 운영상 허용 가능한지
+4. 반납일 overdue 색상 기준이 기기 현재시각과 맞는지
+5. 업로드 파일 `rentcar00_ops-app-release-arm64-b18-86fd8a6.apk` 가 최신본인지
+
+### 남은 주의점
+- 기능 버튼은 4열 고정이라 버튼 수가 매우 적을 때 좌우 여백이 넓게 느껴질 수 있다.
+- 반납일 색상은 현재 로컬 현재시각 기준 비교이므로 타임존 이슈가 있으면 후속 보정이 필요하다.
+
+## 2026-05-14 — 반납 완료 초기화 규칙 + 대기 현황판 폭 조정 완료
+### 사용자 표면
+- 반납 완료 후 차량이 대기 상태로 돌아가면서 고객 연락처/대여일/배차지가 비워진다.
+- 대기 현황판에서 차종은 조금 더 좁아지고, 세차는 왼쪽으로 붙고, 주차지는 더 넓게 보인다.
+
+### 실제 동작
+- 반납 완료 시 차량 row 에 아래를 반영한다.
+  - `status = 대기중`
+  - `status_action = 반납 완료`
+  - `customer_name = ''`
+  - `customer_phone = ''`
+  - `start_at = ''`
+  - `pickup_location = ''`
+  - `end_at` 유지
+  - `car_wash = FALSE`
+  - `interior_wash = FALSE`
+  - `parking_location = 수푸레`
+- 대기 현황판 행/헤더에서 차종 폭을 줄이고, 세차 정렬을 왼쪽으로 당기고, 주차지 공간을 늘렸다.
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+
+### 검증
+- `dart analyze lib/data/repositories/supabase_ops_repository.dart lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- 결과: `No issues found`
+
+### 1차 장애 확인 포인트
+1. 반납 완료 후 `rc00_ops_cars` 에 고객명/연락처/대여일/배차지가 실제로 비워졌는지
+2. 반납일 `end_at` 이 유지되는지
+3. 세차 2개가 `FALSE` 로 내려가는지
+4. 주차지가 `수푸레` 로 들어가는지
+5. 대기 현황판에서 주차지 폭이 실제로 더 넓어졌는지
+
+### 남은 주의점
+- 비고(`note_text`)는 이번 범위에서 유지한다.
+- UI 폭은 실기기에서 한 번 더 보고 미세조정 가능하다.
+
+---
+
+## 2026-05-14 — 일정 ↔ 예약 연결 표시 fallback 보강 완료
+### 사용자 표면
+- 일정 상세의 예약 연결 정보가 덜 비게 보인다.
+- schedule row 값이 비어 있어도 예약번호/위치/상세가 linked reservation 기준으로 채워진다.
+
+### 실제 동작
+- 현황판 일정 record 생성 시 reservation lookup 에 `reservation_number` 를 포함한다.
+- schedule row 의 `reservation_number` 가 비면 linked reservation 의 `reservation_number` 로 fallback 한다.
+- schedule row 의 `location_text` 가 비면 linked reservation 의 `pickup_location` 으로 fallback 한다.
+- schedule row 의 `detail_text` 가 비면 linked reservation 의 `note_text` 로 fallback 한다.
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+
+### 검증
+- `dart analyze lib/data/repositories/supabase_ops_repository.dart lib/features/status_board/detail/presentation/status_board_detail_page.dart lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- diff 기준으로 schedule record fallback 반영 확인
+
+### 1차 장애 확인 포인트
+1. 일정 row 의 `reservation_id` 가 실제 예약 row 와 맞는지
+2. `rc00_ops_reservations` 조회에 `reservation_number` 가 포함되는지
+3. 일정 상세 예약번호/위치/상세가 비면 linked reservation 원천값이 실제로 존재하는지
+
+### 남은 주의점
+- `reservation_id` 가 비어 있는 일정은 이번 fallback 대상이 아니다.
+- 일정 단독 생성은 의도된 운영 흐름이므로, 미연결 일정은 자동 연결하지 않고 그대로 유지한다.
+
+---
+
+## 2026-05-14 — IMS 예약추가 1차 완료
+### 사용자 표면
+- 차량 상세에서 예약 생성 시 `IMS 예약추가` 체크 가능
+- 예약 상세에서 독립 `IMS 예약추가` 액션 실행 가능
+
+### 실제 동작
+- 내부 예약 생성 후 원장 기준으로 IMS payload 를 만든다.
+- 앱은 `POST {aiParserBaseUrl}/ims/create-reservation` 으로 전송한다.
+- payload 는 `rentalAt / returnAt / carNumber / totalFee / customerName / customerPhone / address / useDelivery / memo` 로 고정한다.
+- `useDelivery = true` 고정
+- memo 는 `예약번호 + 생년월일 + note` 기반으로 만들고 최대 120자로 자른다.
+
+### 핵심 파일
+- `lib/features/reservations/detail/data/ims_reservation_payload.dart`
+- `lib/features/reservations/detail/data/ims_reservation_client.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `reservation_ai_parser/src/server.js`
+
+### 검증
+- IMS dry-run 호출 성공
+- 실제 IMS 저장 성공
+- 저장 직후 삭제 재확인 성공
+
+### 1차 장애 확인 포인트
+1. AI파서 baseUrl 이 비어 있지 않은지
+2. `https://parser.00rentcar.com/health` 가 200 인지
+3. 필수값 누락이 없는지
+   - 금액
+   - 고객명
+   - 고객번호
+   - 배차지
+   - 차량번호
+4. 생년월일이 `YYYY-MM-DD` 형식인지
+5. 반납일시가 배차일시보다 뒤인지
+6. 서버 응답 timeout(40초) 또는 IMS DOM 변경이 아닌지
+
+### 남은 주의점
+- IMS DOM/정책 변경 시 서버측 endpoint 보정 필요
+- memo 길이 제한은 운영 중 추가 조정 가능
+
+---
+
+## 2026-05-14 — 현황판 상태별 액션 분기 1차 완료
+### 사용자 표면
+- 대기 차량과 운행 차량의 버튼 구성이 다르게 보인다.
+- 운행 차량에는 `반납` 액션이 나온다.
+- 일정탭에서는 일정 생성 가능하다.
+
+### 실제 동작
+- 대기 차량:
+  - 예약
+  - 보험 / 일반 / 장기 전환
+  - 외부세차 / 실내세차
+  - 주차
+- 운행 차량:
+  - 반납
+  - 전화 / 문자
+- 반납 완료 시 차량 row 에 아래를 쓴다.
+  - `status = 대기중`
+  - `status_action = 반납 완료`
+  - `car_wash = FALSE`
+  - `interior_wash = FALSE`
+  - `parking_location = 수푸레`
+- 일정탭 일정 생성은 `rc00_ops_schedules` 에 미연결 일정 row 를 추가한다.
+
+### 핵심 파일
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/data/repositories/supabase_ops_repository.dart`
+
+### 검증
+- `dart analyze` 통과
+- 상태 분기/반납 완료/일정 액션 UI 및 저장 동작 반영 확인
+
+### 1차 장애 확인 포인트
+1. 차량 status 값이 `대기중 / 보험 / 일반 / 장기` 중 무엇인지
+2. 버튼이 안 보이면 현재 record 가 차량인지 일정인지
+3. 반납 후 값이 안 바뀌면 `rc00_ops_cars` update 반영 여부
+4. 일정 생성 후 목록이 안 보이면 현황판 provider invalidate 반영 여부
+
+### 남은 주의점
+- 반납 후 고객/운행 정보 비움 범위는 후속 점검 가능
+- 일정 생성은 예약 원장을 만들지 않는다
+
+---
+
+## 2026-05-14 — 일정완료 시 차량 인스턴트값 동기화 + 전화/문자 액션 완료
+### 사용자 표면
+- 일정 상세에서 `완료 / 전화 / 문자 / 삭제` 가능
+- 배차 일정 완료 후 차량 상세에서 고객 대응 정보를 바로 볼 수 있다.
+
+### 실제 동작
+- 일정 완료 시 `schedule_done_raw = TRUE`
+- 일정이 `배차` 이고 차량번호가 있으면 연결 예약을 읽어 차량 row 에 고객명/연락처/배차지/start/end/note 를 반영한다.
+- 그때 차량 상태는 `일반`, 상태액션은 `일정완료` 로 바뀐다.
+- 전화/문자는 번호가 있을 때만 버튼을 노출한다.
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/shared/utils/contact_launcher.dart`
+- `pubspec.yaml`
+
+### 검증
+- `flutter pub get`
+- `dart analyze`
+- 전화/문자 버튼 조건부 노출 반영 확인
+
+### 1차 장애 확인 포인트
+1. 일정 record 의 `reservation_id` 가 비어 있지 않은지
+2. 일정 유형이 `배차` 인지
+3. 차량번호가 비어 있지 않은지
+4. 연결 예약 row 에 고객명/연락처/배차지/start/end 값이 있는지
+5. 전화/문자 버튼 미노출이면 번호 값이 실제로 비어 있지 않은지
+
+### 남은 주의점
+- 연결 예약 매핑 누락 데이터는 후속 정리 필요
+- 실제 기기에서 전화/문자 앱 라우팅 UX 추가 점검 가능
+
+---
+
+## 2026-05-14 — 예약생성 AI파서 상시 운영 복구 완료
+### 사용자 표면
+- 차량 상세 예약 생성 dialog 에서 AI파서 health 확인과 원문 파싱이 가능하다.
+- 앱은 고정 공개 주소 `https://parser.00rentcar.com` 만 사용한다.
+
+### 실제 서비스 구성
+- tunnel daemon: `com.cloudflare.cloudflared`
+- parser agent: `ai.otang.reservation-ai-parser`
+- parser origin: `127.0.0.1:43110`
+- 공개 endpoint:
+  - `GET /health`
+  - `POST /parse-reservation`
+  - `POST /ims/create-reservation`
+
+### 핵심 파일 / 서비스
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/README.md`
+- `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
+- `~/Library/LaunchAgents/ai.otang.reservation-ai-parser.plist`
+- `/Library/LaunchDaemons/com.cloudflare.cloudflared.plist`
+
+### 검증
+- `launchctl print gui/$(id -u)/ai.otang.reservation-ai-parser`
+- `GET http://127.0.0.1:43110/health` → 200
+- `GET https://parser.00rentcar.com/health` → 200
+- `POST /parse-reservation` 로컬/외부 둘 다 성공
+
+### 운영 명령 / 로그
+- 상태 확인:
+  - `launchctl print gui/$(id -u)/ai.otang.reservation-ai-parser`
+- 재기동:
+  - `launchctl kickstart -k gui/$(id -u)/ai.otang.reservation-ai-parser`
+- 로그:
+  - `reservation_ai_parser/logs/stdout.log`
+  - `reservation_ai_parser/logs/stderr.log`
+
+### public 502 시 1차 확인 순서
+1. `curl http://127.0.0.1:43110/health`
+2. local health 실패면 parser origin down 으로 본다
+3. `launchctl print gui/$(id -u)/ai.otang.reservation-ai-parser`
+4. 필요 시 `launchctl kickstart -k gui/$(id -u)/ai.otang.reservation-ai-parser`
+5. local health 정상인데 public 만 실패하면 tunnel 쪽 상태를 본다
+
+### 남은 주의점
+- 재부팅 후 자동기동 재확인은 별도 시점에 다시 확인 가능
+- tunnel up 만으로 서비스 정상으로 보면 안 된다
