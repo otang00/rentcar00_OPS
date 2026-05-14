@@ -11,12 +11,12 @@ import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_t
 
 String _reservationLabel(ReservationTab tab, int? count) {
   if (count == null) return tab.label;
-  return '${tab.label}($count)';
+  return '${tab.label}\n$count';
 }
 
 String _boardLabel(StatusBoardTab tab, int? count) {
   if (count == null) return tab.label;
-  return '${tab.label}($count)';
+  return '${tab.label}\n$count';
 }
 
 class AppShell extends ConsumerWidget {
@@ -106,18 +106,32 @@ class AppShell extends ConsumerWidget {
               statusBoardTab == StatusBoardTab.schedule
           ? const StatusBoardScheduleFab()
           : null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (index) {
-          if (layer == OpsLayer.reservations) {
-            ref.read(selectedReservationTabProvider.notifier).state =
-                ReservationTab.values[index];
-          } else {
-            ref.read(selectedStatusBoardTabProvider.notifier).state =
-                StatusBoardTab.values[index];
-          }
-        },
-        destinations: destinations,
+      bottomNavigationBar: NavigationBarTheme(
+        data: NavigationBarThemeData(
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return TextStyle(
+              fontSize: selected ? 10.5 : 10,
+              height: 1.05,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+            );
+          }),
+        ),
+        child: NavigationBar(
+          height: 72,
+          selectedIndex: selectedIndex,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          onDestinationSelected: (index) {
+            if (layer == OpsLayer.reservations) {
+              ref.read(selectedReservationTabProvider.notifier).state =
+                  ReservationTab.values[index];
+            } else {
+              ref.read(selectedStatusBoardTabProvider.notifier).state =
+                  StatusBoardTab.values[index];
+            }
+          },
+          destinations: destinations,
+        ),
       ),
     );
   }

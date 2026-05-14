@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_summary.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 
@@ -18,110 +19,35 @@ class ReservationTabPage extends ConsumerWidget {
       data: (items) {
         final count = countsAsync.valueOrNull?[tab] ?? items.length;
         return ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
           children: [
-            Text(
-              '${tab.label} $count건',
-              style: Theme.of(context).textTheme.headlineSmall,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
+              child: Text(
+                '${tab.label} $count건',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              tab.emptyMessage,
-              style: Theme.of(context).textTheme.bodyMedium,
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                tab.emptyMessage,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             if (items.isEmpty)
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('현재 이 탭에 표시할 실데이터가 없습니다.'),
                 ),
-              ),
-            for (final item in items)
-              Card(
-                child: InkWell(
-                  onTap: () =>
-                      context.push('/reservation/${item.reservationId}'),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 9,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: RichText(
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                text: TextSpan(
-                                  style: DefaultTextStyle.of(context).style,
-                                  children: [
-                                    TextSpan(
-                                      text: item.carNumber,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w900,
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurface,
-                                          ),
-                                    ),
-                                    TextSpan(
-                                      text:
-                                          '  ${item.carName.isEmpty ? (item.reservationNumber.isEmpty ? '차량명 미확인' : item.reservationNumber) : item.carName}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurfaceVariant,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _DateTimeLabel(timeLabel: item.timeLabel),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          item.locationSummary.isEmpty
-                              ? '(주소없음)'
-                              : item.locationSummary,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                        if (item.primaryBadges.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              for (final badge in item.primaryBadges)
-                                _StatusIconChip(label: badge),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+              )
+            else
+              for (final item in items) _ReservationStatusCard(item: item),
           ],
         );
       },
@@ -132,53 +58,195 @@ class ReservationTabPage extends ConsumerWidget {
   }
 }
 
-Color _dateColorForLabel(BuildContext context, String label) {
-  if (label.contains('(토)')) {
-    return Colors.blue;
-  }
-  if (label.contains('(일)')) {
-    return Colors.red;
-  }
-  return Theme.of(context).colorScheme.primary;
-}
+class _ReservationStatusCard extends StatelessWidget {
+  const _ReservationStatusCard({required this.item});
 
-class _DateTimeLabel extends StatelessWidget {
-  const _DateTimeLabel({required this.timeLabel});
-
-  final String timeLabel;
+  final ReservationSummary item;
 
   @override
   Widget build(BuildContext context) {
-    final parts = timeLabel.split(' ');
-    final dateText = parts.isNotEmpty ? parts.first : timeLabel;
-    final timeText = parts.length > 1 ? parts.last : '';
-    final color = _dateColorForLabel(context, timeLabel);
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          dateText,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w900,
-            color: color,
-          ),
-        ),
-        if (timeText.isNotEmpty)
-          Text(
-            timeText,
+    Widget cell(
+      String value, {
+      required int flex,
+      bool alignEnd = false,
+      bool emphasize = false,
+      Color? color,
+    }) {
+      return Expanded(
+        flex: flex,
+        child: Align(
+          alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+          child: Text(
+            value.isEmpty ? '-' : value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+            textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+            style:
+                (emphasize
+                        ? textTheme.titleSmall
+                        : (flex <= 3
+                              ? textTheme.titleSmall
+                              : textTheme.bodyMedium))
+                    ?.copyWith(
+                      fontWeight: emphasize ? FontWeight.w700 : FontWeight.w600,
+                      color: color,
+                    ),
           ),
-      ],
+        ),
+      );
+    }
+
+    final secondary = item.carName.isEmpty
+        ? (item.reservationNumber.isEmpty ? '-' : item.reservationNumber)
+        : item.carName;
+    final customer = item.customerName.isEmpty ? '-' : item.customerName;
+    final location = item.locationSummary.isEmpty ? '-' : item.locationSummary;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => context.push('/reservation/${item.reservationId}'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  _ReservationDateInfoCell(item: item),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  cell(customer, flex: 3, emphasize: true),
+                  const SizedBox(width: 4),
+                  cell(secondary, flex: 3),
+                  const SizedBox(width: 4),
+                  cell(
+                    location,
+                    flex: 2,
+                    alignEnd: true,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              if (item.primaryBadges.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final badge in item.primaryBadges)
+                      _StatusIconChip(label: badge),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
+}
+
+class _ReservationDateInfoCell extends StatelessWidget {
+  const _ReservationDateInfoCell({required this.item});
+
+  final ReservationSummary item;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateColor = _dateColorForItem(context, item);
+    final timeColor = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return SizedBox(
+      width: 80,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Text(
+              _compactDateDot(item.displayAt),
+              maxLines: 1,
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: dateColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            _timeOnly(item.timeLabel),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.right,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: timeColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _dateColorForItem(BuildContext context, ReservationSummary item) {
+  if (item.tab == ReservationTab.returnDue) {
+    return const Color(0xFFD32F2F);
+  }
+  if (item.displayAt.weekday == DateTime.sunday) {
+    return const Color(0xFFD32F2F);
+  }
+  if (item.displayAt.weekday == DateTime.saturday) {
+    return Colors.blue.shade700;
+  }
+  if (item.tab == ReservationTab.pickupToday) {
+    return const Color(0xFF1976D2);
+  }
+  if (item.tab == ReservationTab.completed) {
+    return Theme.of(context).colorScheme.onSurfaceVariant;
+  }
+  return const Color(0xFF1976D2);
+}
+
+String _compactDateDot(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  final yy = (value.year % 100).toString().padLeft(2, '0');
+  return '$yy.${two(value.month)}.${two(value.day)}';
+}
+
+String _timeOnly(String label) {
+  final parts = label.split(' ');
+  return parts.length > 1 ? parts.last : '';
 }
 
 class _StatusIconChip extends StatelessWidget {

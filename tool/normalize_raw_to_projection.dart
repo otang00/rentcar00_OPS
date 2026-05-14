@@ -464,8 +464,8 @@ Future<int> _refreshOpsSchedules(Connection conn, String syncRunId) async {
         now()
       from public.rc00_ops_schedules_raw raw
       where raw.sync_run_id = @sync_run_id::uuid
-        and raw.schedule_type_raw in ('배차', '반납')
-    '''),
+        and raw.schedule_type_raw in ('배차', '반납', '기타')
+   '''),
     parameters: {'sync_run_id': syncRunId},
   );
   return result.affectedRows;

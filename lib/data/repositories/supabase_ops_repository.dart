@@ -220,6 +220,35 @@ class SupabaseOpsRepository {
     });
   }
 
+  Future<void> updateSchedule({
+    required String scheduleRowId,
+    required String scheduleType,
+    required DateTime scheduleAt,
+    required String carNumber,
+    required String carName,
+    required String locationText,
+    required String detailText,
+  }) async {
+    final normalizedScheduleType = scheduleType.trim();
+
+    await _client
+        .from('rc00_ops_schedules')
+        .update({
+          'schedule_type_raw': normalizedScheduleType,
+          'schedule_at_raw': scheduleAt.toIso8601String(),
+          'car_number': carNumber.trim(),
+          'car_name': carName.trim(),
+          'location_text': locationText.trim(),
+          'detail_text': detailText.trim(),
+          'payload_json': {
+            'updated_via': 'status_board_schedule_detail',
+            'status': normalizedScheduleType,
+          },
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', scheduleRowId);
+  }
+
   Future<void> completeSchedule({
     required String scheduleRowId,
     required String scheduleType,
@@ -249,12 +278,16 @@ class SupabaseOpsRepository {
     final updatePayload = <String, dynamic>{
       'status': '일반',
       'status_action': '일정완료',
-      if ((reservationRow?['customer_name'] as String?)?.trim().isNotEmpty ?? false)
+      if ((reservationRow?['customer_name'] as String?)?.trim().isNotEmpty ??
+          false)
         'customer_name': (reservationRow?['customer_name'] as String).trim(),
-      if ((reservationRow?['customer_phone'] as String?)?.trim().isNotEmpty ?? false)
+      if ((reservationRow?['customer_phone'] as String?)?.trim().isNotEmpty ??
+          false)
         'customer_phone': (reservationRow?['customer_phone'] as String).trim(),
-      if ((reservationRow?['pickup_location'] as String?)?.trim().isNotEmpty ?? false)
-        'pickup_location': (reservationRow?['pickup_location'] as String).trim(),
+      if ((reservationRow?['pickup_location'] as String?)?.trim().isNotEmpty ??
+          false)
+        'pickup_location': (reservationRow?['pickup_location'] as String)
+            .trim(),
       if ((reservationRow?['start_at'] as String?)?.trim().isNotEmpty ?? false)
         'start_at': (reservationRow?['start_at'] as String).trim(),
       if (reservationEndAt != null && reservationEndAt.isNotEmpty)
@@ -402,7 +435,7 @@ class SupabaseOpsRepository {
     final schedulesResponse = await _client
         .from('rc00_ops_schedules')
         .select()
-        .inFilter('schedule_type_raw', ['배차', '반납'])
+        .inFilter('schedule_type_raw', ['배차', '반납', '기타'])
         .order('created_at', ascending: true);
 
     final reservationsResponse = await _client
@@ -566,7 +599,8 @@ class SupabaseOpsRepository {
     final scheduleType = (row['schedule_type_raw'] as String? ?? '').trim();
     final scheduleAtRaw = (row['schedule_at_raw'] as String? ?? '').trim();
     final reservationId = (row['reservation_id'] as String? ?? '').trim();
-    final linkedReservation = reservationById[reservationId] as Map<String, dynamic>?;
+    final linkedReservation =
+        reservationById[reservationId] as Map<String, dynamic>?;
 
     return StatusBoardRecord(
       recordId: 'schedule:${row['id']}',
@@ -575,23 +609,34 @@ class SupabaseOpsRepository {
       carNumber: carNumber,
       carName: (row['car_name'] as String? ?? '').trim().isNotEmpty
           ? (row['car_name'] as String).trim()
-          : ((linkedReservation?['car_name'] as String?)?.trim().isNotEmpty ?? false)
-              ? (linkedReservation?['car_name'] as String).trim()
-              : (linkedCar?.carName ?? ''),
+          : ((linkedReservation?['car_name'] as String?)?.trim().isNotEmpty ??
+                false)
+          ? (linkedReservation?['car_name'] as String).trim()
+          : (linkedCar?.carName ?? ''),
       status: linkedCar?.status ?? scheduleType,
-      customerName: ((linkedReservation?['customer_name'] as String?) ?? '').trim().isNotEmpty
+      customerName:
+          ((linkedReservation?['customer_name'] as String?) ?? '')
+              .trim()
+              .isNotEmpty
           ? (linkedReservation?['customer_name'] as String).trim()
           : (linkedCar?.customerName ?? ''),
-      customerPhone: ((linkedReservation?['customer_phone'] as String?) ?? '').trim().isNotEmpty
+      customerPhone:
+          ((linkedReservation?['customer_phone'] as String?) ?? '')
+              .trim()
+              .isNotEmpty
           ? (linkedReservation?['customer_phone'] as String).trim()
           : (linkedCar?.customerPhone ?? ''),
       startAt: scheduleAtRaw,
       endAt: ((linkedReservation?['end_at'] as String?) ?? '').trim(),
-      pickupLocation: ((linkedReservation?['pickup_location'] as String?) ?? '').trim().isNotEmpty
+      pickupLocation:
+          ((linkedReservation?['pickup_location'] as String?) ?? '')
+              .trim()
+              .isNotEmpty
           ? (linkedReservation?['pickup_location'] as String).trim()
           : (row['location_text'] as String? ?? '').trim(),
       parkingLocation: linkedCar?.parkingLocation ?? '',
-      noteText: ((linkedReservation?['note_text'] as String?) ?? '').trim().isNotEmpty
+      noteText:
+          ((linkedReservation?['note_text'] as String?) ?? '').trim().isNotEmpty
           ? (linkedReservation?['note_text'] as String).trim()
           : (linkedCar?.noteText ?? ''),
       statusAction: scheduleType,

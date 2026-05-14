@@ -233,7 +233,7 @@ class _ScheduleCreateDialog extends StatefulWidget {
 
 class _ScheduleCreateDialogState extends State<_ScheduleCreateDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _scheduleTypes = const ['배차', '반납'];
+  final _scheduleTypes = const ['배차', '반납', '기타'];
   late String _scheduleType;
   late final TextEditingController _scheduleAtController;
   late final TextEditingController _carNumberController;
@@ -707,10 +707,20 @@ class _ScheduleTypeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isReturn = scheduleType.trim() == '반납';
-    final color = isReturn ? const Color(0xFFD32F2F) : const Color(0xFF1976D2);
-    final label = scheduleType.trim().isEmpty ? '일정' : scheduleType.trim();
-    final icon = isReturn ? Icons.arrow_downward : Icons.arrow_upward;
+    final normalized = scheduleType.trim();
+    final isReturn = normalized == '반납';
+    final isEtc = normalized == '기타';
+    final color = isEtc
+        ? const Color(0xFF2E7D32)
+        : isReturn
+        ? const Color(0xFFD32F2F)
+        : const Color(0xFF1976D2);
+    final label = normalized.isEmpty ? '일정' : normalized;
+    final icon = isEtc
+        ? Icons.priority_high_rounded
+        : isReturn
+        ? Icons.arrow_downward
+        : Icons.arrow_upward;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -961,7 +971,7 @@ String _compactDate6(String value) {
   if (parsed == null) return '-';
   String two(int n) => n.toString().padLeft(2, '0');
   final yy = (parsed.year % 100).toString().padLeft(2, '0');
-  return '$yy${two(parsed.month)}${two(parsed.day)}';
+  return '$yy.${two(parsed.month)}.${two(parsed.day)}';
 }
 
 String _scheduleTimeOnly(StatusBoardRecord item) {

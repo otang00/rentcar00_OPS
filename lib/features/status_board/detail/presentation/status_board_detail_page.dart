@@ -9,8 +9,17 @@ import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/status_board/detail/data/reservation_ai_parser_client.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
+import 'package:rentcar00_ops/features/status_board/shared/presentation/schedule_editor_dialog.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
+
+const _parkingLocationOptions = [
+  '수푸레B1',
+  '수푸레B2',
+  '주차타워(반포)',
+  '반포3주민센터',
+  '수푸레1층',
+];
 
 class StatusBoardDetailPage extends ConsumerWidget {
   const StatusBoardDetailPage({super.key, required this.recordId});
@@ -1250,18 +1259,44 @@ class _ParkingLocationDialog extends StatefulWidget {
 }
 
 class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
-  late final TextEditingController _controller;
+  late final TextEditingController _customController;
+  late final List<String> _options;
+  late String _selectedValue;
+  bool _showCustomInput = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.initialValue);
+    _options = [..._parkingLocationOptions];
+    final initial = widget.initialValue.trim();
+    final hasInitial = initial.isNotEmpty;
+    final inOptions = _options.contains(initial);
+    if (hasInitial && !inOptions) {
+      _options.add(initial);
+    }
+    _selectedValue = hasInitial ? initial : _options.first;
+    _showCustomInput = hasInitial && !inOptions;
+    _customController = TextEditingController(
+      text: _showCustomInput ? initial : '',
+    );
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _customController.dispose();
     super.dispose();
+  }
+
+  void _addCustomOption() {
+    final value = _customController.text.trim();
+    if (value.isEmpty) return;
+    setState(() {
+      if (!_options.contains(value)) {
+        _options.add(value);
+      }
+      _selectedValue = value;
+      _showCustomInput = false;
+    });
   }
 
   @override
@@ -1270,10 +1305,61 @@ class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
       title: const Text('주차지 수정'),
       content: SizedBox(
         width: 360,
-        child: _DialogTextField(
-          controller: _controller,
-          label: '주차지',
-          autofocus: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              initialValue: _selectedValue,
+              decoration: const InputDecoration(labelText: '주차지'),
+              items: [
+                for (final option in _options)
+                  DropdownMenuItem(value: option, child: Text(option)),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _selectedValue = value);
+              },
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _showCustomInput = !_showCustomInput;
+                      });
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('직접추가'),
+                  ),
+                ),
+              ],
+            ),
+            if (_showCustomInput) ...[
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _DialogTextField(
+                      controller: _customController,
+                      label: '새 주차지',
+                      autofocus: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: FilledButton(
+                      onPressed: _addCustomOption,
+                      child: const Text('추가'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
       ),
       actions: [
@@ -1282,7 +1368,7 @@ class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
           child: const Text('취소'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          onPressed: () => Navigator.of(context).pop(_selectedValue.trim()),
           child: const Text('저장'),
         ),
       ],
@@ -1339,6 +1425,47 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
         context,
       ).showSnackBar(const SnackBar(content: Text('일정완료 처리했습니다.')));
       context.pop();
+    });
+  }
+
+  Future<void> _editSchedule() async {
+    final scheduleRowId = _extractRawRowId(record.recordId, 'schedule');
+    if (scheduleRowId == null) {
+      _showError('일정 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    final form = await showDialog<ScheduleEditorResult>(
+      context: context,
+      builder: (context) => ScheduleEditorDialog(
+        title: '일정 수정',
+        confirmLabel: '저장',
+        initialType: record.scheduleType,
+        initialScheduleAt: record.sortAt,
+        initialCarNumber: record.carNumber,
+        initialCarName: record.carName,
+        initialLocationText: record.locationSummary,
+        initialDetailText: record.detailText,
+      ),
+    );
+    if (form == null) return;
+
+    await _runScheduleAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .updateSchedule(
+            scheduleRowId: scheduleRowId,
+            scheduleType: form.scheduleType,
+            scheduleAt: form.scheduleAt,
+            carNumber: form.carNumber,
+            carName: form.carName,
+            locationText: form.locationText,
+            detailText: form.detailText,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('일정을 수정했습니다.')));
     });
   }
 
@@ -1439,6 +1566,12 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                     emphasis: _ActionChipEmphasis.primary,
                     expand: true,
                     onPressed: _submitting ? null : _completeSchedule,
+                  ),
+                  _ActionChipButton(
+                    label: '수정',
+                    icon: Icons.edit_outlined,
+                    expand: true,
+                    onPressed: _submitting ? null : _editSchedule,
                   ),
                   if (hasPhone)
                     _ActionChipButton(
