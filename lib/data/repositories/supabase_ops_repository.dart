@@ -235,15 +235,32 @@ class SupabaseOpsRepository {
       return;
     }
 
-    final reservationEndAt = reservationId.trim().isEmpty
+    final reservationRow = reservationId.trim().isEmpty
         ? null
-        : await _findReservationEndAt(reservationId.trim());
+        : await _client
+              .from('rc00_ops_reservations')
+              .select(
+                'customer_name, customer_phone, pickup_location, start_at, end_at, note_text',
+              )
+              .eq('reservation_id', reservationId.trim())
+              .maybeSingle();
 
+    final reservationEndAt = (reservationRow?['end_at'] as String?)?.trim();
     final updatePayload = <String, dynamic>{
       'status': '일반',
       'status_action': '일정완료',
+      if ((reservationRow?['customer_name'] as String?)?.trim().isNotEmpty ?? false)
+        'customer_name': (reservationRow?['customer_name'] as String).trim(),
+      if ((reservationRow?['customer_phone'] as String?)?.trim().isNotEmpty ?? false)
+        'customer_phone': (reservationRow?['customer_phone'] as String).trim(),
+      if ((reservationRow?['pickup_location'] as String?)?.trim().isNotEmpty ?? false)
+        'pickup_location': (reservationRow?['pickup_location'] as String).trim(),
+      if ((reservationRow?['start_at'] as String?)?.trim().isNotEmpty ?? false)
+        'start_at': (reservationRow?['start_at'] as String).trim(),
       if (reservationEndAt != null && reservationEndAt.isNotEmpty)
         'end_at': reservationEndAt,
+      if ((reservationRow?['note_text'] as String?)?.trim().isNotEmpty ?? false)
+        'note_text': (reservationRow?['note_text'] as String).trim(),
     };
 
     await _client
@@ -388,17 +405,27 @@ class SupabaseOpsRepository {
         .inFilter('schedule_type_raw', ['배차', '반납'])
         .order('created_at', ascending: true);
 
+    final reservationsResponse = await _client
+        .from('rc00_ops_reservations')
+        .select(
+          'reservation_id, customer_name, customer_phone, pickup_location, start_at, end_at, note_text, car_name, car_number',
+        );
+
     final cars = carsResponse.map<StatusBoardRecord>(_toCarRecord).toList();
     final carByNumber = {
       for (final car in cars)
         if (car.carNumber.isNotEmpty) car.carNumber: car,
+    };
+    final reservationById = {
+      for (final row in reservationsResponse)
+        ((row['reservation_id'] as String?) ?? '').trim(): row,
     };
 
     final schedules =
         schedulesResponse
             .where((row) => !_isTruthy(row['schedule_done_raw']))
             .map<StatusBoardRecord>(
-              (row) => _toScheduleRecord(row, carByNumber),
+              (row) => _toScheduleRecord(row, carByNumber, reservationById),
             )
             .toList()
           ..sort((a, b) {
@@ -532,11 +559,14 @@ class SupabaseOpsRepository {
   StatusBoardRecord _toScheduleRecord(
     Map<String, dynamic> row,
     Map<String, StatusBoardRecord> carByNumber,
+    Map<String, dynamic> reservationById,
   ) {
     final carNumber = (row['car_number'] as String? ?? '').trim();
     final linkedCar = carByNumber[carNumber];
     final scheduleType = (row['schedule_type_raw'] as String? ?? '').trim();
     final scheduleAtRaw = (row['schedule_at_raw'] as String? ?? '').trim();
+    final reservationId = (row['reservation_id'] as String? ?? '').trim();
+    final linkedReservation = reservationById[reservationId] as Map<String, dynamic>?;
 
     return StatusBoardRecord(
       recordId: 'schedule:${row['id']}',
@@ -545,15 +575,25 @@ class SupabaseOpsRepository {
       carNumber: carNumber,
       carName: (row['car_name'] as String? ?? '').trim().isNotEmpty
           ? (row['car_name'] as String).trim()
-          : (linkedCar?.carName ?? ''),
+          : ((linkedReservation?['car_name'] as String?)?.trim().isNotEmpty ?? false)
+              ? (linkedReservation?['car_name'] as String).trim()
+              : (linkedCar?.carName ?? ''),
       status: linkedCar?.status ?? scheduleType,
-      customerName: linkedCar?.customerName ?? '',
-      customerPhone: linkedCar?.customerPhone ?? '',
+      customerName: ((linkedReservation?['customer_name'] as String?) ?? '').trim().isNotEmpty
+          ? (linkedReservation?['customer_name'] as String).trim()
+          : (linkedCar?.customerName ?? ''),
+      customerPhone: ((linkedReservation?['customer_phone'] as String?) ?? '').trim().isNotEmpty
+          ? (linkedReservation?['customer_phone'] as String).trim()
+          : (linkedCar?.customerPhone ?? ''),
       startAt: scheduleAtRaw,
-      endAt: '',
-      pickupLocation: (row['location_text'] as String? ?? '').trim(),
+      endAt: ((linkedReservation?['end_at'] as String?) ?? '').trim(),
+      pickupLocation: ((linkedReservation?['pickup_location'] as String?) ?? '').trim().isNotEmpty
+          ? (linkedReservation?['pickup_location'] as String).trim()
+          : (row['location_text'] as String? ?? '').trim(),
       parkingLocation: linkedCar?.parkingLocation ?? '',
-      noteText: linkedCar?.noteText ?? '',
+      noteText: ((linkedReservation?['note_text'] as String?) ?? '').trim().isNotEmpty
+          ? (linkedReservation?['note_text'] as String).trim()
+          : (linkedCar?.noteText ?? ''),
       statusAction: scheduleType,
       carWash: linkedCar?.carWash ?? '',
       interiorWash: linkedCar?.interiorWash ?? '',
@@ -565,7 +605,7 @@ class SupabaseOpsRepository {
       scheduleType: scheduleType,
       scheduleDone: (row['schedule_done_raw'] as String? ?? '').trim(),
       detailText: (row['detail_text'] as String? ?? '').trim(),
-      reservationId: (row['reservation_id'] as String? ?? '').trim(),
+      reservationId: reservationId,
       reservationNumber: (row['reservation_number'] as String? ?? '').trim(),
       carRegisteredAt: linkedCar?.carRegisteredAt ?? '',
       carInspectionAt: linkedCar?.carInspectionAt ?? '',
@@ -678,15 +718,6 @@ class SupabaseOpsRepository {
         .limit(1)
         .maybeSingle();
     return row?['id'] as String?;
-  }
-
-  Future<String?> _findReservationEndAt(String reservationId) async {
-    final row = await _client
-        .from('rc00_ops_reservations')
-        .select('end_at')
-        .eq('reservation_id', reservationId)
-        .maybeSingle();
-    return _displayValue(row?['end_at']);
   }
 
   String _deriveReservationTabKey(DateTime startAt, DateTime endAt) {

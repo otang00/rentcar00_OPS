@@ -10,6 +10,7 @@ import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_ta
 import 'package:rentcar00_ops/features/status_board/detail/data/reservation_ai_parser_client.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
+import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
 
 class StatusBoardDetailPage extends ConsumerWidget {
   const StatusBoardDetailPage({super.key, required this.recordId});
@@ -383,6 +384,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     final textTheme = Theme.of(context).textTheme;
     final idleActions = _isIdleStatus(record.status);
     final inServiceActions = _isInServiceStatus(record.status);
+    final hasPhone = hasCallablePhone(record.customerPhone);
 
     return Stack(
       children: [
@@ -468,6 +470,22 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                       icon: Icons.assignment_return_outlined,
                       emphasis: _ActionChipEmphasis.primary,
                       onPressed: _submitting ? null : _completeReturn,
+                    ),
+                  if (inServiceActions && hasPhone)
+                    _ActionChipButton(
+                      label: '전화',
+                      icon: Icons.call_outlined,
+                      onPressed: _submitting
+                          ? null
+                          : () => tryLaunchPhoneCall(context, record.customerPhone),
+                    ),
+                  if (inServiceActions && hasPhone)
+                    _ActionChipButton(
+                      label: '문자',
+                      icon: Icons.sms_outlined,
+                      onPressed: _submitting
+                          ? null
+                          : () => tryLaunchSms(context, record.customerPhone),
                     ),
                   if (idleActions)
                     _ActionChipButton(
@@ -1339,6 +1357,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final hasPhone = hasCallablePhone(record.customerPhone);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
@@ -1391,6 +1410,22 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                     emphasis: _ActionChipEmphasis.primary,
                     onPressed: _submitting ? null : _completeSchedule,
                   ),
+                  if (hasPhone)
+                    _ActionChipButton(
+                      label: '전화',
+                      icon: Icons.call_outlined,
+                      onPressed: _submitting
+                          ? null
+                          : () => tryLaunchPhoneCall(context, record.customerPhone),
+                    ),
+                  if (hasPhone)
+                    _ActionChipButton(
+                      label: '문자',
+                      icon: Icons.sms_outlined,
+                      onPressed: _submitting
+                          ? null
+                          : () => tryLaunchSms(context, record.customerPhone),
+                    ),
                   _ActionChipButton(
                     label: '삭제',
                     icon: Icons.delete_outline,

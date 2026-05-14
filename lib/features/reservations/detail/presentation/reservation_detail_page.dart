@@ -4,6 +4,7 @@ import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
+import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
 
 class ReservationDetailPage extends ConsumerWidget {
   const ReservationDetailPage({super.key, required this.reservationId});
@@ -126,6 +127,7 @@ class _ReservationDetailBodyState
         final actions = actionsAsync.valueOrNull ?? const [];
         final logs = logsAsync.valueOrNull ?? const [];
         final outboxPreview = outboxPreviewAsync.valueOrNull ?? const [];
+        final hasPhone = hasCallablePhone(reservation.customerPhone);
 
         return ListView(
           padding: const EdgeInsets.all(16),
@@ -179,16 +181,40 @@ class _ReservationDetailBodyState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  FilledButton.tonalIcon(
-                    onPressed: _imsSubmitting ? null : _submitImsReservation,
-                    icon: _imsSubmitting
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.cloud_upload_outlined),
-                    label: const Text('IMS 예약추가'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (hasPhone)
+                        FilledButton.tonalIcon(
+                          onPressed: () => tryLaunchPhoneCall(
+                            context,
+                            reservation.customerPhone,
+                          ),
+                          icon: const Icon(Icons.call_outlined),
+                          label: const Text('전화'),
+                        ),
+                      if (hasPhone)
+                        FilledButton.tonalIcon(
+                          onPressed: () => tryLaunchSms(
+                            context,
+                            reservation.customerPhone,
+                          ),
+                          icon: const Icon(Icons.sms_outlined),
+                          label: const Text('문자'),
+                        ),
+                      FilledButton.tonalIcon(
+                        onPressed: _imsSubmitting ? null : _submitImsReservation,
+                        icon: _imsSubmitting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.cloud_upload_outlined),
+                        label: const Text('IMS 예약추가'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   const Text('기존 액션은 아직 read-only 상태입니다.'),
