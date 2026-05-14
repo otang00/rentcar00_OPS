@@ -5,6 +5,54 @@
 
 ---
 
+## 2026-05-15 — latest raw 재구성 + 기타 일정 반영 + 일정 수정 + 주차지 선택형 완료
+### 사용자 표면
+- 최신 시트 기준으로 정리된 예약/일정/차량 projection 이 다시 반영된다.
+- 일정탭에서 `기타` 일정이 초록 `!` 상태로 보인다.
+- 일정 상세에서 `수정` 액션을 쓸 수 있다.
+- 대기 차량 주차지는 정해진 목록에서 선택하고, 필요 시 `+ 직접추가`로 새 값을 넣을 수 있다.
+- 최신 arm64 release APK를 다시 빌드해 gdrive 업로드까지 마쳤다.
+
+### 실제 동작
+- latest raw import run `fff8bdc5-f2ef-46e9-9f27-6908e485edf1` 기준으로 데이터를 다시 적재했다.
+- 예약 raw 는 완료/날짜공란/예약취소/과거 반납일 기준으로 1차 정리 후 normalize 했다.
+- 일정 raw 는 완료 일정만 제거하고, `기타` 일정과 미연결 일정은 유지했다.
+- normalize 시 `배차/반납` 뿐 아니라 `기타`도 `rc00_ops_schedules` 로 올린다.
+- 일정 상세 수정은 `schedule_type_raw / schedule_at_raw / car_number / car_name / location_text / detail_text` 를 직접 갱신한다.
+- 대기 차량 주차지는 기본 enum 목록 + 직접추가 값으로 저장한다.
+
+### 핵심 파일
+- `tool/import_google_sheets_raw.dart`
+- `tool/normalize_raw_to_projection.dart`
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/status_board/shared/presentation/schedule_editor_dialog.dart`
+- `docs/current/rentcar00_OPS-main.md`
+
+### 검증
+- raw import success 확인
+- normalize 결과 확인
+  - `reservation_projection_count=10`
+  - `ops_car_upsert_count=58`
+  - `ops_schedule_upsert_count=36`
+- `dart analyze` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- gdrive 업로드 확인
+  - `rentcar00_ops-app-release-arm64-b19-9c718f8.apk`
+
+### 1차 장애 확인 포인트
+1. 일정탭에서 `기타` 3건이 실제로 보이는지
+2. 일정 상세 수정 저장 후 목록 반영이 즉시 되는지
+3. 주차지 `직접추가` 값이 저장 후 다시 열어도 유지되는지
+4. 미연결 일정이 상세에서 비정상 연결되지 않는지
+5. 차량 반납일 공란/역전값이 운영상 허용 가능한지
+
+### 남은 주의점
+- 차량 raw 반납일 공란과 역전값은 이번 phase에서 그대로 유지했다.
+- build number 는 여전히 `+19` 기준이라 배포보다는 재설치 전제다.
+- 문서 정리 후 다음 active 는 실기기 운영 확인 phase 로 본다.
+
 ## 2026-05-14 — 현황판/상세 UI 밀도 조정 + APK 재배포 완료
 ### 사용자 표면
 - 차량 상세의 기능 버튼이 4열 고정 정렬로 더 단정하게 보인다.
