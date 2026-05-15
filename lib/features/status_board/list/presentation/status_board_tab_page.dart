@@ -977,15 +977,17 @@ String _compactDate6(String value) {
 String _scheduleTimeOnly(StatusBoardRecord item) {
   final parsed = item.sortAt ?? _parseFlexibleDate(item.startAt);
   if (parsed == null) return item.timeLabel;
+  final local = parsed.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(parsed.hour)}:${two(parsed.minute)}';
+  return '${two(local.hour)}:${two(local.minute)}';
 }
 
 String _scheduleHeaderLabel(DateTime value) {
+  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
   const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-  final weekday = weekdays[value.weekday - 1];
-  return '${value.year}.${two(value.month)}.${two(value.day)}($weekday)';
+  final weekday = weekdays[local.weekday - 1];
+  return '${local.year}.${two(local.month)}.${two(local.day)}($weekday)';
 }
 
 Color? _scheduleHeaderColor(BuildContext context, DateTime? value) {
@@ -1000,8 +1002,9 @@ Color? _scheduleHeaderColor(BuildContext context, DateTime? value) {
 }
 
 String _formatScheduleEditorDateTime(DateTime value) {
+  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }
 
 DateTime? _tryParseScheduleDateTime(String value) {

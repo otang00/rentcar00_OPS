@@ -59,7 +59,7 @@ class _ReservationDetailBodyState
     final buildResult = buildImsReservationPayload(reservation);
     if (!buildResult.isValid) {
       _showSnack(
-        'IMS 예약실패(${buildResult.errors.join(', ')})',
+        'IMS 예약실패(${buildResult.errors.map(imsPayloadErrorLabel).join(', ')})',
         backgroundColor: Colors.red.shade700,
       );
       return;
@@ -196,20 +196,22 @@ class _ReservationDetailBodyState
                         ),
                       if (hasPhone)
                         FilledButton.tonalIcon(
-                          onPressed: () => tryLaunchSms(
-                            context,
-                            reservation.customerPhone,
-                          ),
+                          onPressed: () =>
+                              tryLaunchSms(context, reservation.customerPhone),
                           icon: const Icon(Icons.sms_outlined),
                           label: const Text('문자'),
                         ),
                       FilledButton.tonalIcon(
-                        onPressed: _imsSubmitting ? null : _submitImsReservation,
+                        onPressed: _imsSubmitting
+                            ? null
+                            : _submitImsReservation,
                         icon: _imsSubmitting
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.cloud_upload_outlined),
                         label: const Text('IMS 예약추가'),
@@ -322,8 +324,9 @@ class _SectionCard extends StatelessWidget {
 }
 
 String _formatDateTime(DateTime value) {
+  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(value.month)}/${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+  return '${two(local.month)}/${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }
 
 String _displayValue(String value) {

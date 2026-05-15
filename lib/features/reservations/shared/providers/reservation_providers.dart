@@ -5,7 +5,6 @@ import 'package:rentcar00_ops/data/models/outbox_entry.dart';
 import 'package:rentcar00_ops/data/models/reservation_action_definition.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
-import 'package:rentcar00_ops/data/models/sync_run_entry.dart';
 import 'package:rentcar00_ops/data/repositories/supabase_ops_repository.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_summary.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
@@ -171,10 +170,6 @@ final outboxEntriesProvider = Provider<AsyncValue<List<OutboxEntry>>>((ref) {
   return const AsyncValue.data([]);
 });
 
-final syncRunsProvider = FutureProvider<List<SyncRunEntry>>((ref) async {
-  return ref.watch(supabaseOpsRepositoryProvider).fetchSyncRuns();
-});
-
 final filteredReservationsProvider =
     Provider<AsyncValue<List<ReservationSummary>>>((ref) {
       final query = ref.watch(searchQueryProvider).trim().toLowerCase();
@@ -334,8 +329,9 @@ int _badgePriority(String badge) {
 }
 
 String _formatDateTime(DateTime value) {
+  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
   const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-  final weekday = weekdays[value.weekday - 1];
-  return '${two(value.month)}/${two(value.day)}($weekday) ${two(value.hour)}:${two(value.minute)}';
+  final weekday = weekdays[local.weekday - 1];
+  return '${two(local.month)}/${two(local.day)}($weekday) ${two(local.hour)}:${two(local.minute)}';
 }

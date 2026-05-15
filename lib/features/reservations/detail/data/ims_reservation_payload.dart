@@ -79,12 +79,18 @@ List<String> validateImsReservationPayload(
 ) {
   final errors = <String>[];
 
-  if (payload.rentalAt.isEmpty) errors.add('pickupAt_missing');
-  if (payload.returnAt.isEmpty) errors.add('returnAt_missing');
+  if (!_isImsDateTimeFormatted(payload.rentalAt)) {
+    errors.add('rentalAt_invalid');
+  }
+  if (!_isImsDateTimeFormatted(payload.returnAt)) {
+    errors.add('returnAt_invalid');
+  }
   if (payload.carNumber.isEmpty) errors.add('carNumber_missing');
-  if (payload.totalFee.isEmpty) errors.add('totalFee_missing');
+  if (!_isPositiveDigits(payload.totalFee)) errors.add('totalFee_invalid');
   if (payload.customerName.isEmpty) errors.add('customerName_missing');
-  if (payload.customerPhone.isEmpty) errors.add('customerPhone_missing');
+  if (!_isPhoneDigits(payload.customerPhone)) {
+    errors.add('customerPhone_invalid');
+  }
   if (payload.address.isEmpty) errors.add('pickupLocation_missing');
   if (!_isBirthDateFormatted(reservation.customerBirthDate)) {
     errors.add('customerBirthDate_invalid');
@@ -123,13 +129,63 @@ String _primaryAddress(ReservationRecord reservation) {
   return '';
 }
 
+String imsPayloadErrorLabel(String code) {
+  return switch (code) {
+    'rentalAt_invalid' => '배차일시는 YYYY-MM-DD HH:mm 형식이어야 합니다',
+    'returnAt_invalid' => '반납일시는 YYYY-MM-DD HH:mm 형식이어야 합니다',
+    'carNumber_missing' => '차량번호가 필요합니다',
+    'totalFee_invalid' => '가격은 0보다 큰 숫자여야 합니다',
+    'customerName_missing' => '고객명이 필요합니다',
+    'customerPhone_invalid' => '고객번호는 숫자 10~11자리여야 합니다',
+    'pickupLocation_missing' => '배차지가 필요합니다',
+    'customerBirthDate_invalid' => '생년월일은 YYYY-MM-DD 형식의 실제 날짜여야 합니다',
+    'invalid_datetime_window' => '반납일시는 배차일시 이후여야 합니다',
+    'memo_too_long' => 'IMS 메모는 $kImsMemoMaxLength자 이하여야 합니다',
+    _ => code,
+  };
+}
+
 String _formatImsDateTime(DateTime value) {
+  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }
 
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D+'), '');
 
+bool _isPositiveDigits(String value) {
+  final amount = int.tryParse(value);
+  return amount != null && amount > 0;
+}
+
+bool _isPhoneDigits(String value) {
+  return RegExp(r'^\d{10,11}$').hasMatch(value.trim());
+}
+
+bool _isImsDateTimeFormatted(String value) {
+  final match = RegExp(
+    r'^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$',
+  ).firstMatch(value.trim());
+  if (match == null) return false;
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final hour = int.parse(match.group(4)!);
+  final minute = int.parse(match.group(5)!);
+  final parsed = DateTime(year, month, day, hour, minute);
+  return parsed.year == year &&
+      parsed.month == month &&
+      parsed.day == day &&
+      parsed.hour == hour &&
+      parsed.minute == minute;
+}
+
 bool _isBirthDateFormatted(String value) {
-  return RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value.trim());
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value.trim());
+  if (match == null) return false;
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final parsed = DateTime(year, month, day);
+  return parsed.year == year && parsed.month == month && parsed.day == day;
 }

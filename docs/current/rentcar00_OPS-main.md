@@ -247,6 +247,23 @@
   - `customerBirthDate` 형식
   - 반납일시 > 배차일시
 
+
+
+#### IMS 체크 예약 생성 잠금 규칙
+- 차량 상세 `예약생성`에서 IMS 체크 시, 원장 insert 전에 IMS payload 를 먼저 검증한다.
+- 검증 실패 시 예약원장/일정은 생성하지 않고 사용자가 입력을 수정해야 한다.
+- IMS 전송 payload 는 아래 타입으로 고정한다.
+  - `rentalAt`: `YYYY-MM-DD HH:mm` 실제 일시
+  - `returnAt`: `YYYY-MM-DD HH:mm` 실제 일시, `rentalAt` 이후
+  - `carNumber`: non-empty string
+  - `totalFee`: digits only, 0보다 큰 금액
+  - `customerName`: non-empty string
+  - `customerPhone`: digits only, 10~11자리
+  - `address`: non-empty string, 배차지
+  - `useDelivery`: boolean, true 고정
+  - `memo`: string, 최대 120자
+- 원장 필수 기준으로 `customerBirthDate` 는 `YYYY-MM-DD` 실제 날짜여야 하며, IMS memo 에 `생년:`으로 포함한다.
+
 ## 장애 해석 원칙
 ### AI 파서
 - public 502 + local 43110 미응답이면 parser origin down 으로 본다.

@@ -241,8 +241,9 @@ class ScheduleEditorResult {
 }
 
 String formatScheduleEditorDateTime(DateTime value) {
+  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }
 
 DateTime? tryParseScheduleDateTime(String value) {

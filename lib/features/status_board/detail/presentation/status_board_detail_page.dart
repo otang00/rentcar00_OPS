@@ -88,6 +88,18 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     );
     if (form == null) return;
 
+    final preflightReservation = _buildReservationRecordForIms(
+      reservationId: 'draft',
+      form: form,
+    );
+    final preflightPayload = buildImsReservationPayload(preflightReservation);
+    if (form.imsChecked && !preflightPayload.isValid) {
+      _showImsFailure(
+        preflightPayload.errors.map(imsPayloadErrorLabel).join(', '),
+      );
+      return;
+    }
+
     await _runAction(() async {
       final reservationId = await ref
           .read(supabaseOpsRepositoryProvider)
@@ -112,40 +124,30 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
           reservationId: reservationId,
           form: form,
         );
-        final payloadResult = buildImsReservationPayload(reservation);
-
-        if (!payloadResult.isValid) {
-          _showImsFailure(
-            'payload 오류: ${payloadResult.errors.join(', ')} · 예약원장은 생성됨',
+        try {
+          final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
+          final result = await client.createReservation(
+            preflightPayload.payload,
           );
-        } else {
-          try {
-            final client = ImsReservationClient(
-              baseUrl: appEnv.aiParserBaseUrl,
-            );
-            final result = await client.createReservation(
-              payloadResult.payload,
-            );
-            if (!mounted) return;
+          if (!mounted) return;
 
-            if (result.isSuccess) {
-              _showImsSuccess(
-                carNumber: reservation.carNumber,
-                startAt: reservation.startAt,
-                dryRun: result.code == 'DRY_RUN',
-              );
-            } else {
-              _showImsFailure(
-                result.message.isEmpty ? result.code : result.message,
-              );
-            }
-          } on ImsReservationClientException catch (error) {
-            if (!mounted) return;
-            _showImsFailure(error.message);
-          } catch (error) {
-            if (!mounted) return;
-            _showImsFailure('$error');
+          if (result.isSuccess) {
+            _showImsSuccess(
+              carNumber: reservation.carNumber,
+              startAt: reservation.startAt,
+              dryRun: result.code == 'DRY_RUN',
+            );
+          } else {
+            _showImsFailure(
+              result.message.isEmpty ? result.code : result.message,
+            );
           }
+        } on ImsReservationClientException catch (error) {
+          if (!mounted) return;
+          _showImsFailure(error.message);
+        } catch (error) {
+          if (!mounted) return;
+          _showImsFailure('$error');
         }
       } else {
         ScaffoldMessenger.of(
@@ -395,272 +397,255 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     final inServiceActions = _isInServiceStatus(record.status);
     final hasPhone = hasCallablePhone(record.customerPhone);
 
-    return Stack(
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
       children: [
-        ListView(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 108),
+        Text(
+          record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
+          style: textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          record.carName.isEmpty ? '차종 미확인' : record.carName,
+          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            record.status.isEmpty
+                ? record.tab.label
+                : '${record.tab.label} · ${record.status}',
+            style: textTheme.titleSmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (_submitting) ...[
+          const LinearProgressIndicator(),
+          const SizedBox(height: 10),
+        ],
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 4,
+          crossAxisSpacing: 6,
+          mainAxisSpacing: 6,
+          childAspectRatio: 1.05,
           children: [
-            Text(
-              record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
-              style: textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.4,
-              ),
+            _ActionChipButton(
+              label: '예약',
+              icon: Icons.add_card_rounded,
+              emphasis: _ActionChipEmphasis.primary,
+              expand: true,
+              onPressed: _submitting ? null : _createReservation,
             ),
-            const SizedBox(height: 6),
-            Text(
-              record.carName.isEmpty ? '차종 미확인' : record.carName,
-              style: textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+            _ActionChipButton(
+              label: '수정',
+              icon: Icons.edit_outlined,
+              expand: true,
+              onPressed: _submitting ? null : _editVehicleStatus,
             ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(10),
+            if (idleActions) ...[
+              _ActionChipButton(
+                label: '보험',
+                icon: Icons.shield_outlined,
+                expand: true,
+                onPressed: _submitting
+                    ? null
+                    : () => _openInstantStatus('보험', '배차 보험'),
               ),
-              child: Text(
-                record.status.isEmpty
-                    ? record.tab.label
-                    : '${record.tab.label} · ${record.status}',
-                style: textTheme.titleSmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w700,
-                ),
+              _ActionChipButton(
+                label: '일반',
+                icon: Icons.directions_car_filled_outlined,
+                expand: true,
+                onPressed: _submitting
+                    ? null
+                    : () => _openInstantStatus('일반', '배차 일반'),
               ),
-            ),
-            const SizedBox(height: 14),
-            if (_submitting) ...[
-              const LinearProgressIndicator(),
-              const SizedBox(height: 10),
+              _ActionChipButton(
+                label: '장기',
+                icon: Icons.event_repeat_outlined,
+                expand: true,
+                onPressed: _submitting
+                    ? null
+                    : () => _openInstantStatus('장기', '배차 장기'),
+              ),
             ],
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 4,
-              crossAxisSpacing: 6,
-              mainAxisSpacing: 6,
-              childAspectRatio: 1.05,
-              children: [
-                _ActionChipButton(
-                  label: '예약',
-                  icon: Icons.add_card_rounded,
-                  emphasis: _ActionChipEmphasis.primary,
-                  expand: true,
-                  onPressed: _submitting ? null : _createReservation,
-                ),
-                if (idleActions) ...[
-                  _ActionChipButton(
-                    label: '보험',
-                    icon: Icons.shield_outlined,
-                    expand: true,
-                    onPressed: _submitting
-                        ? null
-                        : () => _openInstantStatus('보험', '배차 보험'),
-                  ),
-                  _ActionChipButton(
-                    label: '일반',
-                    icon: Icons.directions_car_filled_outlined,
-                    expand: true,
-                    onPressed: _submitting
-                        ? null
-                        : () => _openInstantStatus('일반', '배차 일반'),
-                  ),
-                  _ActionChipButton(
-                    label: '장기',
-                    icon: Icons.event_repeat_outlined,
-                    expand: true,
-                    onPressed: _submitting
-                        ? null
-                        : () => _openInstantStatus('장기', '배차 장기'),
-                  ),
-                ],
-                if (inServiceActions)
-                  _ActionChipButton(
-                    label: '반납',
-                    icon: Icons.assignment_return_outlined,
-                    emphasis: _ActionChipEmphasis.primary,
-                    expand: true,
-                    onPressed: _submitting ? null : _completeReturn,
-                  ),
-                if (inServiceActions && hasPhone)
-                  _ActionChipButton(
-                    label: '전화',
-                    icon: Icons.call_outlined,
-                    expand: true,
-                    onPressed: _submitting
-                        ? null
-                        : () =>
-                              tryLaunchPhoneCall(context, record.customerPhone),
-                  ),
-                if (inServiceActions && hasPhone)
-                  _ActionChipButton(
-                    label: '문자',
-                    icon: Icons.sms_outlined,
-                    expand: true,
-                    onPressed: _submitting
-                        ? null
-                        : () => tryLaunchSms(context, record.customerPhone),
-                  ),
-                if (idleActions)
-                  _ActionChipButton(
-                    label: '외부',
-                    icon: _isTruthy(record.carWash)
-                        ? Icons.local_car_wash_rounded
-                        : Icons.local_car_wash_outlined,
-                    active: _isTruthy(record.carWash),
-                    expand: true,
-                    onPressed: _submitting
-                        ? null
-                        : () => _toggleWash(interior: false),
-                  ),
-                if (idleActions)
-                  _ActionChipButton(
-                    label: '실내',
-                    icon: _isTruthy(record.interiorWash)
-                        ? Icons.airline_seat_recline_normal_rounded
-                        : Icons.airline_seat_recline_normal_outlined,
-                    active: _isTruthy(record.interiorWash),
-                    expand: true,
-                    onPressed: _submitting
-                        ? null
-                        : () => _toggleWash(interior: true),
-                  ),
-                if (idleActions)
-                  _ActionChipButton(
-                    label: '주차',
-                    icon: Icons.local_parking_outlined,
-                    expand: true,
-                    onPressed: _submitting ? null : _editParking,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: 'Related 일정',
-              child: relatedSchedulesAsync.when(
-                data: (items) {
-                  if (items.isEmpty) {
-                    return const Text('연결된 일정이 없습니다.');
-                  }
-                  return Column(
-                    children: [
-                      for (final item in items)
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          title: Text(
-                            item.scheduleType.isEmpty
-                                ? item.timeLabel
-                                : '${item.scheduleType} · ${item.timeLabel}',
-                            style: textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          subtitle: Text(
-                            item.locationSummary.isEmpty
-                                ? (item.detailText.isEmpty
-                                      ? '-'
-                                      : item.detailText)
-                                : item.locationSummary,
-                            style: textTheme.bodyMedium?.copyWith(height: 1.3),
-                          ),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => context.push(
-                            '/schedule/${Uri.encodeComponent(item.recordId)}',
-                          ),
-                        ),
-                    ],
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
+            if (inServiceActions)
+              _ActionChipButton(
+                label: '반납',
+                icon: Icons.assignment_return_outlined,
+                emphasis: _ActionChipEmphasis.primary,
+                expand: true,
+                onPressed: _submitting ? null : _completeReturn,
               ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: '운행 정보',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _FieldBlock(
-                    label: '임차인',
-                    value: record.customerName,
-                    emphasize: true,
-                  ),
-                  _FieldBlock(label: '고객번호', value: record.customerPhone),
-                  _FieldBlock(label: '대여일', value: record.startAt),
-                  _FieldBlock(label: '반납일', value: record.endAt),
-                  _FieldBlock(label: '배차지', value: record.pickupLocation),
-                  _FieldBlock(label: '주차지', value: record.parkingLocation),
-                ],
+            if (inServiceActions && hasPhone)
+              _ActionChipButton(
+                label: '전화',
+                icon: Icons.call_outlined,
+                expand: true,
+                onPressed: _submitting
+                    ? null
+                    : () => tryLaunchPhoneCall(context, record.customerPhone),
               ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: '차량 관리 정보',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _FieldBlock(label: '세차', value: record.carWash),
-                  _FieldBlock(label: '실내세차', value: record.interiorWash),
-                  _FieldBlock(label: '차량등록일', value: record.carRegisteredAt),
-                  _FieldBlock(label: '차량검사일', value: record.carInspectionAt),
-                  _FieldBlock(label: '차령만료일', value: record.carAgeExpiryAt),
-                ],
+            if (inServiceActions && hasPhone)
+              _ActionChipButton(
+                label: '문자',
+                icon: Icons.sms_outlined,
+                expand: true,
+                onPressed: _submitting
+                    ? null
+                    : () => tryLaunchSms(context, record.customerPhone),
               ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: '차량 번호 세부',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _FieldBlock(
-                    label: '차량번호(앞)',
-                    value: record.carNumberFront,
-                    emphasize: true,
-                  ),
-                  _FieldBlock(
-                    label: '차량번호(중)',
-                    value: record.carNumberMiddle,
-                    emphasize: true,
-                  ),
-                  _FieldBlock(
-                    label: '차량번호(네자리)',
-                    value: record.carNumberRear,
-                    emphasize: true,
-                  ),
-                ],
+            if (idleActions)
+              _ActionChipButton(
+                label: '외부',
+                icon: _isTruthy(record.carWash)
+                    ? Icons.local_car_wash_rounded
+                    : Icons.local_car_wash_outlined,
+                active: _isTruthy(record.carWash),
+                expand: true,
+                onPressed: _submitting
+                    ? null
+                    : () => _toggleWash(interior: false),
               ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: '메모 / 상태',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _FieldBlock(label: '상태액션', value: record.statusAction),
-                  _FieldBlock(
-                    label: '비고',
-                    value: record.noteText,
-                    multiline: true,
-                  ),
-                ],
+            if (idleActions)
+              _ActionChipButton(
+                label: '실내',
+                icon: _isTruthy(record.interiorWash)
+                    ? Icons.airline_seat_recline_normal_rounded
+                    : Icons.airline_seat_recline_normal_outlined,
+                active: _isTruthy(record.interiorWash),
+                expand: true,
+                onPressed: _submitting
+                    ? null
+                    : () => _toggleWash(interior: true),
               ),
-            ),
+            if (idleActions)
+              _ActionChipButton(
+                label: '주차',
+                icon: Icons.local_parking_outlined,
+                expand: true,
+                onPressed: _submitting ? null : _editParking,
+              ),
           ],
         ),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: FloatingActionButton.small(
-            heroTag: 'vehicle-status-edit-fab',
-            onPressed: _submitting ? null : _editVehicleStatus,
-            tooltip: '차량 상태 수정',
-            child: const Icon(Icons.edit_square),
+        const SizedBox(height: 14),
+        _SectionCard(
+          title: 'Related 일정',
+          child: relatedSchedulesAsync.when(
+            data: (items) {
+              if (items.isEmpty) {
+                return const Text('연결된 일정이 없습니다.');
+              }
+              return Column(
+                children: [
+                  for (final item in items)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(
+                        item.scheduleType.isEmpty
+                            ? item.timeLabel
+                            : '${item.scheduleType} · ${item.timeLabel}',
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      subtitle: Text(
+                        item.locationSummary.isEmpty
+                            ? (item.detailText.isEmpty ? '-' : item.detailText)
+                            : item.locationSummary,
+                        style: textTheme.bodyMedium?.copyWith(height: 1.3),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push(
+                        '/schedule/${Uri.encodeComponent(item.recordId)}',
+                      ),
+                    ),
+                ],
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _SectionCard(
+          title: '운행 정보',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _FieldBlock(
+                label: '임차인',
+                value: record.customerName,
+                emphasize: true,
+              ),
+              _FieldBlock(label: '고객번호', value: record.customerPhone),
+              _FieldBlock(label: '대여일', value: record.startAt),
+              _FieldBlock(label: '반납일', value: record.endAt),
+              _FieldBlock(label: '배차지', value: record.pickupLocation),
+              _FieldBlock(label: '주차지', value: record.parkingLocation),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _SectionCard(
+          title: '차량 관리 정보',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _FieldBlock(label: '세차', value: record.carWash),
+              _FieldBlock(label: '실내세차', value: record.interiorWash),
+              _FieldBlock(label: '차량등록일', value: record.carRegisteredAt),
+              _FieldBlock(label: '차량검사일', value: record.carInspectionAt),
+              _FieldBlock(label: '차령만료일', value: record.carAgeExpiryAt),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _SectionCard(
+          title: '차량 번호 세부',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _FieldBlock(
+                label: '차량번호(앞)',
+                value: record.carNumberFront,
+                emphasize: true,
+              ),
+              _FieldBlock(
+                label: '차량번호(중)',
+                value: record.carNumberMiddle,
+                emphasize: true,
+              ),
+              _FieldBlock(
+                label: '차량번호(네자리)',
+                value: record.carNumberRear,
+                emphasize: true,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _SectionCard(
+          title: '메모 / 상태',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _FieldBlock(label: '상태액션', value: record.statusAction),
+              _FieldBlock(label: '비고', value: record.noteText, multiline: true),
+            ],
           ),
         ),
       ],
@@ -1037,34 +1022,69 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
             final startAt = _tryParseDateTime(_startAtController.text.trim());
             final endAt = _tryParseDateTime(_endAtController.text.trim());
             if (startAt == null || endAt == null) return;
-            if (endAt.isBefore(startAt)) {
+            if (!endAt.isAfter(startAt)) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('반납일시는 배차일시 이후여야 합니다.')),
               );
               return;
             }
-            Navigator.of(context).pop(
-              _ReservationCreateFormResult(
-                reservationNumber: _reservationNumberController.text.trim(),
-                customerName: _customerNameController.text.trim(),
-                customerPhone: _normalizePhoneForStorage(
-                  _customerPhoneController.text,
-                ),
-                customerBirthDate: _normalizeBirthDateForStorage(
-                  _customerBirthDateController.text,
-                ),
-                referralSource: _referralSourceController.text.trim(),
-                paymentAmount: _normalizeMoneyForStorage(
-                  _paymentAmountController.text,
-                ),
-                startAt: startAt,
-                endAt: endAt,
-                pickupLocation: _pickupLocationController.text.trim(),
-                dropoffLocation: _dropoffLocationController.text.trim(),
-                noteText: _noteController.text.trim(),
-                imsChecked: _imsChecked,
+            final result = _ReservationCreateFormResult(
+              reservationNumber: _reservationNumberController.text.trim(),
+              customerName: _customerNameController.text.trim(),
+              customerPhone: _normalizePhoneForStorage(
+                _customerPhoneController.text,
               ),
+              customerBirthDate: _normalizeBirthDateForStorage(
+                _customerBirthDateController.text,
+              ),
+              referralSource: _referralSourceController.text.trim(),
+              paymentAmount: _normalizeMoneyForStorage(
+                _paymentAmountController.text,
+              ),
+              startAt: startAt,
+              endAt: endAt,
+              pickupLocation: _pickupLocationController.text.trim(),
+              dropoffLocation: _dropoffLocationController.text.trim(),
+              noteText: _noteController.text.trim(),
+              imsChecked: _imsChecked,
             );
+
+            if (_imsChecked) {
+              final reservation = ReservationRecord(
+                reservationId: 'draft',
+                reservationNumber: result.reservationNumber,
+                customerName: result.customerName,
+                customerPhone: result.customerPhone,
+                customerBirthDate: result.customerBirthDate,
+                referralSource: result.referralSource,
+                paymentAmount: result.paymentAmount,
+                carNumber: widget.record.carNumber,
+                carName: widget.record.carName,
+                tab: ReservationTab.pending,
+                statusKey: '예약중',
+                startAt: result.startAt,
+                endAt: result.endAt,
+                locationSummary: result.pickupLocation,
+                noteText: result.noteText,
+                primaryBadges: const [],
+                checkPayload: const {},
+                actionLogs: const [],
+              );
+              final imsResult = buildImsReservationPayload(reservation);
+              if (!imsResult.isValid) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: Colors.redAccent,
+                    content: Text(
+                      'IMS 확인 필요: ${imsResult.errors.map(imsPayloadErrorLabel).join(', ')}',
+                    ),
+                  ),
+                );
+                return;
+              }
+            }
+
+            Navigator.of(context).pop(result);
           },
           child: const Text('생성'),
         ),
@@ -2047,8 +2067,9 @@ class _InstantStatusFormResult {
 }
 
 String _formatEditorDateTime(DateTime value) {
+  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }
 
 DateTime? _tryParseDateTime(String value) {

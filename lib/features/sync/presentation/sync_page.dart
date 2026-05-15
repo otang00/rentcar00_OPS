@@ -8,17 +8,16 @@ class SyncPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final runsAsync = ref.watch(syncRunsProvider);
     final outboxEntriesAsync = ref.watch(outboxEntriesProvider);
     final env = ref.watch(appEnvProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Sync / Dry-run')),
+      appBar: AppBar(title: const Text('운영 진단')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            '실제 Google Sheets write는 비활성화 상태입니다.',
+            'Google Sheets import/sync는 운영 기준에서 제거되었습니다.',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 12),
@@ -26,30 +25,8 @@ class SyncPage extends ConsumerWidget {
             child: ListTile(
               title: Text(env.projectName),
               subtitle: Text('${env.projectRef} · ${env.supabaseUrl}'),
-              trailing: const Text('Supabase 연결 완료'),
+              trailing: const Text('Supabase 연결'),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '최근 sync/dry-run',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          runsAsync.when(
-            data: (runs) => Column(
-              children: [
-                for (final item in runs)
-                  Card(
-                    child: ListTile(
-                      title: Text(item.title),
-                      subtitle: Text('${item.status} · ${item.note}'),
-                      trailing: Text(_formatDateTime(item.executedAt)),
-                    ),
-                  ),
-              ],
-            ),
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, stack) => Text('sync 이력을 불러오지 못했습니다.\n$error'),
           ),
           const SizedBox(height: 16),
           Text(
@@ -94,9 +71,4 @@ class SyncPage extends ConsumerWidget {
       ),
     );
   }
-}
-
-String _formatDateTime(DateTime value) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(value.hour)}:${two(value.minute)}';
 }
