@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_summary.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
+import 'package:rentcar00_ops/shared/utils/korean_holidays.dart';
 
 class ReservationTabPage extends ConsumerWidget {
   const ReservationTabPage({super.key, required this.tab});
@@ -122,7 +123,7 @@ class _ReservationStatusCard extends StatelessWidget {
                     child: _ReservationDateInfoCell(
                       label: _compactDateWithWeekday(item.startAt),
                       time: _timeOnlyFromDate(item.startAt),
-                      color: _dateColorForDate(context, item.startAt),
+                      color: opsDateColor(item.startAt),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -131,7 +132,7 @@ class _ReservationStatusCard extends StatelessWidget {
                     child: _ReservationDateInfoCell(
                       label: _compactDateWithWeekday(item.endAt),
                       time: _timeOnlyFromDate(item.endAt),
-                      color: _dateColorForDate(context, item.endAt),
+                      color: opsDateColor(item.endAt),
                     ),
                   ),
                 ],
@@ -217,16 +218,6 @@ class _ReservationDateInfoCell extends StatelessWidget {
       ],
     );
   }
-}
-
-Color _dateColorForDate(BuildContext context, DateTime value) {
-  if (value.weekday == DateTime.sunday) {
-    return const Color(0xFFD32F2F);
-  }
-  if (value.weekday == DateTime.saturday) {
-    return Colors.blue.shade700;
-  }
-  return const Color(0xFF1976D2);
 }
 
 String _compactDateWithWeekday(DateTime value) {

@@ -510,10 +510,10 @@ class SupabaseOpsRepository {
     final endAt = _parseDateTime(row['end_at_ts']);
     final startAtDisplay = startAt == null
         ? _displayValue(row['start_at'])
-        : _formatDisplayDate(startAt);
+        : _formatDisplayDateTime(startAt);
     final endAtDisplay = endAt == null
         ? _displayValue(row['end_at'])
-        : _formatDisplayDate(endAt);
+        : _formatDisplayDateTime(endAt);
 
     return StatusBoardRecord(
       recordId: 'car:${row['id']}',
@@ -729,12 +729,6 @@ class SupabaseOpsRepository {
     if (value is String) return value.trim();
     if (value is DateTime) return value.toIso8601String();
     return value.toString().trim();
-  }
-
-  String _formatDisplayDate(DateTime value) {
-    final local = value.toLocal();
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)}';
   }
 
   String _formatDisplayDateTime(DateTime value) {

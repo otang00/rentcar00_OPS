@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
+import 'package:rentcar00_ops/shared/utils/korean_holidays.dart';
 
 class StatusBoardTabPage extends ConsumerWidget {
   const StatusBoardTabPage({super.key, required this.tab});
@@ -454,12 +455,11 @@ class _ServiceStatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
-    final returnAt = _parseFlexibleDateTime(item.endAt);
-    final isReturnOverdue =
-        returnAt != null && returnAt.isBefore(DateTime.now());
-    final returnColor = isReturnOverdue
-        ? const Color(0xFFD32F2F)
-        : Colors.black87;
+    final startAt = _parseFlexibleDateTime(item.startAt);
+    final endAt = _parseFlexibleDateTime(item.endAt);
+    final carName = item.carName.isEmpty ? '-' : item.carName;
+    final customer = item.customerName.isEmpty ? '-' : item.customerName;
+    final location = item.pickupLocation.isEmpty ? '-' : item.pickupLocation;
 
     Widget cell(
       String value, {
@@ -476,16 +476,15 @@ class _ServiceStatusCard extends StatelessWidget {
             value.isEmpty ? '-' : value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            textAlign: alignEnd ? TextAlign.right : TextAlign.left,
             style:
                 (emphasize
-                        ? textTheme.titleMedium
+                        ? textTheme.titleSmall
                         : (flex <= 3
                               ? textTheme.titleSmall
                               : textTheme.bodyMedium))
                     ?.copyWith(
-                      fontWeight: emphasize || flex == 2
-                          ? FontWeight.w800
-                          : FontWeight.w600,
+                      fontWeight: emphasize ? FontWeight.w700 : FontWeight.w600,
                       color: color,
                     ),
           ),
@@ -509,37 +508,61 @@ class _ServiceStatusCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  cell(
-                    item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+                  Expanded(
+                    flex: 5,
+                    child: Text(
+                      item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: colorScheme.onSurface,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
                     flex: 4,
-                    emphasize: true,
+                    child: _ServiceDateInfoCell(
+                      label: _compactDateWithWeekdayFromDateTime(startAt),
+                      time: _timeOnlyFromDateTime(startAt),
+                      color: startAt == null
+                          ? colorScheme.onSurfaceVariant
+                          : opsDateColor(startAt),
+                    ),
                   ),
-                  const SizedBox(width: 4),
-                  _DateInfoCell(
-                    value: _compactDate6(item.startAt),
-                    color: const Color(0xFF1976D2),
-                    icon: Icons.arrow_upward_rounded,
-                  ),
-                  const SizedBox(width: 4),
-                  _DateInfoCell(
-                    value: _compactDate6(item.endAt),
-                    color: returnColor,
-                    icon: Icons.arrow_downward_rounded,
-                    emphasizeValue: true,
+                  const SizedBox(width: 6),
+                  Expanded(
+                    flex: 4,
+                    child: _ServiceDateInfoCell(
+                      label: _compactDateWithWeekdayFromDateTime(endAt),
+                      time: _timeOnlyFromDateTime(endAt),
+                      color: endAt == null
+                          ? colorScheme.onSurfaceVariant
+                          : opsDateColor(endAt),
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 4),
               Row(
                 children: [
-                  cell(item.customerName, flex: 3),
+                  cell(customer, flex: 3, emphasize: true),
                   const SizedBox(width: 4),
-                  cell(item.carName, flex: 3),
+                  cell(carName, flex: 3),
                   const SizedBox(width: 4),
-                  cell(item.pickupLocation, flex: 2, alignEnd: true),
+                  cell(
+                    location,
+                    flex: 2,
+                    alignEnd: true,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ],
               ),
             ],
@@ -550,47 +573,51 @@ class _ServiceStatusCard extends StatelessWidget {
   }
 }
 
-class _DateInfoCell extends StatelessWidget {
-  const _DateInfoCell({
-    required this.value,
+class _ServiceDateInfoCell extends StatelessWidget {
+  const _ServiceDateInfoCell({
+    required this.label,
+    required this.time,
     required this.color,
-    required this.icon,
-    this.emphasizeValue = false,
   });
 
-  final String value;
+  final String label;
+  final String time;
   final Color color;
-  final IconData icon;
-  final bool emphasizeValue;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 76,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Text(
-                value,
-                maxLines: 1,
-                textAlign: TextAlign.right,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.4,
-                ),
-              ),
+    final timeColor = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerRight,
+          child: Text(
+            label,
+            maxLines: 1,
+            textAlign: TextAlign.right,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: color,
+              letterSpacing: -0.4,
             ),
           ),
-          const SizedBox(width: 2),
-          Icon(icon, size: 16, color: color),
-        ],
-      ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          time,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.right,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: timeColor,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -966,12 +993,20 @@ DateTime? _parseFlexibleDateTime(String value) {
   return _parseFlexibleDate(raw);
 }
 
-String _compactDate6(String value) {
-  final parsed = _parseFlexibleDate(value);
-  if (parsed == null) return '-';
+String _compactDateWithWeekdayFromDateTime(DateTime? value) {
+  if (value == null) return '-';
+  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  final yy = (parsed.year % 100).toString().padLeft(2, '0');
-  return '$yy.${two(parsed.month)}.${two(parsed.day)}';
+  final yy = (local.year % 100).toString().padLeft(2, '0');
+  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+  return '$yy.${two(local.month)}.${two(local.day)}(${weekdays[local.weekday - 1]})';
+}
+
+String _timeOnlyFromDateTime(DateTime? value) {
+  if (value == null) return '-';
+  final local = value.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.hour)}:${two(local.minute)}';
 }
 
 String _scheduleTimeOnly(StatusBoardRecord item) {
@@ -992,13 +1027,7 @@ String _scheduleHeaderLabel(DateTime value) {
 
 Color? _scheduleHeaderColor(BuildContext context, DateTime? value) {
   if (value == null) return null;
-  if (value.weekday == DateTime.sunday) {
-    return const Color(0xFFB3261E);
-  }
-  if (value.weekday == DateTime.saturday) {
-    return Colors.blue.shade700;
-  }
-  return Theme.of(context).textTheme.titleMedium?.color;
+  return opsDateColor(value);
 }
 
 String _formatScheduleEditorDateTime(DateTime value) {

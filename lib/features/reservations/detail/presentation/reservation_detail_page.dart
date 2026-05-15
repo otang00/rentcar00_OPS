@@ -173,40 +173,38 @@ class _ReservationDetailBodyState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 4,
+                    crossAxisSpacing: 6,
+                    mainAxisSpacing: 6,
+                    childAspectRatio: 1.05,
                     children: [
                       if (hasPhone)
-                        FilledButton.tonalIcon(
+                        _DetailActionButton(
+                          label: '전화',
+                          icon: Icons.call_outlined,
                           onPressed: () => tryLaunchPhoneCall(
                             context,
                             reservation.customerPhone,
                           ),
-                          icon: const Icon(Icons.call_outlined),
-                          label: const Text('전화'),
                         ),
                       if (hasPhone)
-                        FilledButton.tonalIcon(
+                        _DetailActionButton(
+                          label: '문자',
+                          icon: Icons.sms_outlined,
                           onPressed: () =>
                               tryLaunchSms(context, reservation.customerPhone),
-                          icon: const Icon(Icons.sms_outlined),
-                          label: const Text('문자'),
                         ),
-                      FilledButton.tonalIcon(
+                      _DetailActionButton(
+                        label: 'IMS추가',
+                        icon: Icons.cloud_upload_outlined,
+                        emphasis: true,
+                        loading: _imsSubmitting,
                         onPressed: _imsSubmitting
                             ? null
                             : _submitImsReservation,
-                        icon: _imsSubmitting
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.cloud_upload_outlined),
-                        label: const Text('IMS 예약추가'),
                       ),
                     ],
                   ),
@@ -328,6 +326,78 @@ class _ReservationDetailBodyState
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, stack) =>
           Center(child: Text('예약 정보를 불러오지 못했습니다.\n$error')),
+    );
+  }
+}
+
+class _DetailActionButton extends StatelessWidget {
+  const _DetailActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.emphasis = false,
+    this.loading = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool emphasis;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final foreground = emphasis ? colorScheme.onPrimary : colorScheme.primary;
+    final background = emphasis ? colorScheme.primary : const Color(0xFFEAF5FF);
+    final borderColor = emphasis
+        ? colorScheme.primary
+        : const Color(0xFFBBDEFB);
+
+    return SizedBox.expand(
+      child: FilledButton.tonal(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: background,
+          foregroundColor: foreground,
+          disabledBackgroundColor: colorScheme.surfaceContainerHighest,
+          disabledForegroundColor: colorScheme.onSurfaceVariant,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          minimumSize: const Size(0, 0),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: borderColor),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (loading)
+              SizedBox(
+                width: 21,
+                height: 21,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: foreground,
+                ),
+              )
+            else
+              Icon(icon, size: 21),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: foreground,
+                fontSize: 12,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
