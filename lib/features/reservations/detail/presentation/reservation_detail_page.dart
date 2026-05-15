@@ -82,13 +82,20 @@ class _ReservationDetailBodyState
     setState(() => _imsSubmitting = true);
 
     try {
-      final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
-      final result = await client.createReservation(buildResult.payload);
+      final result = await _runWithImsProgress(() async {
+        final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
+        return client.createReservation(buildResult.payload);
+      });
+      await _saveImsRegistrationResult(
+        payload: buildResult.payload,
+        result: result,
+      );
+      ref.invalidate(externalReservationLinkProvider(widget.reservationId));
       if (!mounted) return;
 
-      if (result.isSuccess) {
+      if (result.hasLinkedExternalId) {
         _showSnack(
-          'IMS 예약성공(${reservation.carNumber}, ${_formatDateTime(reservation.startAt)})',
+          'IMS 등록완료(${reservation.carNumber}, ${_formatDateTime(reservation.startAt)})',
           backgroundColor: Colors.green.shade700,
         );
         return;
@@ -99,17 +106,101 @@ class _ReservationDetailBodyState
         backgroundColor: Colors.red.shade700,
       );
     } on ImsReservationClientException catch (error) {
+      await _saveImsRegistrationFailure(
+        payload: buildResult.payload,
+        errorText: error.message,
+      );
+      ref.invalidate(externalReservationLinkProvider(widget.reservationId));
       if (!mounted) return;
       _showSnack(
         'IMS 예약실패(${error.message})',
         backgroundColor: Colors.red.shade700,
       );
     } catch (error) {
+      await _saveImsRegistrationFailure(
+        payload: buildResult.payload,
+        errorText: '$error',
+      );
+      ref.invalidate(externalReservationLinkProvider(widget.reservationId));
       if (!mounted) return;
       _showSnack('IMS 예약실패($error)', backgroundColor: Colors.red.shade700);
     } finally {
       if (mounted) setState(() => _imsSubmitting = false);
     }
+  }
+
+  Future<T> _runWithImsProgress<T>(Future<T> Function() task) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('IMS 등록 진행중'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              LinearProgressIndicator(),
+              SizedBox(height: 16),
+              Text('IMS에 예약을 생성하고 등록 정보를 확인하는 중입니다.'),
+              SizedBox(height: 6),
+              Text('완료 전까지 다른 동작을 하지 마세요.'),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      return await task();
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
+  Future<void> _saveImsRegistrationResult({
+    required ImsReservationPayload payload,
+    required ImsReservationExecutionResult result,
+  }) async {
+    final linked = result.hasLinkedExternalId;
+    final errorText = linked
+        ? null
+        : (result.errorText.trim().isNotEmpty
+              ? result.errorText.trim()
+              : (result.message.trim().isNotEmpty
+                    ? result.message.trim()
+                    : result.code));
+    await ref
+        .read(supabaseOpsRepositoryProvider)
+        .upsertExternalReservationLink(
+          reservationId: widget.reservationId,
+          externalReservationId: result.externalReservationId,
+          externalDetailId: result.externalDetailId,
+          externalStatus: linked ? 'linked' : 'failed',
+          linkKey: result.linkKey.trim().isEmpty
+              ? 'OPS:${widget.reservationId.trim()}'
+              : result.linkKey.trim(),
+          lastPayloadJson: payload.toJson(),
+          lastResultJson: result.resultJson,
+          errorText: errorText,
+        );
+  }
+
+  Future<void> _saveImsRegistrationFailure({
+    required ImsReservationPayload payload,
+    required String errorText,
+  }) async {
+    await ref
+        .read(supabaseOpsRepositoryProvider)
+        .upsertExternalReservationLink(
+          reservationId: widget.reservationId,
+          externalStatus: 'failed',
+          linkKey: 'OPS:${widget.reservationId.trim()}',
+          lastPayloadJson: payload.toJson(),
+          lastResultJson: {'error': errorText},
+          errorText: errorText,
+        );
   }
 
   Future<void> _clearImsReservationRegistration() async {

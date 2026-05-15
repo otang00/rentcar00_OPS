@@ -14,6 +14,7 @@ class ImsReservationPayload {
     required this.useDelivery,
     required this.memo,
     required this.reservationId,
+    this.dryRun = false,
   });
 
   final String rentalAt;
@@ -26,6 +27,7 @@ class ImsReservationPayload {
   final bool useDelivery;
   final String memo;
   final String reservationId;
+  final bool dryRun;
 
   Map<String, dynamic> toJson() {
     return {
@@ -39,6 +41,7 @@ class ImsReservationPayload {
       'useDelivery': useDelivery,
       'memo': memo,
       'reservationId': reservationId,
+      'dryRun': dryRun,
     };
   }
 }

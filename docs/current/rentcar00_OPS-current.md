@@ -117,15 +117,20 @@ OPS에는 IMS 예약의 `schedule_id`를 **등록 정보**로 저장한다.
   - `POST /parse-reservation`
   - `POST /ims/create-reservation`
 
-### IMS Playwright / API
-- 생성 스크립트: `workspace/tools/playwright/scripts/ims-reservation-draft.js`
-- 삭제 스크립트: `workspace/tools/playwright/scripts/ims-reservation-cancel.js`
-- 목록 export 스크립트: `workspace/tools/playwright/scripts/ims-reservations-export.js`
-- 삭제 API:
+### IMS API
+- 매뉴얼: `/Users/otang_server/.openclaw/workspace/IMS_API_MANUAL.md`
+- Auth:
+  - `POST https://api.rencar.co.kr/auth`
+  - 이후 `Authorization: JWT <token>` 사용
+- 차량 조회:
+  - `GET https://api.rencar.co.kr/v2/rent-company-cars/available`
+  - 차량번호/시간대 기준으로 IMS `car_id` 확보
+- 예약 생성:
+  - `POST https://api.rencar.co.kr/v2/company-car-schedules`
+- 예약 삭제:
   - `POST https://api.rencar.co.kr/v2/company-car-schedules/delete`
   - body: `{ ids: [scheduleId] }`
-- 상세 API:
-  - `GET https://api.rencar.co.kr/v2/company-car-schedules/{schedule_id}`
+- Playwright 생성 flow는 직접 API 실패 시 조사/폴백용으로만 본다.
 
 ---
 
@@ -199,49 +204,52 @@ OPS에는 IMS 예약의 `schedule_id`를 **등록 정보**로 저장한다.
 - 삭제 후 동일 기간 목록 재조회 결과 0건
 
 중요 결론:
-- IMS 생성 응답만으로는 `schedule_id`를 직접 받지 못한다.
-- 생성 성공 후 목록 재조회/검색으로 `schedule_id`를 확보해야 한다.
-- `memo`/`OPS:`만으로 재조회하는 전략은 위험하다.
-- 생성 직후 id 확보는 복합키 기준으로 한다.
-  - 차량번호
-  - 고객명
-  - 고객 연락처
-  - 배차일시
-  - 반납일시
-  - 가능하면 배차지
+- 과거 Playwright 생성 방식은 느리고 사용자가 다른 동작을 할 수 있어 혼란이 있었다.
+- 2026-05-16 KST에 브라우저 저장 요청을 abort 방식으로 캡처해 직접 API 생성 endpoint를 확인했다.
+- 직접 API 방식은 `auth → available 조회로 car_id 확보 → company-car-schedules POST` 순서로 간다.
+- `memo`/`OPS:`는 보조 식별자이며, OPS 등록 정보의 1차 키는 IMS `schedule_id`다.
+- 직접 API 생성 응답에서 `schedule_id`가 없으면 생성 후 목록 조회 fallback으로 확보한다.
 
 ---
 
 ## 구현 Phase
 
 ### Phase 3-B. 상세 UI 용어 보정 / 수동 연결 제거
-현재 진행 중.
+완료.
 
-작업:
+결과:
 - 예약 상세 기능 카드에서 기존 수동 연결 버튼 제거
 - 등록 상태 버튼 문구를 `IMS등록됨`으로 정리
 - 정보 섹션 제목을 `IMS 등록 정보`로 정리
 - 해제 버튼 문구를 `등록해제`로 정리
-- 안내 문구에서 수동 연동 설명 제거
-- current 문서 재정리
+- 안내 문구에서 수동 연결 설명 제거
 
-종료 조건:
-- 화면에 수동 IMS 연결 버튼 없음
-- 미등록 상태에서 IMS 액션은 `IMS추가` 하나뿐임
-- 등록 상태에서 `IMS등록됨` + `등록해제`만 보임
-- `flutter analyze` 통과
-- 커밋 완료
+### Phase 4. IMS API 직결 + 등록 정보 저장 + 진행중 잠금
+현재 진행 중.
 
-### Phase 4. 예약 생성 시 IMS 등록 정보 저장
 작업:
-- 차량상세 예약생성 + `IMS에도 예약생성`
-- 상단 `+` 예약추가 + `IMS에도 예약생성`
-- IMS 성공 시 IMS 등록 정보 row 저장
-- IMS 실패/id 확보 실패 시 등록 정보 `failed` 또는 action log 기록
+- 중간서버 `/ims/create-reservation`을 Playwright 생성 대신 Rencar 직접 API로 전환
+  - `/auth`
+  - `/v2/rent-company-cars/available`
+  - `/v2/company-car-schedules`
+- 기본 동작은 실제 저장이며 `dryRun=true`일 때만 저장 생략
+- 차량상세 예약생성 + `IMS` 체크 시 IMS 등록 정보 저장
+- 상단 `+` 예약생성 + `IMS` 체크 시 IMS 등록 정보 저장
+- 예약 상세 `IMS추가` 시 IMS 등록 정보 저장
+- IMS 진행 중에는 dismiss/back 불가 모달 표시
+- 차량상세 예약생성에서 `draft` payload로 IMS 호출하던 문제 수정
+- 예약생성 다이얼로그 첫 필드 label이 상단에서 잘리는 문제 수정
 
 종료 조건:
-- 신규 OPS 예약도 IMS 등록 상태가 예약 상세에 바로 반영
-- IMS 생성 실패 시 사용자가 실패 사유를 볼 수 있음
+- 브라우저 생성 없이 IMS API 직접 등록 가능
+- IMS 진행 중 다른 동작 불가
+- IMS 성공 + schedule_id 확보 → `linked`
+- IMS 실패/id 확보 실패 → `failed`
+- 상세에서 `IMS등록됨` 또는 `등록실패` 확인 가능
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter test test/ims_reservation_payload_test.dart` 통과
+- `flutter analyze` 통과
+- 실제 IMS 저장 테스트는 별도 승인 후 1건만 진행
 
 ### Phase 5. 예약취소/삭제 + IMS 삭제 옵션
 작업:

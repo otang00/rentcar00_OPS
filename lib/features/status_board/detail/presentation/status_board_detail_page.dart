@@ -65,6 +65,95 @@ void _showReservationCreateSnackBar(
   );
 }
 
+Future<T> _runWithImsProgress<T>(
+  BuildContext context,
+  Future<T> Function() task,
+) async {
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => PopScope(
+      canPop: false,
+      child: AlertDialog(
+        title: const Text('IMS 등록 진행중'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            LinearProgressIndicator(),
+            SizedBox(height: 16),
+            Text('IMS에 예약을 생성하고 등록 정보를 확인하는 중입니다.'),
+            SizedBox(height: 6),
+            Text('완료 전까지 다른 동작을 하지 마세요.'),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  try {
+    return await task();
+  } finally {
+    if (context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+}
+
+Future<void> _saveImsRegistrationResult({
+  required WidgetRef ref,
+  required String reservationId,
+  required ImsReservationPayload payload,
+  required ImsReservationExecutionResult result,
+  String? fallbackErrorText,
+}) async {
+  final linked = result.hasLinkedExternalId;
+  final status = linked ? 'linked' : 'failed';
+  final linkKey = result.linkKey.trim().isEmpty
+      ? 'OPS:${reservationId.trim()}'
+      : result.linkKey.trim();
+  final errorText = linked
+      ? null
+      : (result.errorText.trim().isNotEmpty
+            ? result.errorText.trim()
+            : (fallbackErrorText?.trim().isNotEmpty == true
+                  ? fallbackErrorText!.trim()
+                  : (result.message.trim().isNotEmpty
+                        ? result.message.trim()
+                        : result.code)));
+
+  await ref
+      .read(supabaseOpsRepositoryProvider)
+      .upsertExternalReservationLink(
+        reservationId: reservationId,
+        externalReservationId: result.externalReservationId,
+        externalDetailId: result.externalDetailId,
+        externalStatus: status,
+        linkKey: linkKey,
+        lastPayloadJson: payload.toJson(),
+        lastResultJson: result.resultJson,
+        errorText: errorText,
+      );
+}
+
+Future<void> _saveImsRegistrationFailure({
+  required WidgetRef ref,
+  required String reservationId,
+  required ImsReservationPayload payload,
+  required String errorText,
+}) async {
+  await ref
+      .read(supabaseOpsRepositoryProvider)
+      .upsertExternalReservationLink(
+        reservationId: reservationId,
+        externalStatus: 'failed',
+        linkKey: 'OPS:${reservationId.trim()}',
+        lastPayloadJson: payload.toJson(),
+        lastResultJson: {'error': errorText},
+        errorText: errorText,
+      );
+}
+
 Future<void> showReservationCreateFlow({
   required BuildContext context,
   required WidgetRef ref,
@@ -139,15 +228,24 @@ Future<void> showReservationCreateFlow({
         car: form.car,
       );
       try {
-        final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
-        final result = await client.createReservation(
-          buildImsReservationPayload(confirmedReservation).payload,
+        final confirmedPayload = buildImsReservationPayload(
+          confirmedReservation,
+        ).payload;
+        final result = await _runWithImsProgress(context, () async {
+          final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
+          return client.createReservation(confirmedPayload);
+        });
+        await _saveImsRegistrationResult(
+          ref: ref,
+          reservationId: reservationId,
+          payload: confirmedPayload,
+          result: result,
         );
         if (!context.mounted) return;
-        if (result.isSuccess) {
+        if (result.hasLinkedExternalId) {
           _showReservationCreateSnackBar(
             context,
-            label: result.code == 'DRY_RUN' ? 'IMS 예약성공-DRY_RUN' : 'IMS 예약성공',
+            label: 'IMS 등록완료',
             car: form.car,
             startAt: form.startAt,
             color: Colors.green,
@@ -163,6 +261,15 @@ Future<void> showReservationCreateFlow({
           );
         }
       } on ImsReservationClientException catch (error) {
+        final failedPayload = buildImsReservationPayload(
+          confirmedReservation,
+        ).payload;
+        await _saveImsRegistrationFailure(
+          ref: ref,
+          reservationId: reservationId,
+          payload: failedPayload,
+          errorText: error.message,
+        );
         if (!context.mounted) return;
         _showReservationCreateSnackBar(
           context,
@@ -172,6 +279,15 @@ Future<void> showReservationCreateFlow({
           color: Colors.redAccent,
         );
       } catch (error) {
+        final failedPayload = buildImsReservationPayload(
+          confirmedReservation,
+        ).payload;
+        await _saveImsRegistrationFailure(
+          ref: ref,
+          reservationId: reservationId,
+          payload: failedPayload,
+          errorText: '$error',
+        );
         if (!context.mounted) return;
         _showReservationCreateSnackBar(
           context,
@@ -305,18 +421,28 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
           reservationId: reservationId,
           form: form,
         );
+        final confirmedPayload = buildImsReservationPayload(
+          reservation,
+        ).payload;
         try {
-          final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
-          final result = await client.createReservation(
-            preflightPayload.payload,
+          final result = await _runWithImsProgress(context, () async {
+            final client = ImsReservationClient(
+              baseUrl: appEnv.aiParserBaseUrl,
+            );
+            return client.createReservation(confirmedPayload);
+          });
+          await _saveImsRegistrationResult(
+            ref: ref,
+            reservationId: reservationId,
+            payload: confirmedPayload,
+            result: result,
           );
           if (!mounted) return;
 
-          if (result.isSuccess) {
+          if (result.hasLinkedExternalId) {
             _showImsSuccess(
               carNumber: reservation.carNumber,
               startAt: reservation.startAt,
-              dryRun: result.code == 'DRY_RUN',
             );
           } else {
             _showImsFailure(
@@ -324,9 +450,21 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
             );
           }
         } on ImsReservationClientException catch (error) {
+          await _saveImsRegistrationFailure(
+            ref: ref,
+            reservationId: reservationId,
+            payload: confirmedPayload,
+            errorText: error.message,
+          );
           if (!mounted) return;
           _showImsFailure(error.message);
         } catch (error) {
+          await _saveImsRegistrationFailure(
+            ref: ref,
+            reservationId: reservationId,
+            payload: confirmedPayload,
+            errorText: '$error',
+          );
           if (!mounted) return;
           _showImsFailure('$error');
         }
@@ -561,17 +699,12 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     );
   }
 
-  void _showImsSuccess({
-    required String carNumber,
-    required DateTime startAt,
-    required bool dryRun,
-  }) {
-    final label = dryRun ? 'IMS 예약성공-DRY_RUN' : 'IMS 예약성공';
+  void _showImsSuccess({required String carNumber, required DateTime startAt}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: Colors.green,
         content: Text(
-          '$label(${carNumber.trim()}, ${_formatEditorDateTime(startAt)})',
+          'IMS 등록완료(${carNumber.trim()}, ${_formatEditorDateTime(startAt)})',
         ),
       ),
     );
@@ -1283,84 +1416,87 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (widget.record == null)
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.record == null)
+                    _DialogTextField(
+                      controller: _carController,
+                      label: '차량번호',
+                      hintText: '차량 선택',
+                      readOnly: true,
+                      onTap: _selectCar,
+                      suffixIcon: const Icon(Icons.search_outlined),
+                      validator: _requiredValidator,
+                    ),
                   _DialogTextField(
-                    controller: _carController,
-                    label: '차량번호',
-                    hintText: '차량 선택',
-                    readOnly: true,
-                    onTap: _selectCar,
-                    suffixIcon: const Icon(Icons.search_outlined),
+                    controller: _reservationNumberController,
+                    label: '외부예약번호',
                     validator: _requiredValidator,
                   ),
-                _DialogTextField(
-                  controller: _reservationNumberController,
-                  label: '외부예약번호',
-                  validator: _requiredValidator,
-                ),
-                _DialogTextField(
-                  controller: _customerNameController,
-                  label: '이용자/고객명',
-                  validator: _requiredValidator,
-                ),
-                _DialogTextField(
-                  controller: _customerPhoneController,
-                  label: '고객번호',
-                  validator: _phoneValidator,
-                ),
-                _DialogTextField(
-                  controller: _customerBirthDateController,
-                  label: '생년월일',
-                  hintText: '1990-01-31',
-                  validator: _birthDateValidator,
-                ),
-                _DialogTextField(
-                  controller: _referralSourceController,
-                  label: '소개처',
-                ),
-                _DialogTextField(
-                  controller: _paymentAmountController,
-                  label: '가격',
-                  hintText: '100000',
-                  validator: _positiveMoneyValidator,
-                ),
-                _DialogTextField(
-                  controller: _startAtController,
-                  label: '배차일시',
-                  hintText: '2026-05-11 10:00',
-                  validator: _dateTimeValidator,
-                  readOnly: true,
-                  onTap: () => _pickDateTime(_startAtController),
-                  suffixIcon: const Icon(Icons.calendar_today_outlined),
-                ),
-                _DialogTextField(
-                  controller: _endAtController,
-                  label: '반납일시',
-                  hintText: '2026-05-12 10:00',
-                  validator: _dateTimeValidator,
-                  readOnly: true,
-                  onTap: () => _pickDateTime(_endAtController),
-                  suffixIcon: const Icon(Icons.calendar_today_outlined),
-                ),
-                _DialogTextField(
-                  controller: _pickupLocationController,
-                  label: '배차지',
-                  validator: _requiredValidator,
-                ),
-                _DialogTextField(
-                  controller: _dropoffLocationController,
-                  label: '반납지',
-                  validator: _requiredValidator,
-                ),
-                _DialogTextField(
-                  controller: _noteController,
-                  label: '비고',
-                  maxLines: 3,
-                ),
-              ],
+                  _DialogTextField(
+                    controller: _customerNameController,
+                    label: '이용자/고객명',
+                    validator: _requiredValidator,
+                  ),
+                  _DialogTextField(
+                    controller: _customerPhoneController,
+                    label: '고객번호',
+                    validator: _phoneValidator,
+                  ),
+                  _DialogTextField(
+                    controller: _customerBirthDateController,
+                    label: '생년월일',
+                    hintText: '1990-01-31',
+                    validator: _birthDateValidator,
+                  ),
+                  _DialogTextField(
+                    controller: _referralSourceController,
+                    label: '소개처',
+                  ),
+                  _DialogTextField(
+                    controller: _paymentAmountController,
+                    label: '가격',
+                    hintText: '100000',
+                    validator: _positiveMoneyValidator,
+                  ),
+                  _DialogTextField(
+                    controller: _startAtController,
+                    label: '배차일시',
+                    hintText: '2026-05-11 10:00',
+                    validator: _dateTimeValidator,
+                    readOnly: true,
+                    onTap: () => _pickDateTime(_startAtController),
+                    suffixIcon: const Icon(Icons.calendar_today_outlined),
+                  ),
+                  _DialogTextField(
+                    controller: _endAtController,
+                    label: '반납일시',
+                    hintText: '2026-05-12 10:00',
+                    validator: _dateTimeValidator,
+                    readOnly: true,
+                    onTap: () => _pickDateTime(_endAtController),
+                    suffixIcon: const Icon(Icons.calendar_today_outlined),
+                  ),
+                  _DialogTextField(
+                    controller: _pickupLocationController,
+                    label: '배차지',
+                    validator: _requiredValidator,
+                  ),
+                  _DialogTextField(
+                    controller: _dropoffLocationController,
+                    label: '반납지',
+                    validator: _requiredValidator,
+                  ),
+                  _DialogTextField(
+                    controller: _noteController,
+                    label: '비고',
+                    maxLines: 3,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
