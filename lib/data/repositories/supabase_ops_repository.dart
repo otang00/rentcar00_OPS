@@ -311,6 +311,20 @@ class SupabaseOpsRepository {
         .eq('id', carRowId);
   }
 
+  Future<void> updateCarManagementInfo({
+    required String carRowId,
+    required String carInspectionAt,
+    required String carAgeExpiryAt,
+  }) async {
+    await _client
+        .from('rc00_ops_cars')
+        .update({
+          'car_inspection_at': carInspectionAt.trim(),
+          'car_age_expiry_at': carAgeExpiryAt.trim(),
+        })
+        .eq('id', carRowId);
+  }
+
   Future<void> setCarWashFlag({
     required String carRowId,
     required bool interior,

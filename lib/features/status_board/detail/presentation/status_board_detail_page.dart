@@ -297,6 +297,34 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     });
   }
 
+  Future<void> _editCarManagementInfo() async {
+    final form = await showDialog<_CarManagementInfoFormResult>(
+      context: context,
+      builder: (context) => _CarManagementInfoDialog(record: record),
+    );
+    if (form == null) return;
+
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .updateCarManagementInfo(
+            carRowId: carRowId,
+            carInspectionAt: form.carInspectionAt,
+            carAgeExpiryAt: form.carAgeExpiryAt,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('차량 관리 정보를 저장했습니다.')));
+    });
+  }
+
   Future<void> _completeReturn() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -602,6 +630,11 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         const SizedBox(height: 14),
         _SectionCard(
           title: '차량 관리 정보',
+          trailing: TextButton.icon(
+            onPressed: _submitting ? null : _editCarManagementInfo,
+            icon: const Icon(Icons.edit_outlined, size: 18),
+            label: const Text('수정'),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1426,6 +1459,132 @@ class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
   }
 }
 
+class _CarManagementInfoFormResult {
+  const _CarManagementInfoFormResult({
+    required this.carInspectionAt,
+    required this.carAgeExpiryAt,
+  });
+
+  final String carInspectionAt;
+  final String carAgeExpiryAt;
+}
+
+class _CarManagementInfoDialog extends StatefulWidget {
+  const _CarManagementInfoDialog({required this.record});
+
+  final StatusBoardRecord record;
+
+  @override
+  State<_CarManagementInfoDialog> createState() =>
+      _CarManagementInfoDialogState();
+}
+
+class _CarManagementInfoDialogState extends State<_CarManagementInfoDialog> {
+  late final TextEditingController _registeredController;
+  late final TextEditingController _inspectionController;
+  late final TextEditingController _ageExpiryController;
+
+  @override
+  void initState() {
+    super.initState();
+    _registeredController = TextEditingController(
+      text: widget.record.carRegisteredAt.isEmpty
+          ? '-'
+          : widget.record.carRegisteredAt,
+    );
+    _inspectionController = TextEditingController(
+      text: widget.record.carInspectionAt,
+    );
+    _ageExpiryController = TextEditingController(
+      text: widget.record.carAgeExpiryAt,
+    );
+  }
+
+  @override
+  void dispose() {
+    _registeredController.dispose();
+    _inspectionController.dispose();
+    _ageExpiryController.dispose();
+    super.dispose();
+  }
+
+  String? _validateDate(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '날짜를 입력해주세요.';
+    final pattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    if (!pattern.hasMatch(trimmed)) return 'YYYY-MM-DD 형식으로 입력해주세요.';
+    final parsed = DateTime.tryParse(trimmed);
+    if (parsed == null) return '올바른 날짜가 아닙니다.';
+    final normalized =
+        '${parsed.year.toString().padLeft(4, '0')}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}';
+    if (normalized != trimmed) return '올바른 날짜가 아닙니다.';
+    return null;
+  }
+
+  void _save() {
+    final inspection = _inspectionController.text.trim();
+    final ageExpiry = _ageExpiryController.text.trim();
+    final inspectionError = _validateDate(inspection);
+    final ageExpiryError = _validateDate(ageExpiry);
+
+    if (inspectionError != null || ageExpiryError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(inspectionError ?? ageExpiryError!)),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _CarManagementInfoFormResult(
+        carInspectionAt: inspection,
+        carAgeExpiryAt: ageExpiry,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('차량 관리 정보 수정'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _DialogTextField(
+              controller: _registeredController,
+              label: '차량등록일',
+              readOnly: true,
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _inspectionController,
+              label: '차량검사일',
+              hintText: 'YYYY-MM-DD',
+              keyboardType: TextInputType.datetime,
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _ageExpiryController,
+              label: '차령만료일',
+              hintText: 'YYYY-MM-DD',
+              keyboardType: TextInputType.datetime,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('저장')),
+      ],
+    );
+  }
+}
+
 class _ScheduleDetailBody extends ConsumerStatefulWidget {
   const _ScheduleDetailBody({required this.record});
 
@@ -1714,10 +1873,11 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.title, required this.child});
+  const _SectionCard({required this.title, required this.child, this.trailing});
 
   final String title;
   final Widget child;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -1735,11 +1895,18 @@ class _SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                ?trailing,
+              ],
             ),
             const SizedBox(height: 14),
             child,
@@ -1858,6 +2025,7 @@ class _DialogTextField extends StatelessWidget {
     this.hintText,
     this.autofocus = false,
     this.readOnly = false,
+    this.keyboardType,
     this.onTap,
     this.suffixIcon,
   });
@@ -1869,6 +2037,7 @@ class _DialogTextField extends StatelessWidget {
   final String? hintText;
   final bool autofocus;
   final bool readOnly;
+  final TextInputType? keyboardType;
   final VoidCallback? onTap;
   final Widget? suffixIcon;
 
@@ -1882,6 +2051,7 @@ class _DialogTextField extends StatelessWidget {
         validator: validator,
         maxLines: maxLines,
         readOnly: readOnly,
+        keyboardType: keyboardType,
         onTap: onTap,
         decoration: InputDecoration(
           labelText: label,
