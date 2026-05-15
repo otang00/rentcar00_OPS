@@ -48,7 +48,7 @@ class _ReservationDetailBody extends ConsumerStatefulWidget {
 class _ReservationDetailBodyState
     extends ConsumerState<_ReservationDetailBody> {
   bool _imsSubmitting = false;
-  bool _bindingUpdating = false;
+  bool _registrationUpdating = false;
 
   Future<void> _submitImsReservation() async {
     if (_imsSubmitting) return;
@@ -63,7 +63,7 @@ class _ReservationDetailBodyState
         .valueOrNull;
     if (binding?.isActiveBinding == true) {
       _showSnack(
-        '이미 IMS 예약과 연동되어 있습니다.',
+        '이미 IMS 예약이 등록되어 있습니다.',
         backgroundColor: Colors.orange.shade700,
       );
       return;
@@ -112,24 +112,15 @@ class _ReservationDetailBodyState
     }
   }
 
-  Future<void> _startImsBindingSelection() async {
-    _showSnack(
-      'IMS연동 목록 선택은 다음 단계에서 연결합니다.',
-      backgroundColor: Colors.blueGrey.shade700,
-    );
-  }
-
-  Future<void> _unlinkImsReservationBinding() async {
-    if (_bindingUpdating) return;
+  Future<void> _clearImsReservationRegistration() async {
+    if (_registrationUpdating) return;
 
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('IMS 연동해제'),
-          content: const Text(
-            'IMS 예약은 삭제되지 않습니다.\n현재 OPS 예약과 IMS 예약의 연결만 해제할까요?',
-          ),
+          title: const Text('IMS 등록해제'),
+          content: const Text('IMS 예약은 삭제되지 않습니다.\nOPS에 저장된 IMS 등록 정보만 해제할까요?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -137,7 +128,7 @@ class _ReservationDetailBodyState
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('연동해제'),
+              child: const Text('등록해제'),
             ),
           ],
         );
@@ -146,7 +137,7 @@ class _ReservationDetailBodyState
 
     if (confirm != true) return;
 
-    setState(() => _bindingUpdating = true);
+    setState(() => _registrationUpdating = true);
     try {
       await ref
           .read(supabaseOpsRepositoryProvider)
@@ -155,12 +146,12 @@ class _ReservationDetailBodyState
           );
       ref.invalidate(externalReservationLinkProvider(widget.reservationId));
       if (!mounted) return;
-      _showSnack('IMS 연동을 해제했습니다.', backgroundColor: Colors.green.shade700);
+      _showSnack('IMS 등록 정보를 해제했습니다.', backgroundColor: Colors.green.shade700);
     } catch (error) {
       if (!mounted) return;
-      _showSnack('IMS 연동해제 실패($error)', backgroundColor: Colors.red.shade700);
+      _showSnack('IMS 등록해제 실패($error)', backgroundColor: Colors.red.shade700);
     } finally {
-      if (mounted) setState(() => _bindingUpdating = false);
+      if (mounted) setState(() => _registrationUpdating = false);
     }
   }
 
@@ -197,7 +188,7 @@ class _ReservationDetailBodyState
         final outboxPreview = outboxPreviewAsync.valueOrNull ?? const [];
         final hasPhone = hasCallablePhone(reservation.customerPhone);
         final externalLink = externalLinkAsync.valueOrNull;
-        final hasActiveImsBinding = externalLink?.isActiveBinding == true;
+        final hasActiveImsRegistration = externalLink?.isActiveBinding == true;
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
@@ -267,13 +258,13 @@ class _ReservationDetailBodyState
                           onPressed: () =>
                               tryLaunchSms(context, reservation.customerPhone),
                         ),
-                      if (hasActiveImsBinding)
+                      if (hasActiveImsRegistration)
                         const _DetailActionButton(
-                          label: 'IMS연동됨',
+                          label: 'IMS등록됨',
                           icon: Icons.link_outlined,
                           onPressed: null,
                         )
-                      else ...[
+                      else
                         _DetailActionButton(
                           label: 'IMS추가',
                           icon: Icons.cloud_upload_outlined,
@@ -283,12 +274,6 @@ class _ReservationDetailBodyState
                               ? null
                               : _submitImsReservation,
                         ),
-                        _DetailActionButton(
-                          label: 'IMS연동',
-                          icon: Icons.add_link_outlined,
-                          onPressed: _startImsBindingSelection,
-                        ),
-                      ],
                     ],
                   ),
                   if (actions.isNotEmpty) ...[
@@ -310,17 +295,16 @@ class _ReservationDetailBodyState
             ),
             const SizedBox(height: 14),
             _SectionCard(
-              title: 'IMS 연동 정보',
-              child: _ImsBindingInfo(
+              title: 'IMS 등록 정보',
+              child: _ImsRegistrationInfo(
                 link: externalLink,
                 isLoading: externalLinkAsync.isLoading,
-                isUpdating: _bindingUpdating,
-                onCreate: hasActiveImsBinding || _imsSubmitting
+                isUpdating: _registrationUpdating,
+                onCreate: hasActiveImsRegistration || _imsSubmitting
                     ? null
                     : _submitImsReservation,
-                onBind: hasActiveImsBinding ? null : _startImsBindingSelection,
-                onUnlink: hasActiveImsBinding && !_bindingUpdating
-                    ? _unlinkImsReservationBinding
+                onUnlink: hasActiveImsRegistration && !_registrationUpdating
+                    ? _clearImsReservationRegistration
                     : null,
               ),
             ),
@@ -429,13 +413,12 @@ class _ReservationDetailBodyState
   }
 }
 
-class _ImsBindingInfo extends StatelessWidget {
-  const _ImsBindingInfo({
+class _ImsRegistrationInfo extends StatelessWidget {
+  const _ImsRegistrationInfo({
     required this.link,
     required this.isLoading,
     required this.isUpdating,
     required this.onCreate,
-    required this.onBind,
     required this.onUnlink,
   });
 
@@ -443,7 +426,6 @@ class _ImsBindingInfo extends StatelessWidget {
   final bool isLoading;
   final bool isUpdating;
   final VoidCallback? onCreate;
-  final VoidCallback? onBind;
   final VoidCallback? onUnlink;
 
   @override
@@ -454,14 +436,14 @@ class _ImsBindingInfo extends StatelessWidget {
     final unlinked = link?.isUnlinked == true;
     final deleted = link?.isDeleted == true;
     final statusLabel = active
-        ? '연동됨'
+        ? 'IMS등록됨'
         : failed
-        ? '연동 실패'
+        ? '등록실패'
         : unlinked
-        ? '해제됨'
+        ? '등록해제'
         : deleted
         ? '삭제됨'
-        : '미연동';
+        : '미등록';
     final statusColor = active
         ? Colors.green.shade700
         : failed
@@ -477,7 +459,7 @@ class _ImsBindingInfo extends StatelessWidget {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
           SizedBox(width: 10),
-          Text('IMS 연동 상태 확인 중'),
+          Text('IMS 등록 상태 확인 중'),
         ],
       );
     }
@@ -508,14 +490,14 @@ class _ImsBindingInfo extends StatelessWidget {
             emphasize: true,
           ),
           _DetailField(label: 'detail ID', value: link?.externalDetailId ?? ''),
-          _DetailField(label: '연동키', value: link?.linkKey ?? ''),
+          _DetailField(label: '등록키', value: link?.linkKey ?? ''),
           _DetailField(
-            label: '마지막 확인시각',
+            label: '마지막 등록/확인시각',
             value: _formatOptionalDateTime(link?.lastCheckedAt),
           ),
           if ((link?.errorText ?? '').trim().isNotEmpty)
             _DetailField(label: '오류', value: link?.errorText ?? ''),
-          const Text('IMS 예약은 삭제되지 않고, OPS 예약과의 연결만 해제됩니다.'),
+          const Text('IMS 예약은 삭제되지 않고, OPS에 저장된 등록 정보만 해제됩니다.'),
           const SizedBox(height: 10),
           FilledButton.tonalIcon(
             onPressed: isUpdating ? null : onUnlink,
@@ -526,13 +508,13 @@ class _ImsBindingInfo extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.link_off_outlined),
-            label: const Text('연동해제'),
+            label: const Text('등록해제'),
           ),
         ] else ...[
           Text(
             failed
-                ? 'IMS 예약 바인딩에 실패했습니다. IMS 예약을 새로 추가하거나 기존 IMS 예약과 연동할 수 있습니다.'
-                : 'IMS 예약을 새로 추가하거나 기존 IMS 예약과 연동할 수 있습니다.',
+                ? 'IMS 예약 등록에 실패했습니다. IMS 예약을 새로 추가할 수 있습니다.'
+                : 'IMS 예약을 새로 추가할 수 있습니다.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
               height: 1.35,
@@ -551,11 +533,6 @@ class _ImsBindingInfo extends StatelessWidget {
                 onPressed: onCreate,
                 icon: const Icon(Icons.cloud_upload_outlined),
                 label: const Text('IMS추가'),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: onBind,
-                icon: const Icon(Icons.add_link_outlined),
-                label: const Text('IMS연동'),
               ),
             ],
           ),
