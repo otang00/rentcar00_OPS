@@ -1690,19 +1690,20 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _LinkedFieldBlock(
-                label: '예약ID',
-                value: record.reservationId,
-                enabled: record.reservationId.isNotEmpty,
-                onTap: record.reservationId.isNotEmpty
-                    ? () => context.push(
-                        AppRoutes.reservationDetail.replaceFirst(
-                          ':reservationId',
-                          Uri.encodeComponent(record.reservationId),
-                        ),
-                      )
-                    : null,
-              ),
+              if (record.reservationId.isNotEmpty)
+                _LinkedFieldBlock(
+                  label: '예약ID',
+                  value: record.reservationId,
+                  enabled: true,
+                  onTap: () => context.push(
+                    AppRoutes.reservationDetail.replaceFirst(
+                      ':reservationId',
+                      Uri.encodeComponent(record.reservationId),
+                    ),
+                  ),
+                )
+              else
+                const _FieldBlock(label: '예약ID', value: '연결된 예약 없음'),
               _FieldBlock(label: '외부예약번호', value: record.reservationNumber),
             ],
           ),

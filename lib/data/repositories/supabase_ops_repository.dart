@@ -571,9 +571,12 @@ class SupabaseOpsRepository {
     final scheduleAtDisplay = scheduleAt == null
         ? ''
         : _formatDisplayDateTime(scheduleAt);
-    final reservationId = (row['reservation_id'] as String? ?? '').trim();
+    final rawReservationId = (row['reservation_id'] as String? ?? '').trim();
     final linkedReservation =
-        reservationById[reservationId] as Map<String, dynamic>?;
+        reservationById[rawReservationId] as Map<String, dynamic>?;
+    final linkedReservationId = linkedReservation == null
+        ? ''
+        : rawReservationId;
 
     return StatusBoardRecord(
       recordId: 'schedule:${row['id']}',
@@ -625,7 +628,7 @@ class SupabaseOpsRepository {
       scheduleType: scheduleType,
       scheduleDone: row['schedule_done'] == true ? 'TRUE' : '',
       detailText: (row['detail_text'] as String? ?? '').trim(),
-      reservationId: reservationId,
+      reservationId: linkedReservationId,
       reservationNumber: (row['reservation_number'] as String? ?? '').trim(),
       carRegisteredAt: linkedCar?.carRegisteredAt ?? '',
       carInspectionAt: linkedCar?.carInspectionAt ?? '',
