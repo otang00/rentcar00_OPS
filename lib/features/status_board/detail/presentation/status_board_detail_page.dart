@@ -21,6 +21,187 @@ const _parkingLocationOptions = [
   '수푸레1층',
 ];
 
+ReservationRecord _buildReservationRecordForIms({
+  required String reservationId,
+  required _ReservationCreateFormResult form,
+  required StatusBoardRecord car,
+}) {
+  return ReservationRecord(
+    reservationId: reservationId,
+    reservationNumber: form.reservationNumber,
+    customerName: form.customerName,
+    customerPhone: form.customerPhone,
+    customerBirthDate: form.customerBirthDate,
+    referralSource: form.referralSource,
+    paymentAmount: form.paymentAmount,
+    carNumber: car.carNumber,
+    carName: car.carName,
+    tab: ReservationTab.pending,
+    statusKey: '예약중',
+    startAt: form.startAt,
+    endAt: form.endAt,
+    locationSummary: form.pickupLocation,
+    noteText: form.noteText,
+    primaryBadges: const [],
+    checkPayload: const {},
+    actionLogs: const [],
+  );
+}
+
+void _showReservationCreateSnackBar(
+  BuildContext context, {
+  required String label,
+  required StatusBoardRecord car,
+  required DateTime startAt,
+  required Color color,
+}) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      backgroundColor: color,
+      content: Text(
+        '$label(${car.carNumber.trim()}, ${_formatEditorDateTime(startAt)})',
+      ),
+    ),
+  );
+}
+
+Future<void> showReservationCreateFlow({
+  required BuildContext context,
+  required WidgetRef ref,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  List<StatusBoardRecord> cars;
+  try {
+    final records = await ref.read(allStatusBoardRecordsProvider.future);
+    cars = records.where((item) => !item.isScheduleEntry).toList()
+      ..sort((a, b) => a.carNumber.compareTo(b.carNumber));
+  } catch (error) {
+    messenger.showSnackBar(
+      SnackBar(content: Text('차량 목록을 불러오지 못했습니다.\n$error')),
+    );
+    return;
+  }
+
+  if (!context.mounted) return;
+  final appEnv = ref.read(appEnvProvider);
+  final form = await showDialog<_ReservationCreateFormResult>(
+    context: context,
+    builder: (context) => _ReservationCreateDialog(
+      aiParserBaseUrl: appEnv.aiParserBaseUrl,
+      availableCars: cars,
+    ),
+  );
+  if (form == null || !context.mounted) return;
+
+  final reservation = _buildReservationRecordForIms(
+    reservationId: 'draft',
+    form: form,
+    car: form.car,
+  );
+  final preflightPayload = buildImsReservationPayload(reservation);
+  if (form.imsChecked && !preflightPayload.isValid) {
+    messenger.showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'IMS 확인 필요: ${preflightPayload.errors.map(imsPayloadErrorLabel).join(', ')}',
+        ),
+      ),
+    );
+    return;
+  }
+
+  try {
+    final reservationId = await ref
+        .read(supabaseOpsRepositoryProvider)
+        .createReservationFromVehicle(
+          car: form.car,
+          reservationNumber: form.reservationNumber,
+          customerName: form.customerName,
+          customerPhone: form.customerPhone,
+          customerBirthDate: form.customerBirthDate,
+          referralSource: form.referralSource,
+          paymentAmount: form.paymentAmount,
+          startAt: form.startAt,
+          endAt: form.endAt,
+          pickupLocation: form.pickupLocation,
+          dropoffLocation: form.dropoffLocation,
+          noteText: form.noteText,
+          createdVia: 'global_reservation_add',
+        );
+
+    if (!context.mounted) return;
+
+    if (form.imsChecked) {
+      final confirmedReservation = _buildReservationRecordForIms(
+        reservationId: reservationId,
+        form: form,
+        car: form.car,
+      );
+      try {
+        final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
+        final result = await client.createReservation(
+          buildImsReservationPayload(confirmedReservation).payload,
+        );
+        if (!context.mounted) return;
+        if (result.isSuccess) {
+          _showReservationCreateSnackBar(
+            context,
+            label: result.code == 'DRY_RUN' ? 'IMS 예약성공-DRY_RUN' : 'IMS 예약성공',
+            car: form.car,
+            startAt: form.startAt,
+            color: Colors.green,
+          );
+        } else {
+          _showReservationCreateSnackBar(
+            context,
+            label:
+                'IMS예약실패(${result.message.isEmpty ? result.code : result.message})',
+            car: form.car,
+            startAt: form.startAt,
+            color: Colors.redAccent,
+          );
+        }
+      } on ImsReservationClientException catch (error) {
+        if (!context.mounted) return;
+        _showReservationCreateSnackBar(
+          context,
+          label: 'IMS예약실패(${error.message})',
+          car: form.car,
+          startAt: form.startAt,
+          color: Colors.redAccent,
+        );
+      } catch (error) {
+        if (!context.mounted) return;
+        _showReservationCreateSnackBar(
+          context,
+          label: 'IMS예약실패($error)',
+          car: form.car,
+          startAt: form.startAt,
+          color: Colors.redAccent,
+        );
+      }
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('예약원장과 일정 2건을 생성했습니다.')),
+      );
+    }
+
+    ref.invalidate(allStatusBoardRecordsProvider);
+    ref.invalidate(allReservationsProvider);
+    if (!context.mounted) return;
+    context.push(
+      AppRoutes.reservationDetail.replaceFirst(
+        ':reservationId',
+        Uri.encodeComponent(reservationId),
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    messenger.showSnackBar(SnackBar(content: Text('예약 생성에 실패했습니다.\n$error')));
+  }
+}
+
 class StatusBoardDetailPage extends ConsumerWidget {
   const StatusBoardDetailPage({super.key, required this.recordId});
 
@@ -104,7 +285,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       final reservationId = await ref
           .read(supabaseOpsRepositoryProvider)
           .createReservationFromVehicle(
-            car: record,
+            car: form.car,
             reservationNumber: form.reservationNumber,
             customerName: form.customerName,
             customerPhone: form.customerPhone,
@@ -366,8 +547,8 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       customerBirthDate: form.customerBirthDate,
       referralSource: form.referralSource,
       paymentAmount: form.paymentAmount,
-      carNumber: record.carNumber,
-      carName: record.carName,
+      carNumber: form.car.carNumber,
+      carName: form.car.carName,
       tab: ReservationTab.pending,
       statusKey: '예약중',
       startAt: form.startAt,
@@ -769,14 +950,131 @@ class _ActionChipButton extends StatelessWidget {
 
 enum _ActionChipEmphasis { standard, primary, danger }
 
+String _carDisplayLabel(StatusBoardRecord car) {
+  final name = car.carName.trim();
+  return name.isEmpty ? car.carNumber : '${car.carNumber} · $name';
+}
+
+class _CarSelectDialog extends StatefulWidget {
+  const _CarSelectDialog({required this.cars, this.initialCar});
+
+  final List<StatusBoardRecord> cars;
+  final StatusBoardRecord? initialCar;
+
+  @override
+  State<_CarSelectDialog> createState() => _CarSelectDialogState();
+}
+
+class _CarSelectDialogState extends State<_CarSelectDialog> {
+  late final TextEditingController _queryController;
+
+  @override
+  void initState() {
+    super.initState();
+    _queryController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    super.dispose();
+  }
+
+  List<StatusBoardRecord> _filteredCars(String query) {
+    final raw = query.trim().toLowerCase();
+    final digits = raw.replaceAll(RegExp(r'\D+'), '');
+    if (raw.isEmpty) return widget.cars;
+    return widget.cars.where((car) {
+      final number = car.carNumber.toLowerCase();
+      final name = car.carName.toLowerCase();
+      final numberDigits = car.carNumber.replaceAll(RegExp(r'\D+'), '');
+      return number.contains(raw) ||
+          name.contains(raw) ||
+          (digits.isNotEmpty && numberDigits.endsWith(digits));
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final filtered = _filteredCars(_queryController.text);
+
+    return AlertDialog(
+      title: const Text('차량 선택'),
+      content: SizedBox(
+        width: 420,
+        height: 520,
+        child: Column(
+          children: [
+            TextField(
+              controller: _queryController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '차량번호 / 뒤4자리 / 차종 검색',
+                prefixIcon: Icon(Icons.search_outlined),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: filtered.isEmpty
+                  ? const Center(child: Text('검색 결과가 없습니다.'))
+                  : ListView.separated(
+                      itemCount: filtered.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final car = filtered[index];
+                        final selected =
+                            widget.initialCar?.recordId == car.recordId;
+                        return ListTile(
+                          dense: true,
+                          selected: selected,
+                          title: Text(
+                            car.carNumber,
+                            style: textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          subtitle: Text(
+                            [
+                              if (car.carName.trim().isNotEmpty) car.carName,
+                              if (car.status.trim().isNotEmpty) car.status,
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: selected
+                              ? const Icon(Icons.check_circle)
+                              : null,
+                          onTap: () => Navigator.of(context).pop(car),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+      ],
+    );
+  }
+}
+
 class _ReservationCreateDialog extends StatefulWidget {
   const _ReservationCreateDialog({
-    required this.record,
+    this.record,
     required this.aiParserBaseUrl,
+    this.availableCars = const [],
   });
 
-  final StatusBoardRecord record;
+  final StatusBoardRecord? record;
   final String aiParserBaseUrl;
+  final List<StatusBoardRecord> availableCars;
 
   @override
   State<_ReservationCreateDialog> createState() =>
@@ -796,6 +1094,8 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
   late final TextEditingController _noteController;
   late final TextEditingController _startAtController;
   late final TextEditingController _endAtController;
+  late final TextEditingController _carController;
+  StatusBoardRecord? _selectedCar;
   bool _aiParsing = false;
   bool _imsChecked = false;
 
@@ -805,6 +1105,10 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day, now.hour, now.minute);
     final end = start.add(const Duration(days: 1));
+    _selectedCar = widget.record;
+    _carController = TextEditingController(
+      text: _selectedCar == null ? '' : _carDisplayLabel(_selectedCar!),
+    );
     _reservationNumberController = TextEditingController();
     _customerNameController = TextEditingController();
     _customerPhoneController = TextEditingController();
@@ -936,7 +1240,23 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
     _noteController.dispose();
     _startAtController.dispose();
     _endAtController.dispose();
+    _carController.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectCar() async {
+    final selected = await showDialog<StatusBoardRecord>(
+      context: context,
+      builder: (context) => _CarSelectDialog(
+        cars: widget.availableCars,
+        initialCar: _selectedCar,
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _selectedCar = selected;
+      _carController.text = _carDisplayLabel(selected);
+    });
   }
 
   @override
@@ -966,6 +1286,16 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (widget.record == null)
+                  _DialogTextField(
+                    controller: _carController,
+                    label: '차량번호',
+                    hintText: '차량 선택',
+                    readOnly: true,
+                    onTap: _selectCar,
+                    suffixIcon: const Icon(Icons.search_outlined),
+                    validator: _requiredValidator,
+                  ),
                 _DialogTextField(
                   controller: _reservationNumberController,
                   label: '외부예약번호',
@@ -1055,6 +1385,13 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
         FilledButton(
           onPressed: () {
             if (!_formKey.currentState!.validate()) return;
+            final selectedCar = _selectedCar;
+            if (selectedCar == null) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('차량을 선택해주세요.')));
+              return;
+            }
             final startAt = _tryParseDateTime(_startAtController.text.trim());
             final endAt = _tryParseDateTime(_endAtController.text.trim());
             if (startAt == null || endAt == null) return;
@@ -1065,6 +1402,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
               return;
             }
             final result = _ReservationCreateFormResult(
+              car: selectedCar,
               reservationNumber: _reservationNumberController.text.trim(),
               customerName: _customerNameController.text.trim(),
               customerPhone: _normalizePhoneForStorage(
@@ -1094,8 +1432,8 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                 customerBirthDate: result.customerBirthDate,
                 referralSource: result.referralSource,
                 paymentAmount: result.paymentAmount,
-                carNumber: widget.record.carNumber,
-                carName: widget.record.carName,
+                carNumber: selectedCar.carNumber,
+                carName: selectedCar.carName,
                 tab: ReservationTab.pending,
                 statusKey: '예약중',
                 startAt: result.startAt,
@@ -2215,6 +2553,7 @@ class _AiParserTextInputDialogState extends State<_AiParserTextInputDialog> {
 
 class _ReservationCreateFormResult {
   const _ReservationCreateFormResult({
+    required this.car,
     required this.reservationNumber,
     required this.customerName,
     required this.customerPhone,
@@ -2229,6 +2568,7 @@ class _ReservationCreateFormResult {
     required this.imsChecked,
   });
 
+  final StatusBoardRecord car;
   final String reservationNumber;
   final String customerName;
   final String customerPhone;

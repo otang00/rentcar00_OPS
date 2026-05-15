@@ -28,6 +28,7 @@ class SupabaseOpsRepository {
     required String pickupLocation,
     required String dropoffLocation,
     required String noteText,
+    String createdVia = 'status_board_vehicle_detail',
   }) async {
     final normalizedReservationNumber = reservationNumber.trim();
     final normalizedCustomerName = customerName.trim();
@@ -59,7 +60,7 @@ class SupabaseOpsRepository {
           'reservation_status': '예약중',
           'note_text': normalizedNoteText,
           'meta_json': {
-            'created_via': 'status_board_vehicle_detail',
+            'created_via': createdVia,
             'source_record_id': car.recordId,
           },
         })
@@ -109,7 +110,7 @@ class SupabaseOpsRepository {
         'location_text': normalizedPickupLocation,
         'detail_text': normalizedNoteText,
         'payload_json': {
-          'created_via': 'status_board_vehicle_detail',
+          'created_via': createdVia,
           'reservation_id': reservationId,
           'reservation_number': normalizedReservationNumber,
           'status': '배차',
@@ -127,7 +128,7 @@ class SupabaseOpsRepository {
         'location_text': normalizedDropoffLocation,
         'detail_text': normalizedNoteText,
         'payload_json': {
-          'created_via': 'status_board_vehicle_detail',
+          'created_via': createdVia,
           'reservation_id': reservationId,
           'reservation_number': normalizedReservationNumber,
           'status': '반납',

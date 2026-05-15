@@ -5,6 +5,7 @@ import 'package:rentcar00_ops/features/reservations/list/presentation/reservatio
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/features/status_board/list/presentation/status_board_tab_page.dart';
+import 'package:rentcar00_ops/features/status_board/detail/presentation/status_board_detail_page.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
 
 String _reservationLabel(ReservationTab tab, int? count) {
@@ -50,6 +51,14 @@ class AppShell extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 10,
+        actions: [
+          IconButton(
+            tooltip: '예약추가',
+            icon: const Icon(Icons.add),
+            onPressed: () =>
+                showReservationCreateFlow(context: context, ref: ref),
+          ),
+        ],
         title: Row(
           children: [
             Text(
