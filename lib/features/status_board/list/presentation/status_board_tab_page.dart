@@ -579,16 +579,16 @@ class _DateInfoCell extends StatelessWidget {
                 value,
                 maxLines: 1,
                 textAlign: TextAlign.right,
-                style:
-                    (emphasizeValue
-                            ? Theme.of(context).textTheme.titleLarge
-                            : Theme.of(context).textTheme.titleMedium)
-                        ?.copyWith(color: color, fontWeight: FontWeight.w900),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                ),
               ),
             ),
           ),
           const SizedBox(width: 2),
-          Icon(icon, size: 15, color: color),
+          Icon(icon, size: 16, color: color),
         ],
       ),
     );

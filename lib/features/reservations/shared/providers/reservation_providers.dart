@@ -282,6 +282,8 @@ ReservationSummary _toSummary(ReservationRecord item) {
     carName: item.carName,
     tab: item.tab,
     statusKey: item.statusKey,
+    startAt: item.startAt,
+    endAt: item.endAt,
     displayAt: baseTime,
     timeLabel: _formatDateTime(baseTime),
     locationSummary: item.locationSummary,

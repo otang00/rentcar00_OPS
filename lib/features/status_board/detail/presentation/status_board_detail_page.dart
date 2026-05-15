@@ -699,7 +699,7 @@ class _ActionChipButton extends StatelessWidget {
         foregroundColor: foreground,
         disabledBackgroundColor: colorScheme.surfaceContainerHighest,
         disabledForegroundColor: colorScheme.onSurfaceVariant,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         minimumSize: const Size(0, 0),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -709,8 +709,8 @@ class _ActionChipButton extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 17),
-          const SizedBox(height: 3),
+          Icon(icon, size: 21),
+          const SizedBox(height: 4),
           Text(
             label,
             maxLines: 1,
@@ -718,7 +718,7 @@ class _ActionChipButton extends StatelessWidget {
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontWeight: FontWeight.w800,
               color: foreground,
-              fontSize: 10,
+              fontSize: 12,
               letterSpacing: -0.2,
             ),
           ),
@@ -730,7 +730,7 @@ class _ActionChipButton extends StatelessWidget {
       return SizedBox.expand(child: button);
     }
 
-    return SizedBox(width: 60, height: 56, child: button);
+    return SizedBox(width: 64, height: 58, child: button);
   }
 }
 
@@ -946,11 +946,13 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                 _DialogTextField(
                   controller: _customerPhoneController,
                   label: '고객번호',
+                  validator: _phoneValidator,
                 ),
                 _DialogTextField(
                   controller: _customerBirthDateController,
                   label: '생년월일',
                   hintText: '1990-01-31',
+                  validator: _birthDateValidator,
                 ),
                 _DialogTextField(
                   controller: _referralSourceController,
@@ -960,6 +962,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                   controller: _paymentAmountController,
                   label: '가격',
                   hintText: '100000',
+                  validator: _positiveMoneyValidator,
                 ),
                 _DialogTextField(
                   controller: _startAtController,
@@ -1173,18 +1176,45 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
               children: [
                 if (widget.allowStatusSelection)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _selectedStatus,
-                      decoration: const InputDecoration(labelText: '차량상태'),
-                      items: [
-                        for (final status in _statusOptions)
-                          DropdownMenuItem(value: status, child: Text(status)),
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4, bottom: 6),
+                          child: Text(
+                            '차량상태',
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                        ),
+                        DropdownButtonFormField<String>(
+                          initialValue: _selectedStatus,
+                          decoration: const InputDecoration(
+                            isDense: false,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                          ),
+                          items: [
+                            for (final status in _statusOptions)
+                              DropdownMenuItem(
+                                value: status,
+                                child: Text(status),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => _selectedStatus = value);
+                          },
+                        ),
                       ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _selectedStatus = value);
-                      },
                     ),
                   ),
                 _DialogTextField(
@@ -1661,8 +1691,8 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _LinkedFieldBlock(
-                label: '예약번호',
-                value: record.reservationNumber,
+                label: '예약ID',
+                value: record.reservationId,
                 enabled: record.reservationId.isNotEmpty,
                 onTap: record.reservationId.isNotEmpty
                     ? () => context.push(
@@ -1673,7 +1703,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                       )
                     : null,
               ),
-              _FieldBlock(label: '예약ID', value: record.reservationId),
+              _FieldBlock(label: '외부예약번호', value: record.reservationNumber),
             ],
           ),
         ),
@@ -2092,6 +2122,40 @@ String? _dateTimeValidator(String? value) {
   }
   if (_tryParseDateTime(value) == null) {
     return '예: 2026-05-11 10:00';
+  }
+  return null;
+}
+
+String? _phoneValidator(String? value) {
+  final digits = _normalizePhoneForStorage(value ?? '');
+  if (digits.isEmpty) return '필수 입력입니다.';
+  if (!RegExp(r'^\d{10,11}$').hasMatch(digits)) {
+    return '숫자 10~11자리로 입력하세요.';
+  }
+  return null;
+}
+
+String? _positiveMoneyValidator(String? value) {
+  final digits = _normalizeMoneyForStorage(value ?? '');
+  if (digits.isEmpty) return '필수 입력입니다.';
+  final amount = int.tryParse(digits);
+  if (amount == null || amount <= 0) {
+    return '0보다 큰 숫자로 입력하세요.';
+  }
+  return null;
+}
+
+String? _birthDateValidator(String? value) {
+  final normalized = _normalizeBirthDateForStorage(value ?? '');
+  if (normalized.isEmpty) return '필수 입력입니다.';
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(normalized);
+  if (match == null) return '예: 1990-01-31';
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final parsed = DateTime(year, month, day);
+  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+    return '실제 날짜를 입력하세요.';
   }
   return null;
 }

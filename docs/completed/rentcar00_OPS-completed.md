@@ -187,7 +187,7 @@
 ## 2026-05-14 — 일정 ↔ 예약 연결 표시 fallback 보강 완료
 ### 사용자 표면
 - 일정 상세의 예약 연결 정보가 덜 비게 보인다.
-- schedule row 값이 비어 있어도 예약번호/위치/상세가 linked reservation 기준으로 채워진다.
+- schedule row 값이 비어 있어도 외부예약번호/위치/상세가 linked reservation 기준으로 채워진다.
 
 ### 실제 동작
 - 현황판 일정 record 생성 시 reservation lookup 에 `reservation_number` 를 포함한다.
@@ -205,7 +205,7 @@
 ### 1차 장애 확인 포인트
 1. 일정 row 의 `reservation_id` 가 실제 예약 row 와 맞는지
 2. `rc00_ops_reservations` 조회에 `reservation_number` 가 포함되는지
-3. 일정 상세 예약번호/위치/상세가 비면 linked reservation 원천값이 실제로 존재하는지
+3. 일정 상세 외부예약번호/위치/상세가 비면 linked reservation 원천값이 실제로 존재하는지
 
 ### 남은 주의점
 - `reservation_id` 가 비어 있는 일정은 이번 fallback 대상이 아니다.
@@ -223,7 +223,7 @@
 - 앱은 `POST {aiParserBaseUrl}/ims/create-reservation` 으로 전송한다.
 - payload 는 `rentalAt / returnAt / carNumber / totalFee / customerName / customerPhone / address / useDelivery / memo` 로 고정한다.
 - `useDelivery = true` 고정
-- memo 는 `예약번호 + 생년월일 + note` 기반으로 만들고 최대 120자로 자른다.
+- memo 는 `외부예약번호 + 생년월일 + note` 기반으로 만들고 최대 120자로 자른다.
 
 ### 핵심 파일
 - `lib/features/reservations/detail/data/ims_reservation_payload.dart`
@@ -388,3 +388,9 @@
 - 차량 상세에서 IMS 체크 후 예약 생성 시, DB insert 전에 IMS payload 를 검증하도록 잠금.
 - 검증 실패 시 예약원장/일정 생성 없이 입력 수정 안내를 표시.
 - 차량 시작일 3건 수동 보정 완료: `29하2763`, `34호7488`, `34호7499`.
+
+
+## 2026-05-15 — UI/참조명 정리
+- 상단 불필요 버튼/사용자명 제거, 예약 탭 설명 제거.
+- `예약번호` 표시명을 `외부예약번호` 로 변경하고, 예약/일정 연결 기준을 `예약ID` 로 명확화.
+- 예약 카드와 예약 상세 가독성 개선.

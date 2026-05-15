@@ -130,54 +130,46 @@ class _ReservationDetailBodyState
         final hasPhone = hasCallablePhone(reservation.customerPhone);
 
         return ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
           children: [
             Text(
-              '${reservation.customerName.isEmpty ? '(고객명없음)' : reservation.customerName} · ${reservation.carNumber}',
-              style: Theme.of(context).textTheme.headlineSmall,
+              reservation.customerName.isEmpty
+                  ? '(고객명없음)'
+                  : reservation.customerName,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.4,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              reservation.carNumber.isEmpty
+                  ? '차량번호 미확인'
+                  : reservation.carNumber,
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
-            Text(
-              '${reservation.reservationNumber} · ${reservation.customerPhone}',
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: '예약 정보',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('생년월일: ${_displayValue(reservation.customerBirthDate)}'),
-                  Text('소개처: ${_displayValue(reservation.referralSource)}'),
-                  Text('가격: ${_displayValue(reservation.paymentAmount)}'),
-                ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                reservation.statusKey.isEmpty
+                    ? reservation.tab.label
+                    : '${reservation.tab.label} · ${reservation.statusKey}',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             _SectionCard(
-              title: '상태 요약',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('탭: ${reservation.tab.label}'),
-                  Text('status: ${reservation.statusKey}'),
-                  Text('배차: ${_formatDateTime(reservation.startAt)}'),
-                  Text('반납: ${_formatDateTime(reservation.endAt)}'),
-                  Text('위치: ${reservation.locationSummary}'),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final badge in reservation.primaryBadges)
-                        Chip(label: Text(badge)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: '액션 영역',
+              title: '기능',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -218,77 +210,118 @@ class _ReservationDetailBodyState
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  const Text('기존 액션은 아직 read-only 상태입니다.'),
-                  const SizedBox(height: 12),
-                  if (actions.isEmpty) const Text('이 탭은 조회 중심입니다.'),
-                  for (final action in actions)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: FilledButton.tonal(
-                        onPressed: null,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(action.label),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${action.description}${action.createsOutbox ? ' · outbox 예정' : ''}',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    for (final action in actions)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: FilledButton.tonal(
+                          onPressed: null,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(action.label),
                           ),
                         ),
                       ),
-                    ),
+                  ],
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             _SectionCard(
-              title: '체크 상태',
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final entry in reservation.checkPayload.entries)
-                    Chip(label: Text('${entry.key}: ${entry.value}')),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: 'outbox dry-run',
+              title: '예약 정보',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [for (final line in outboxPreview) Text('• $line')],
+                children: [
+                  _DetailField(
+                    label: '예약ID',
+                    value: reservation.reservationId,
+                    emphasize: true,
+                  ),
+                  _DetailField(
+                    label: '외부예약번호',
+                    value: reservation.reservationNumber,
+                  ),
+                  _DetailField(label: '차종', value: reservation.carName),
+                  _DetailField(label: '소개처', value: reservation.referralSource),
+                  _DetailField(label: '가격', value: reservation.paymentAmount),
+                  _DetailField(
+                    label: '생년월일',
+                    value: reservation.customerBirthDate,
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             _SectionCard(
-              title: '업무 로그',
-              child: logs.isEmpty
-                  ? const Text('아직 실행 로그가 없습니다.')
-                  : Column(
-                      children: [
-                        for (final log in logs)
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(log.label),
-                            subtitle: Text(
-                              '${_formatDateTime(log.executedAt)} · ${log.note}',
-                            ),
-                          ),
-                      ],
-                    ),
+              title: '운행 정보',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _DetailField(
+                    label: '고객번호',
+                    value: reservation.customerPhone,
+                    emphasize: true,
+                  ),
+                  _DetailField(
+                    label: '배차',
+                    value: _formatDateTime(reservation.startAt),
+                  ),
+                  _DetailField(
+                    label: '반납',
+                    value: _formatDateTime(reservation.endAt),
+                  ),
+                  _DetailField(label: '위치', value: reservation.locationSummary),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            _SectionCard(title: '메모', child: Text(reservation.noteText)),
+            const SizedBox(height: 14),
+            if (reservation.primaryBadges.isNotEmpty)
+              _SectionCard(
+                title: '체크 상태',
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final badge in reservation.primaryBadges)
+                      Chip(label: Text(badge)),
+                    for (final entry in reservation.checkPayload.entries)
+                      Chip(label: Text('${entry.key}: ${entry.value}')),
+                  ],
+                ),
+              ),
+            if (reservation.primaryBadges.isNotEmpty)
+              const SizedBox(height: 14),
+            if (logs.isNotEmpty)
+              _SectionCard(
+                title: '업무 로그',
+                child: Column(
+                  children: [
+                    for (final log in logs)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(log.label),
+                        subtitle: Text(
+                          '${_formatDateTime(log.executedAt)} · ${log.note}',
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            if (logs.isNotEmpty) const SizedBox(height: 14),
+            if (outboxPreview.isNotEmpty)
+              _SectionCard(
+                title: 'outbox dry-run',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [for (final line in outboxPreview) Text('• $line')],
+                ),
+              ),
+            if (outboxPreview.isNotEmpty) const SizedBox(height: 14),
+            _SectionCard(
+              title: '메모',
+              child: Text(_displayValue(reservation.noteText)),
+            ),
           ],
         );
       },
@@ -307,17 +340,75 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
+            Text(
+              title,
+              style: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 14),
             child,
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DetailField extends StatelessWidget {
+  const _DetailField({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            _displayValue(value),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: (emphasize ? textTheme.titleMedium : textTheme.bodyLarge)
+                ?.copyWith(
+                  fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+                  height: 1.3,
+                ),
+          ),
+        ],
       ),
     );
   }

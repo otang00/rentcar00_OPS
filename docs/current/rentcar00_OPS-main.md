@@ -103,7 +103,7 @@
 - 일정 단독 생성은 허용하며, 기타 업무 체크용 미연결 일정이 존재할 수 있다.
 - `기타` 일정은 일정탭에서 별도 상태로 유지하며, 초록 `!` 표시로 구분한다.
 - 일정 record 는 `reservation_id` 기준으로 예약/차량 정보와 연결해 상세에 보여준다.
-- schedule row 의 예약번호/위치/상세가 비어 있으면 linked reservation 값으로 fallback 한다.
+- schedule row 의 외부예약번호/위치/상세가 비어 있으면 linked reservation 값으로 fallback 한다.
 - `reservation_id` 가 비어 있는 일정은 자동 연결 대상이 아니라 의도된 독립 일정일 수 있으므로 그대로 유지한다.
 
 ### 차량 상세 액션 기준

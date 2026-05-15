@@ -108,7 +108,7 @@ List<String> validateImsReservationPayload(
 String buildImsReservationMemo(ReservationRecord reservation) {
   final parts = <String>[
     if (reservation.reservationNumber.trim().isNotEmpty)
-      '예약:${reservation.reservationNumber.trim()}',
+      '외부예약:${reservation.reservationNumber.trim()}',
     if (_isBirthDateFormatted(reservation.customerBirthDate))
       '생년:${reservation.customerBirthDate.trim()}',
   ];

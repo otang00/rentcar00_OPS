@@ -13,32 +13,12 @@ class ReservationTabPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final itemsAsync = ref.watch(tabListProvider(tab));
-    final countsAsync = ref.watch(tabCountsProvider);
 
     return itemsAsync.when(
       data: (items) {
-        final count = countsAsync.valueOrNull?[tab] ?? items.length;
         return ListView(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
-              child: Text(
-                '${tab.label} $count건',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                tab.emptyMessage,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ),
-            const SizedBox(height: 12),
             if (items.isEmpty)
               const Card(
                 child: Padding(
@@ -99,9 +79,7 @@ class _ReservationStatusCard extends StatelessWidget {
       );
     }
 
-    final secondary = item.carName.isEmpty
-        ? (item.reservationNumber.isEmpty ? '-' : item.reservationNumber)
-        : item.carName;
+    final carName = item.carName.isEmpty ? '-' : item.carName;
     final customer = item.customerName.isEmpty ? '-' : item.customerName;
     final location = item.locationSummary.isEmpty ? '-' : item.locationSummary;
 
@@ -123,20 +101,39 @@ class _ReservationStatusCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
+                    flex: 5,
                     child: Text(
                       item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
+                      style: textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
                         color: colorScheme.onSurface,
+                        letterSpacing: -0.3,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  _ReservationDateInfoCell(item: item),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 4,
+                    child: _ReservationDateInfoCell(
+                      label: _compactDateWithWeekday(item.startAt),
+                      time: _timeOnlyFromDate(item.startAt),
+                      color: _dateColorForDate(context, item.startAt),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    flex: 4,
+                    child: _ReservationDateInfoCell(
+                      label: _compactDateWithWeekday(item.endAt),
+                      time: _timeOnlyFromDate(item.endAt),
+                      color: _dateColorForDate(context, item.endAt),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -144,7 +141,7 @@ class _ReservationStatusCard extends StatelessWidget {
                 children: [
                   cell(customer, flex: 3, emphasize: true),
                   const SizedBox(width: 4),
-                  cell(secondary, flex: 3),
+                  cell(carName, flex: 3),
                   const SizedBox(width: 4),
                   cell(
                     location,
@@ -174,79 +171,74 @@ class _ReservationStatusCard extends StatelessWidget {
 }
 
 class _ReservationDateInfoCell extends StatelessWidget {
-  const _ReservationDateInfoCell({required this.item});
+  const _ReservationDateInfoCell({
+    required this.label,
+    required this.time,
+    required this.color,
+  });
 
-  final ReservationSummary item;
+  final String label;
+  final String time;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final dateColor = _dateColorForItem(context, item);
     final timeColor = Theme.of(context).colorScheme.onSurfaceVariant;
 
-    return SizedBox(
-      width: 80,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerRight,
-            child: Text(
-              _compactDateDot(item.displayAt),
-              maxLines: 1,
-              textAlign: TextAlign.right,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-                color: dateColor,
-              ),
-            ),
-          ),
-          const SizedBox(height: 1),
-          Text(
-            _timeOnly(item.timeLabel),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerRight,
+          child: Text(
+            label,
             maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.right,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: timeColor,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: color,
+              letterSpacing: -0.4,
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          time,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.right,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: timeColor,
+          ),
+        ),
+      ],
     );
   }
 }
 
-Color _dateColorForItem(BuildContext context, ReservationSummary item) {
-  if (item.tab == ReservationTab.returnDue) {
+Color _dateColorForDate(BuildContext context, DateTime value) {
+  if (value.weekday == DateTime.sunday) {
     return const Color(0xFFD32F2F);
   }
-  if (item.displayAt.weekday == DateTime.sunday) {
-    return const Color(0xFFD32F2F);
-  }
-  if (item.displayAt.weekday == DateTime.saturday) {
+  if (value.weekday == DateTime.saturday) {
     return Colors.blue.shade700;
-  }
-  if (item.tab == ReservationTab.pickupToday) {
-    return const Color(0xFF1976D2);
-  }
-  if (item.tab == ReservationTab.completed) {
-    return Theme.of(context).colorScheme.onSurfaceVariant;
   }
   return const Color(0xFF1976D2);
 }
 
-String _compactDateDot(DateTime value) {
+String _compactDateWithWeekday(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');
   final yy = (value.year % 100).toString().padLeft(2, '0');
-  return '$yy.${two(value.month)}.${two(value.day)}';
+  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+  return '$yy.${two(value.month)}.${two(value.day)}(${weekdays[value.weekday - 1]})';
 }
 
-String _timeOnly(String label) {
-  final parts = label.split(' ');
-  return parts.length > 1 ? parts.last : '';
+String _timeOnlyFromDate(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(value.hour)}:${two(value.minute)}';
 }
 
 class _StatusIconChip extends StatelessWidget {
