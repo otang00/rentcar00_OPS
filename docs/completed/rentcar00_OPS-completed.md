@@ -5,6 +5,47 @@
 
 ---
 
+
+## 2026-05-16 — IMS API 직결 등록 + APK b28 재배포 완료
+### 사용자 표면
+- IMS 예약 생성이 브라우저 자동화가 아니라 Rencar API 직결 방식으로 동작한다.
+- IMS 등록 중에는 `IMS 등록 진행중` 모달이 뜨고 다른 동작이 차단된다.
+- 예약생성 폼 첫 입력칸 label이 위에서 잘리지 않도록 보정했다.
+- 최신 arm64 release APK를 b28로 빌드해 gdrive 업로드까지 마쳤다.
+
+### 실제 동작
+- 중간서버 `/ims/create-reservation`은 `auth → available 조회 → company-car-schedules POST` 순서로 직접 IMS API를 호출한다.
+- 기본 동작은 실제 저장이며, `dryRun=true`일 때만 저장을 생략한다.
+- 직접 생성 API 응답이 `{ success: true }`만 반환하므로, 생성 후 목록 조회 fallback으로 `schedule_id/detail_id`를 확보한다.
+- 실제 테스트 예약 생성/삭제를 완료했다.
+  - 생성 IMS ID: `4187211`
+  - detail ID: `204233`
+  - 삭제 성공 후 상세 조회에서 `존재하지 않는 스케쥴입니다.` 확인
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/reservations/detail/data/ims_reservation_payload.dart`
+- `pubspec.yaml`
+- `docs/current/rentcar00_OPS-current.md`
+
+### 검증
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter test test/ims_reservation_payload_test.dart` 통과
+- `flutter analyze` 통과
+- 실제 IMS API 생성/삭제 테스트 성공
+- `flutter build apk --release --target-platform android-arm64` 성공
+- gdrive 업로드 확인
+  - `rentcar00_ops-app-release-arm64-b28-ae24810.apk`
+
+### 1차 장애 확인 포인트
+1. 실기기에서 예약생성 + IMS 체크 시 진행중 모달이 보이는지
+2. 완료 후 예약 상세에서 `IMS등록됨`과 IMS ID가 보이는지
+3. 중복/가용차량 없음 케이스에서 내부 예약은 유지되고 `등록실패`가 보이는지
+4. 예약생성 폼 첫 필드 label이 더 이상 잘리지 않는지
+5. IMS 등록 후 실제 IMS 화면에도 예약이 생성되는지
+
 ## 2026-05-15 — 직원 로그인 1차 도입 + APK 재배포 완료
 ### 사용자 표면
 - 앱 시작 시 직원 계정 로그인이 필요하다.
