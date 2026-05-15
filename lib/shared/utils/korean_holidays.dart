@@ -25,8 +25,11 @@ const Set<String> koreanPublicHolidayDates2026 = {
 };
 
 bool isKoreanPublicHoliday(DateTime value) {
-  final local = value.toLocal();
-  return koreanPublicHolidayDates2026.contains(_dateKey(local));
+  return koreanPublicHolidayDates2026.contains(opsLocalDateKey(value));
+}
+
+String opsLocalDateKey(DateTime value) {
+  return _dateKey(value.toLocal());
 }
 
 Color opsDateColor(DateTime value) {

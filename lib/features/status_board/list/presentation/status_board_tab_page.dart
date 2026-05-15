@@ -102,9 +102,7 @@ class StatusBoardTabPage extends ConsumerWidget {
     final groups = <String, List<StatusBoardRecord>>{};
     for (final item in items) {
       final parsed = item.sortAt;
-      final key = parsed == null
-          ? '미확인 일정'
-          : '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}';
+      final key = parsed == null ? '미확인 일정' : opsLocalDateKey(parsed);
       groups.putIfAbsent(key, () => []).add(item);
     }
 
