@@ -5,6 +5,55 @@
 
 ---
 
+## 2026-05-15 — 직원 로그인 1차 도입 + APK 재배포 완료
+### 사용자 표면
+- 앱 시작 시 직원 계정 로그인이 필요하다.
+- 로그인 ID 는 내부적으로 `{login_id}@ops.00rentcar.local` alias email 로 변환된다.
+- 승인된 staff meta row 가 있고 `is_active=true` 인 계정만 본문에 들어갈 수 있다.
+- 로그아웃 버튼으로 즉시 로그인 화면으로 돌아갈 수 있다.
+- 최신 arm64 release APK를 다시 빌드해 gdrive 업로드까지 마쳤다.
+
+### 실제 동작
+- Supabase Auth email/password 를 사용한다.
+- `rc00_ops_staff_accounts` 로 직원 메타/활성 상태를 검증한다.
+- hosted Auth 공개 signup 은 차단했고, email 로그인은 유지했다.
+- 생성 완료 계정:
+  - `rentcar00` / `오 태진` / `admin`
+  - `rentcar0079` / `직원` / `staff`
+  - `test001` / `직원` / `staff`
+
+### 핵심 파일
+- `lib/app/router/app_router.dart`
+- `lib/app/router/app_routes.dart`
+- `lib/app/view/app_shell.dart`
+- `lib/features/auth/`
+- `supabase/migrations/20260515111500_add_staff_accounts_and_auth_policies.sql`
+- `supabase/config.toml`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- Supabase remote migration 적용 확인
+- hosted Auth 설정 확인
+  - `disable_signup=true`
+  - `external.email=true`
+- 로그인 API 테스트 성공
+- 공개 signup 요청 차단 확인 (`signup_disabled`)
+- gdrive 업로드 확인
+  - `rentcar00_ops-app-release-arm64-b19-594d9bf.apk`
+
+### 1차 장애 확인 포인트
+1. 실기기에서 로그인 화면이 먼저 뜨는지
+2. `rentcar00`, `rentcar0079`, `test001` 로그인이 되는지
+3. 로그아웃 후 본문 접근이 막히는지
+4. 비활성 계정 전환 시 본문 진입이 차단되는지
+5. `test001/test001` 비밀번호는 운영 전 교체할지
+
+### 남은 주의점
+- 커밋 전 빌드라 APK 파일명 sha 는 현재 HEAD `594d9bf` 기준이다.
+- build number 는 여전히 `+19` 기준이라 재설치 전제다.
+- `test001` 비밀번호는 테스트용으로 약하다.
+
 ## 2026-05-15 — latest raw 재구성 + 기타 일정 반영 + 일정 수정 + 주차지 선택형 완료
 ### 사용자 표면
 - 최신 시트 기준으로 정리된 예약/일정/차량 projection 이 다시 반영된다.

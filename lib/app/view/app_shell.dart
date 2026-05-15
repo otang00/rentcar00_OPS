@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/domain/ops_layer.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
+import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
 import 'package:rentcar00_ops/features/reservations/list/presentation/reservation_tab_page.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
@@ -24,6 +25,7 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final staffAccount = ref.watch(currentStaffAccountProvider).valueOrNull;
     final layer = ref.watch(selectedOpsLayerProvider);
     final reservationTab = ref.watch(selectedReservationTabProvider);
     final statusBoardTab = ref.watch(selectedStatusBoardTabProvider);
@@ -95,7 +97,29 @@ class AppShell extends ConsumerWidget {
             onPressed: () => context.push(AppRoutes.sync),
             icon: const Icon(Icons.sync),
           ),
+          IconButton(
+            tooltip: 'logout',
+            onPressed: () async {
+              await ref.read(authControllerProvider).signOut();
+            },
+            icon: const Icon(Icons.logout),
+          ),
         ],
+        bottom: staffAccount == null
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(24),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      staffAccount.displayName,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ),
+                ),
+              ),
       ),
       body: switch (layer) {
         OpsLayer.reservations => ReservationTabPage(tab: reservationTab),

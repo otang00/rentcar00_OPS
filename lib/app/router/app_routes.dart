@@ -1,6 +1,7 @@
 class AppRoutes {
   const AppRoutes._();
 
+  static const login = '/login';
   static const home = '/';
   static const reservationDetail = '/reservation/:reservationId';
   static const statusBoardDetail = '/board/:recordId';
