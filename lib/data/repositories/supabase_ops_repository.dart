@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
@@ -137,6 +138,100 @@ class SupabaseOpsRepository {
     ]);
 
     return reservationId;
+  }
+
+  Future<ExternalReservationLink?> fetchExternalReservationLink({
+    required String reservationId,
+  }) async {
+    final rows = await _client
+        .from('rc00_ops_external_reservation_links')
+        .select()
+        .eq('provider', 'ims')
+        .eq('reservation_id', reservationId.trim())
+        .limit(1);
+
+    if (rows.isEmpty) return null;
+    return ExternalReservationLink.fromRow(rows.first);
+  }
+
+  Future<List<ExternalReservationLink>> fetchExternalReservationLinks() async {
+    final rows = await _client
+        .from('rc00_ops_external_reservation_links')
+        .select()
+        .eq('provider', 'ims')
+        .order('created_at', ascending: false);
+
+    return rows
+        .map<ExternalReservationLink>(ExternalReservationLink.fromRow)
+        .toList();
+  }
+
+  Future<void> upsertExternalReservationLink({
+    required String reservationId,
+    String? reservationRefId,
+    String? externalReservationId,
+    String? externalDetailId,
+    required String externalStatus,
+    required String linkKey,
+    Map<String, dynamic> lastPayloadJson = const {},
+    Map<String, dynamic> lastResultJson = const {},
+    String? errorText,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await _client.from('rc00_ops_external_reservation_links').upsert({
+      'reservation_id': reservationId.trim(),
+      'reservation_ref_id': reservationRefId,
+      'provider': 'ims',
+      'external_reservation_id': externalReservationId?.trim(),
+      'external_detail_id': externalDetailId?.trim(),
+      'external_status': externalStatus.trim(),
+      'link_key': linkKey.trim(),
+      'last_payload_json': lastPayloadJson,
+      'last_result_json': lastResultJson,
+      'linked_at': externalStatus == 'linked' ? now : null,
+      'last_checked_at': now,
+      'deleted_at': externalStatus == 'deleted' ? now : null,
+      'error_text': errorText?.trim(),
+      'updated_at': now,
+    }, onConflict: 'provider,reservation_id');
+  }
+
+  Future<void> markExternalReservationLinkDeleted({
+    required String reservationId,
+    Map<String, dynamic> lastResultJson = const {},
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await _client
+        .from('rc00_ops_external_reservation_links')
+        .update({
+          'external_status': 'deleted',
+          'deleted_at': now,
+          'last_checked_at': now,
+          'last_result_json': lastResultJson,
+          'error_text': null,
+          'updated_at': now,
+        })
+        .eq('provider', 'ims')
+        .eq('reservation_id', reservationId.trim());
+  }
+
+  Future<void> markExternalReservationLinkFailed({
+    required String reservationId,
+    required String errorText,
+    Map<String, dynamic> lastResultJson = const {},
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await _client
+        .from('rc00_ops_external_reservation_links')
+        .update({
+          'external_status': 'failed',
+          'last_checked_at': now,
+          'last_result_json': lastResultJson,
+          'error_text': errorText.trim(),
+          'updated_at': now,
+        })
+        .eq('provider', 'ims')
+        .eq('reservation_id', reservationId.trim());
   }
 
   Future<void> updateCarInstantStatus({

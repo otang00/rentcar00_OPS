@@ -2,99 +2,490 @@
 
 ## 문서 역할
 이 문서는 `rentcar00_OPS`의 **현재 실행 문서**다.
-지금 실제로 실행 중인 작업 1건만 적는다.
+현재 실제로 실행 중인 작업 1건만 남긴다.
+완료 이력은 `docs/completed/rentcar00_OPS-completed.md` 또는 `docs/past/`에서만 본다.
 
 ## 현재 실행 작업
-- **로그인 1차 도입 후 실기기 검증 대기**
+- **IMS 예약 연동 / 예약취소 연계 / IMS 예약 가져오기 구현 준비**
 
 ## 목적
-- 직원 로그인 1차 도입 APK가 실제 Android 기기에서 정상 동작하는지 확인한다.
-- 로그인/로그아웃/세션 유지/본문 차단 흐름을 운영 투입 전 점검한다.
+예약 원장과 IMS 예약을 서로 식별 가능한 값으로 연결한다.
+이 연결을 기준으로 아래 기능을 추가한다.
 
-## 기준점
-- 로그인 1차 코드 반영 완료
-- Supabase remote migration 적용 완료: `20260515111500`
-- hosted Auth 공개 signup 차단 완료: `disable_signup=true`
-- email 로그인 유지 확인 완료: `external.email=true`
-- `flutter analyze` 통과
-- arm64 release APK 빌드 및 gdrive 업로드 완료:
-  - `gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b19-594d9bf.apk`
+1. 내부 예약 → IMS 예약추가 시 연동 식별자 저장
+2. 내부 예약 취소 시 확인창에서 IMS 삭제 여부를 함께 선택 가능하게 함
+3. 예약 상세의 `IMS추가`는 IMS 미연동 예약에서만 노출하고, 연동 예약은 `IMS연동됨`으로 표시
+4. IMS 예약 목록을 불러와 내부 예약판 예약으로 넣을 수 있게 함
 
-## 로그인 계정
-- `rentcar00` / `오 태진` / `admin`
-- `rentcar0079` / `직원` / `staff`
-- `test001` / `직원` / `staff`
+---
 
-## 확인 대상
-1. 앱 최초 실행 시 로그인 화면이 먼저 뜨는지
-2. `rentcar00` 로그인이 되는지
-3. `rentcar0079` 로그인이 되는지
-4. `test001` 로그인이 되는지
-5. 로그아웃 후 본문 접근이 막히는지
-6. 앱 재실행 시 세션이 유지되는지
-7. 현황판/예약/상세 화면 데이터가 로그인 후 정상 조회되는지
-8. 일정 상세 수정 후 `schedule_at_raw` 가 `YYYY-MM-DD HH:mm:ss` 형식으로 저장되는지
-9. 차량 상세/일정 상세의 수정 액션 버튼 크기와 톤이 동일 계열로 보이는지
+## 현재 확인된 구조
 
-## 리스크
-- `test001 / test001` 은 테스트용 약한 비밀번호라 운영 전 변경이 필요하다.
-- `rentcar00`, `rentcar0079` 는 현재 같은 비밀번호를 쓰므로 장기 운영 전 분리 권장.
-- APK 파일명 sha 는 커밋 전 HEAD `594d9bf` 기준 빌드명이다.
-- build number 는 기존 `+19` 유지라 재설치 기준이다.
-- 일정 수정 저장 포맷은 ISO 대신 `YYYY-MM-DD HH:mm:ss` 로 통일했다.
-- 기존 ISO 일정 row 1건은 DB에서 보정 완료했다.
+### 앱 코드
+- IMS payload builder:
+  - `lib/features/reservations/detail/data/ims_reservation_payload.dart`
+- IMS client:
+  - `lib/features/reservations/detail/data/ims_reservation_client.dart`
+- 예약 상세 IMS 액션:
+  - `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- 예약 생성/전역 예약추가 flow:
+  - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- 예약 저장 repository:
+  - `lib/data/repositories/supabase_ops_repository.dart`
 
-## 종료 조건
-- 실기기 로그인/로그아웃/세션 유지 검증 완료
-- 로그인 후 기존 현황판/예약 주요 화면 진입 확인
-- 필요 시 비밀번호 정리 여부 결정
+### IMS 중간서버
+- 서버 위치:
+  - `reservation_ai_parser/src/server.js`
+- 현재 endpoint:
+  - `GET /health`
+  - `POST /parse-reservation`
+  - `POST /ims/create-reservation`
+- 현재 IMS 생성 응답은 `SUCCESS/DRY_RUN` 중심이며 내부 예약에 저장할 IMS id를 반환하지 않는다.
+
+### IMS Playwright / API
+- 생성 스크립트:
+  - `workspace/tools/playwright/scripts/ims-reservation-draft.js`
+- 삭제 스크립트:
+  - `workspace/tools/playwright/scripts/ims-reservation-cancel.js`
+- 목록 export 스크립트:
+  - `workspace/tools/playwright/scripts/ims-reservations-export.js`
+- 삭제 API는 `schedule_id` 기반:
+  - `POST https://api.rencar.co.kr/v2/company-car-schedules/delete`
+  - body: `{ ids: [scheduleId] }`
+- 목록 export에는 `schedule_id`, `detail_id`, 차량번호, 고객명, 연락처, 시작/종료일, 배차지 등이 나온다.
+- 상세 API:
+  - `GET https://api.rencar.co.kr/v2/company-car-schedules/{schedule_id}`
+  - `schedule.id`가 삭제 API에 쓰는 `schedule_id`와 같다.
+  - `schedule.reservation.id`는 export의 `detail_id`와 다를 수 있으므로 별도 보조값으로만 취급한다.
+
+### DB 현재 상태
+- `rc00_ops_reservations`에는 IMS 연동 전용 컬럼이 없다.
+- `meta_json`은 있으나 장기 운영 기준으로는 별도 link 테이블이 안전하다.
+- `rc00_ops_action_logs`, `rc00_ops_outbox`는 존재하지만 현재 앱에서는 대부분 preview/read-only 수준이다.
+
+---
+
+## Phase 0 실제 테스트 결과 잠금
+
+### 테스트 일시
+- 2026-05-15 KST
+
+### 테스트 차량
+- 입력 지시값: `4014`
+- 내부 DB 확인 결과 전체 차량번호: `101허4014`
+- 차량명: `GV80`
+- 당시 내부 상태: `대기`, 주차지 `수푸레B1`
+
+### 생성 요청 payload — 값/형식 잠금
+```json
+{
+  "rentalAt": "2026-12-01 10:00",
+  "returnAt": "2026-12-02 10:00",
+  "carNumber": "101허4014",
+  "totalFee": "100000",
+  "customerName": "IMS테스트",
+  "customerPhone": "01012345678",
+  "address": "IMS 테스트 주소",
+  "useDelivery": true,
+  "memo": "OPS:PHASE0-TEST-20260515-1631 | 테스트생성삭제 | 삭제예정"
+}
+```
+
+검증:
+- `rentalAt`, `returnAt`: `YYYY-MM-DD HH:mm`
+- `carNumber`: 전체 차량번호 사용, 부분번호 금지
+- `totalFee`: 숫자 문자열, 0보다 큼
+- `customerPhone`: 숫자 11자리
+- `address`: 문자열
+- `useDelivery`: boolean
+- `memo`: 120자 이하, `OPS:` 포함
+
+### 생성 결과
+- 실행: `IMS_SAVE=true`
+- IMS 생성 결과: `SUCCESS`
+- 생성 직후 IMS 목록 조회 결과 정확히 1건 매칭
+
+생성된 IMS 값:
+- `schedule_id`: `4186133`
+- `detail_id` from export: `204161`
+- `status`: `booking`
+- `car_number`: `101허4014`
+- `car_name`: `2020 GV80 3.5 가솔린 화이트`
+- `customer_name`: `IMS테스트`
+- `customer_contact`: `01012345678`
+- `start_at`: `2026-12-01 10:00:00`
+- `end_at`: `2026-12-02 10:00:00`
+- `pickup_address`: `IMS 테스트 주소`
+- `dropoff_address`: 빈 값
+- `cost` from detail API: `100000`
+- `rental_type`: `daily`
+
+### 중요한 발견
+- 생성 스크립트의 저장 응답은 `SUCCESS`만 반환하고 `schedule_id`를 직접 반환하지 않았다.
+- 생성 후 IMS 목록 조회로 방금 생성한 건의 `schedule_id`를 확보할 수 있었다.
+- IMS 상세 API의 `schedule.memo`는 `null`로 반환되었다.
+- 즉, 현재 확인 범위에서는 `memo`/`OPS:`만으로 IMS 예약을 다시 찾는 전략은 위험하다.
+- 생성 직후 id 확보는 아래 복합키로 찾는 방식이 안전하다.
+  - `carNumber`
+  - `customerName`
+  - `customerPhone`
+  - `rentalAt`
+  - `returnAt`
+  - 가능하면 `pickupAddress`
+- `OPS:`는 내부 인식자/사람이 보는 보조값으로 유지하되, 조회 primary key로 의존하지 않는다.
+
+### 삭제 전 잠금 검증
+삭제 전 아래 값이 모두 일치할 때만 삭제했다.
+- `schedule_id = 4186133`
+- `car_number = 101허4014`
+- `customer_name = IMS테스트`
+- `customer_contact = 01012345678`
+- `start_at = 2026-12-01 10:00:00`
+- `end_at = 2026-12-02 10:00:00`
+- `pickup_address = IMS 테스트 주소`
+- `status = booking`
+
+### 삭제 결과
+- 실행: `IMS_CANCEL_DELETE=true`
+- 삭제 결과: `SUCCESS`
+- 삭제 대상 `scheduleId`: `4186133`
+- 삭제 후 동일 기간 IMS 목록 재조회 결과:
+  - total `0`
+  - remainingMatches `0`
+
+### Phase 0 결론
+- 삭제 기준 id는 `schedule_id`로 확정한다.
+- link 테이블의 `external_reservation_id`에는 IMS `schedule_id`를 저장한다.
+- link 테이블의 `external_detail_id`에는 export의 `detail_id`를 보조값으로 저장한다.
+- 생성 API 응답만으로는 id 확보가 불가능하다.
+- 생성 성공 후 목록 재조회/검색으로 id를 확보해야 한다.
+- id 확보 실패 시 정책은 **내부 예약/IMS 생성은 유지하고 `IMS연동실패`로 기록**하는 것이 안전하다.
+  - 이유: IMS 실제 생성은 성공했는데 link만 실패한 상황을 전체 실패로 처리하면 실제 IMS 예약이 남아 있는 상태를 사용자가 놓칠 수 있다.
+
+---
+
+## 최종 설계 잠금
+
+### 1. 내부 ↔ IMS 연결 키
+- 내부 기준 키: `rc00_ops_reservations.reservation_id`
+- IMS 기준 키: `schedule_id`
+- 보조 키: export의 `detail_id`
+- IMS memo에는 내부 인식자를 포함하되, 조회 primary key로 의존하지 않는다.
+  - 형식: `OPS:{reservation_id}`
+  - 예: `OPS:R250515ABC123`
+- 기존 memo 요소는 유지한다.
+  - `외부예약:{reservationNumber}`
+  - `생년:{customerBirthDate}`
+
+### 2. link 저장 방식 최종안
+별도 테이블 방식으로 간다.
+
+이유:
+- `meta_json`에 넣으면 조회/버튼 노출/중복 방지/삭제 상태 관리가 지저분해진다.
+- IMS는 외부 시스템이므로 내부 예약 본문과 연동 상태를 분리하는 것이 안전하다.
+- 삭제 후에도 이력 보존이 필요하다.
+
+테이블명:
+`rc00_ops_external_reservation_links`
+
+필드 초안:
+- `id uuid primary key`
+- `reservation_id text not null`
+- `reservation_ref_id uuid null`
+- `provider text not null default 'ims'`
+- `external_reservation_id text null` — IMS `schedule_id`
+- `external_detail_id text null` — IMS export `detail_id`
+- `external_status text not null default 'linked'`
+- `link_key text not null` — `OPS:{reservation_id}`
+- `last_payload_json jsonb null`
+- `last_result_json jsonb null`
+- `linked_at timestamptz null`
+- `last_checked_at timestamptz null`
+- `deleted_at timestamptz null`
+- `error_text text null`
+- `created_at timestamptz default now()`
+- `updated_at timestamptz default now()`
+
+제약:
+- `unique(provider, reservation_id)`
+- `index(provider, external_reservation_id)`
+- `index(link_key)`
+
+원칙:
+- IMS 삭제 후에도 row 삭제 금지.
+- `external_status = deleted`, `deleted_at` 으로 흔적을 남긴다.
+
+### 3. IMS memo 인식자 최종안
+`OPS:{reservation_id}`를 포함한다.
+
+단, Phase 0에서 IMS 상세 API의 memo가 `null`로 확인되었으므로:
+- `OPS:`는 보조 식별자다.
+- 생성 직후 id 확보는 복합키 조회로 한다.
+- 나중에 IMS 메모 조회 endpoint가 안정적으로 확인되면 `OPS:` 검색을 보조 검증으로 추가한다.
+
+### 4. Phase 1 DB link 테이블 확정 DDL
+Phase 1에서 실제 생성할 테이블은 아래 DDL과 동일해야 한다.
+
+```sql
+create table if not exists public.rc00_ops_external_reservation_links (
+  id uuid primary key default gen_random_uuid(),
+  reservation_id text not null,
+  reservation_ref_id uuid references public.rc00_ops_reservations(id) on delete cascade,
+  provider text not null default 'ims',
+  external_reservation_id text,
+  external_detail_id text,
+  external_status text not null default 'linked',
+  link_key text not null,
+  last_payload_json jsonb not null default '{}'::jsonb,
+  last_result_json jsonb not null default '{}'::jsonb,
+  linked_at timestamptz,
+  last_checked_at timestamptz,
+  deleted_at timestamptz,
+  error_text text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint rc00_ops_external_reservation_links_provider_check
+    check (provider in ('ims')),
+  constraint rc00_ops_external_reservation_links_status_check
+    check (external_status in ('linked', 'failed', 'deleted')),
+  constraint rc00_ops_external_reservation_links_link_key_check
+    check (length(trim(link_key)) > 0),
+  constraint rc00_ops_external_reservation_links_provider_reservation_unique
+    unique (provider, reservation_id)
+);
+
+create index if not exists idx_rc00_ops_external_links_reservation_id
+  on public.rc00_ops_external_reservation_links (reservation_id);
+
+create index if not exists idx_rc00_ops_external_links_reservation_ref_id
+  on public.rc00_ops_external_reservation_links (reservation_ref_id);
+
+create index if not exists idx_rc00_ops_external_links_provider_external_id
+  on public.rc00_ops_external_reservation_links (provider, external_reservation_id);
+
+create index if not exists idx_rc00_ops_external_links_link_key
+  on public.rc00_ops_external_reservation_links (link_key);
+
+create index if not exists idx_rc00_ops_external_links_status
+  on public.rc00_ops_external_reservation_links (provider, external_status);
+
+alter table public.rc00_ops_external_reservation_links enable row level security;
+
+drop policy if exists rc00_ops_external_reservation_links_authenticated_all
+  on public.rc00_ops_external_reservation_links;
+create policy rc00_ops_external_reservation_links_authenticated_all
+  on public.rc00_ops_external_reservation_links
+  for all
+  to authenticated
+  using (true)
+  with check (true);
+```
+
+컬럼 의미:
+- `reservation_id`: 내부 예약 문자열 ID. 앱 조회/표시의 1차 내부 키.
+- `reservation_ref_id`: `rc00_ops_reservations.id` uuid FK. 내부 예약 삭제 시 link도 cascade 삭제 가능하지만, 운영 삭제보다는 상태 변경을 우선한다.
+- `provider`: 외부 시스템 구분. 이번 scope는 `ims`만 허용한다.
+- `external_reservation_id`: IMS `schedule_id`. 삭제 API의 primary key.
+- `external_detail_id`: IMS export의 `detail_id`. 조회/분석 보조값.
+- `external_status`: `linked`, `failed`, `deleted` 중 하나.
+- `link_key`: `OPS:{reservation_id}`.
+- `last_payload_json`: IMS 생성/삭제/가져오기 요청 payload 보관.
+- `last_result_json`: IMS 생성/삭제/조회 결과 보관.
+- `linked_at`: IMS 연동 성공 시각.
+- `last_checked_at`: IMS 조회/검증 시각.
+- `deleted_at`: IMS 삭제 성공 시각.
+- `error_text`: 마지막 실패 메시지.
+- `created_at`, `updated_at`: link row 생성/수정 시각.
+
+상태 정책:
+- `linked`: IMS `schedule_id` 확보 완료, active link.
+- `failed`: IMS 생성 또는 id 확보 실패. 재추가 가능.
+- `deleted`: IMS 삭제 완료. 재추가 가능.
+
+RLS 정책:
+- 기존 운영 테이블 정책과 동일하게 authenticated all로 시작한다.
+- 이 앱은 직원 로그인 후 내부 운영용으로만 쓰는 1차 구조이므로, 권한 세분화는 후속 phase로 둔다.
+
+Phase 1 검증 기준:
+- table 존재 확인
+- column/type/check/index/policy 존재 확인
+- 테스트 row insert/select/update/delete 가능 확인
+- 테스트 row는 검증 후 삭제
+```
 
 
-## 2026-05-15 데이터 정책 반영 상태
-- 데이터 정책 문서 생성: `docs/current/rentcar00_OPS-data-policy.md`
-- canonical 날짜/시간 1차 적용 완료
-  - `rc00_ops_schedules.schedule_at timestamptz`
-  - `rc00_ops_schedules.schedule_done boolean`
-  - `rc00_ops_cars.start_at_ts/end_at_ts timestamptz`
-- 앱 일정/차량 날짜 읽기·쓰기 경로를 canonical 컬럼 기준으로 전환
-- raw/import drop 은 아직 미진행
-- 차량 start date 중 연도 없는 3건은 확인 필요
+---
 
+## UI 잠금
 
-## 2026-05-15 raw/import drop 완료
-- migration: `20260515130000_drop_raw_import_tables.sql`
-- 제거: raw/import 테이블 4개 및 source/raw 일정 컬럼
-- 제거: Google Sheets raw import/normalize tool
-- Sync 화면은 `운영 진단`으로 전환
-- 검증: remote migration 적용, raw/import 테이블 REST 404, `flutter analyze`, `git diff --check`
-- 남은 확인: 차량 시작일 연도 없는 3건
-  - `29하2763` — `11월25일`
-  - `34호7488` — `6월12일`
-  - `34호7499` — `10월18일`
+### A. 예약 상세 > 기능 카드
+최종:
+1. IMS 미연동 예약
+   - 전화
+   - 문자
+   - `IMS추가`
+2. IMS 연동 예약
+   - 전화
+   - 문자
+   - `IMS연동됨` 비활성 버튼 표시
+3. IMS 실패/삭제 상태
+   - 전화
+   - 문자
+   - `IMS재추가`
 
+### B. 예약 상세 > IMS 연동 정보 섹션
+항상 표시한다.
 
-## 2026-05-15 IMS 체크 예약 생성 잠금 완료
-- 차량 상세 `예약생성`에서 IMS 체크 시 원장 insert 전에 payload 검증
-- 검증 실패 시 예약/일정 생성 없이 수정 요구
-- 예약 상세 IMS 실패 문구도 코드 대신 한글 수정 안내로 변경
-- 검증 타입: `rentalAt/returnAt YYYY-MM-DD HH:mm`, 차량번호, 0보다 큰 가격, 고객명, 전화번호 10~11자리, 배차지, 생년월일 실제 날짜, 반납>배차, memo 120자
-- 차량 시작일 수동 보정 완료
-  - `29하2763` → `2021-11-25 00:00 KST`
-  - `34호7488` → `2018-06-12 00:00 KST`
-  - `34호7499` → `2017-10-18 00:00 KST`
+표시:
+- 연동상태: 미연동 / 연동됨 / 삭제됨 / 실패
+- IMS ID: `schedule_id`
+- detail ID: export `detail_id`
+- 연동키: `OPS:{reservation_id}`
+- 마지막 확인시각
+- 오류 메시지
+- `IMS삭제` 버튼
 
+`IMS삭제` 위치:
+- 기능 카드가 아니라 `IMS 연동 정보` 섹션 안에 둔다.
+- 목적은 잘못 연동되었을 때 대비용이다.
+- 일반 운영에서는 자주 쓰지 않는 기능으로 본다.
 
-## 2026-05-15 UI/참조명 정리
-- 상단 sync/logout 버튼과 로그인 사용자명 표시 제거
-- 예약 탭 상단 제목/설명 문구 제거
-- 앱 표시명 `예약번호` 를 `외부예약번호` 로 정리
-- 일정 상세 예약 연결은 `예약ID` 를 클릭 기준으로 표시하고 외부예약번호는 참고값으로 분리
-- 예약 카드 상단을 `차량번호 / 배차일 / 반납일` 구조로 조정하고 하단 `고객명 / 차종 / 배차지` 유지
-- 예약 상세 페이지를 차량상세와 유사한 섹션 카드 구조로 정리
-- IMS 체크 예약 생성 필수값: 고객번호, 가격, 생년월일 입력칸 validator 강화
+### C. 예약 취소 기능
+예약 상세에 `예약취소` 기능을 추가한다.
 
+동작:
+1. 사용자가 예약취소 클릭
+2. 확인창 표시
+3. IMS link가 active면 확인창 안에 `IMS 예약도 같이 삭제` 체크박스 표시
+4. 체크 후 확인 시:
+   - 내부 원장 상태를 `예약취소`로 변경
+   - IMS 삭제도 함께 시도
+5. IMS 삭제 실패 시:
+   - 내부 예약취소는 유지
+   - IMS 삭제 실패 상태와 오류를 기록
+   - 사용자에게 실패 안내
 
-## 2026-05-15 일정 예약 연결 표시 잠금
-- 일정 상세의 예약 연결은 실제 예약 원장에 존재하는 `reservation_id` 만 클릭 가능하게 표시한다.
-- orphan `reservation_id` 는 `연결된 예약 없음` 으로 표시한다.
-- 외부예약번호는 참고값으로 유지한다.
+정책:
+- IMS 삭제 실패가 내부 예약취소를 막지 않는다.
+
+### D. 예약판 상단 `+` / 예약생성 UI
+현재 상단 `+` 예약생성은 유지한다.
+
+변경:
+- 예약생성 다이얼로그 상단에서 기존 `AI파서` 버튼 옆에 `IMS 연동` 버튼/토글을 배치한다.
+- 기존 IMS 체크 개념은 유지하되, UI 문구를 `IMS 연동`으로 정리한다.
+- 별도의 첫 선택 화면은 만들지 않는다.
+
+### E. IMS 예약 가져오기 UI
+초기 구현 위치:
+- 예약생성 다이얼로그 내부 또는 상단 버튼 영역에 `IMS에서 가져오기` 버튼 추가 후보
+- `AI파서` 옆 버튼군에 배치하는 방향 우선 검토
+
+가져오기 동작:
+- IMS 예약 목록 조회
+- 선택한 IMS 예약을 예약생성 폼에 프리필
+- 사용자가 부족한 값 확인/수정 후 저장
+- 저장 시 내부 예약 + 일정 + IMS link 생성
+
+정책:
+- IMS에서 가져온 예약은 바로 저장하지 않는다.
+- 사용자 확인 후 저장한다.
+
+### F. 수동 연결
+- 기존 IMS에 수동 등록된 예약을 내부 예약과 수동 연결하는 기능은 이번 scope 제외.
+- 운영해보고 필요하면 후속 검토.
+
+---
+
+## 구현 Phase 잠금
+
+### Phase 1. DB link 테이블
+작업:
+- migration 작성
+- RLS policy 추가
+- repository link 조회/저장/상태변경 함수 추가
+
+종료 조건:
+- link row insert/select/update 검증
+- 기존 예약 데이터 영향 없음
+
+### Phase 2. IMS 생성 응답/검색 확장
+작업:
+- IMS create payload memo에 `OPS:{reservation_id}` 포함
+- 중간서버 `/ims/create-reservation`가 저장 성공 후 목록 재조회로 `schedule_id/detail_id` 확보
+- 복합키 매칭 기준:
+  - 차량번호
+  - 고객명
+  - 고객 연락처
+  - 배차일시
+  - 반납일시
+  - 배차지
+- 앱 client result model 확장
+
+종료 조건:
+- IMS 생성 성공 결과가 앱에서 link 저장 가능한 형태로 돌아옴
+- id 확보 실패 시 `IMS연동실패`로 기록 가능
+
+### Phase 3. 예약 상세 IMS 연동 상태 UI
+작업:
+- 예약 상세 provider에서 IMS link 조회
+- 미연동이면 `IMS추가`
+- 연동됨이면 `IMS연동됨` 비활성 버튼
+- 실패/삭제면 `IMS재추가`
+- `IMS 연동 정보` 섹션 항상 표시
+
+종료 조건:
+- 중복 IMS 추가 방지
+- 연동 상태가 눈에 보임
+
+### Phase 4. 예약 생성 시 IMS 연동 저장
+작업:
+- 차량상세 예약생성 + IMS 연동
+- 상단 `+` 예약추가 + IMS 연동
+- IMS 성공 시 link row 저장
+- IMS 실패/id 확보 실패 시 link failed 또는 action log 기록
+
+종료 조건:
+- 신규 생성 예약도 IMS 연동 상태가 예약 상세에 바로 반영
+
+### Phase 5. 예약취소 + IMS 삭제 연계
+작업:
+- 예약 상세 `예약취소` 기능 추가
+- 확인창에 IMS 같이 삭제 체크 추가
+- 중간서버 `/ims/delete-reservation` 추가
+- link의 `schedule_id`로 삭제
+- IMS 삭제 성공 시 link `deleted_at`, `external_status=deleted`
+- IMS 삭제 실패 시 내부 예약취소 유지 + 실패 기록
+
+종료 조건:
+- 예약 취소와 IMS 삭제 동시 실행 가능
+- 실패 시 사용자가 상태를 알 수 있음
+
+### Phase 6. IMS에서 가져오기
+작업:
+- 중간서버 `/ims/list-reservations` 추가
+- 앱 UI: 예약생성 다이얼로그에서 `IMS에서 가져오기`
+- IMS 예약 선택 → 예약생성 폼 프리필
+- 저장 시 내부 예약 + 일정 + link 생성
+
+종료 조건:
+- IMS 예약 1건을 내부 예약판 예약으로 안전하게 생성
+- 이미 link된 IMS 예약은 중복 생성 방지
+
+### Phase 7. 검증/릴리즈
+작업:
+- unit test: IMS payload/link mapper
+- parser server `--check`
+- IMS dry-run
+- 앱 `flutter analyze`
+- APK build/upload
+
+종료 조건:
+- b28 또는 다음 build 업로드
+
+---
+
+## 승인 잠금
+- 이 문서는 UI/설계 잠금 문서다.
+- 다음 phase 코드, DB migration, IMS 서버 endpoint, Playwright 스크립트 수정은 사장님 승인 전 실행하지 않는다.
+- IMS 실제 저장/삭제 테스트는 별도 명시 승인 전 실행한다.
