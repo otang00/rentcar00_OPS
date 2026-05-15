@@ -210,6 +210,49 @@ OPS에는 IMS 예약의 `schedule_id`를 **등록 정보**로 저장한다.
 - `memo`/`OPS:`는 보조 식별자이며, OPS 등록 정보의 1차 키는 IMS `schedule_id`다.
 - 직접 API 생성 응답에서 `schedule_id`가 없으면 생성 후 목록 조회 fallback으로 확보한다.
 
+
+---
+
+## Phase 4 실제 IMS API 테스트 결과
+
+테스트 일시: 2026-05-16 KST
+
+테스트 방식:
+- 현재 코드 기준 중간서버를 별도 포트 `43111`로 실행
+- `POST /ims/create-reservation` 직접 호출
+- 실제 IMS API 저장 실행
+- 생성된 IMS 예약을 삭제 API로 즉시 삭제
+
+테스트 payload 요약:
+- 차량번호: `101허4014`
+- 고객명: `IMSAPI테스트`
+- 고객번호: `01012345678`
+- 배차: `2026-12-01 10:00`
+- 반납: `2026-12-02 10:00`
+- 배차지: `IMS API 테스트 주소`
+- 예약 ID: `API-TEST-20260516-0128`
+
+생성 결과:
+- `/ims/create-reservation` 응답: `ok=true`
+- `result.code`: `SUCCESS`
+- `externalStatus`: `linked`
+- `externalReservationId`: `4187211`
+- `externalDetailId`: `204233`
+- `linkKey`: `OPS:API-TEST-20260516-0128`
+- 직접 API 생성 응답 자체는 `{ "success": true }` 형태였고, `schedule_id`는 후속 목록 조회 fallback으로 확보했다.
+
+삭제 결과:
+- 삭제 API: `POST /v2/company-car-schedules/delete`
+- 요청 ID: `4187211`
+- 삭제 응답: `success=true`, `failed_deletion_schedule_ids=[]`
+- 삭제 후 상세 조회: `400`, `존재하지 않는 스케쥴입니다.`
+
+결론:
+- 브라우저 생성 없이 IMS 직접 API 예약 생성 가능 확인.
+- 생성 후 `schedule_id` 확보 fallback 정상 동작 확인.
+- 삭제 API로 테스트 예약 정리 완료.
+- 다음 남은 확인은 실제 앱 UI에서 모달/등록정보 저장이 화면에 정상 반영되는지 QA하는 것이다.
+
 ---
 
 ## 구현 Phase
