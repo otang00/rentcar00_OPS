@@ -25,7 +25,7 @@ class ImsReservationClient {
     request.write(jsonEncode(payload.toJson()));
 
     final response = await request.close().timeout(
-      const Duration(seconds: 40),
+      const Duration(seconds: 360),
       onTimeout: () {
         request.abort();
         throw const ImsReservationClientException('IMS 예약추가 응답 시간이 초과되었습니다.');
@@ -55,13 +55,27 @@ class ImsReservationExecutionResult {
     required this.ok,
     required this.code,
     required this.message,
+    required this.externalStatus,
+    required this.externalReservationId,
+    required this.externalDetailId,
+    required this.linkKey,
+    required this.errorText,
+    required this.resultJson,
   });
 
   final bool ok;
   final String code;
   final String message;
+  final String externalStatus;
+  final String externalReservationId;
+  final String externalDetailId;
+  final String linkKey;
+  final String errorText;
+  final Map<String, dynamic> resultJson;
 
   bool get isSuccess => ok && (code == 'SUCCESS' || code == 'DRY_RUN');
+  bool get hasLinkedExternalId =>
+      externalStatus == 'linked' && externalReservationId.isNotEmpty;
 
   factory ImsReservationExecutionResult.fromJson(Map<String, dynamic> json) {
     final result =
@@ -70,6 +84,12 @@ class ImsReservationExecutionResult {
       ok: json['ok'] == true,
       code: result['code']?.toString() ?? 'UNKNOWN',
       message: result['message']?.toString() ?? '',
+      externalStatus: result['externalStatus']?.toString() ?? '',
+      externalReservationId: result['externalReservationId']?.toString() ?? '',
+      externalDetailId: result['externalDetailId']?.toString() ?? '',
+      linkKey: result['linkKey']?.toString() ?? '',
+      errorText: result['errorText']?.toString() ?? '',
+      resultJson: result,
     );
   }
 }

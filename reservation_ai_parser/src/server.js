@@ -51,11 +51,12 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const payload = normalizeImsReservationPayload(body);
       const result = await runImsReservationScript(payload);
+      const bindingResult = await resolveImsReservationBindingAfterCreate({ payload, result });
       const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
       return sendJson(res, ok ? 200 : 422, {
         ok,
         payload,
-        result,
+        result: bindingResult,
       });
     }
 
@@ -135,7 +136,12 @@ function normalizeImsReservationPayload(body = {}) {
     address: String(body?.address || '').trim(),
     useDelivery: body?.useDelivery !== false,
     memo: String(body?.memo || '').trim(),
+    reservationId: String(body?.reservationId || '').trim(),
   };
+
+  if (payload.reservationId && !payload.memo.includes(`OPS:${payload.reservationId}`)) {
+    payload.memo = appendMemoPart(payload.memo, `OPS:${payload.reservationId}`);
+  }
 
   const required = ['rentalAt', 'returnAt', 'carNumber', 'totalFee', 'customerName', 'customerPhone'];
   const missing = required.filter((key) => !payload[key]);
@@ -144,6 +150,130 @@ function normalizeImsReservationPayload(body = {}) {
   }
 
   return payload;
+}
+
+
+async function resolveImsReservationBindingAfterCreate({ payload, result }) {
+  if (result?.code !== 'SUCCESS') {
+    return {
+      ...result,
+      externalStatus: result?.code === 'DRY_RUN' ? 'dry_run' : 'failed',
+      linkKey: buildLinkKey(payload),
+    };
+  }
+
+  const match = await findCreatedImsReservationForBinding(payload);
+  if (!match) {
+    return {
+      ...result,
+      externalStatus: 'failed',
+      linkKey: buildLinkKey(payload),
+      errorText: 'IMS id 확보 실패',
+    };
+  }
+
+  return {
+    ...result,
+    externalStatus: 'linked',
+    externalReservationId: stringifyNullable(match.schedule_id),
+    externalDetailId: stringifyNullable(match.detail_id),
+    linkKey: buildLinkKey(payload),
+    matchedReservation: match,
+  };
+}
+
+async function findCreatedImsReservationForBinding(payload) {
+  const exportResult = await exportImsReservationsForBindingLookup(payload);
+  if (!exportResult?.ok || !exportResult?.flatPath) return null;
+
+  const raw = await fs.readFile(exportResult.flatPath, 'utf8');
+  const rows = JSON.parse(raw);
+  if (!Array.isArray(rows)) return null;
+
+  const matches = rows.filter((row) => isSameReservationForBinding(row, payload));
+  if (matches.length !== 1) return null;
+  return matches[0];
+}
+
+async function exportImsReservationsForBindingLookup(payload) {
+  const scriptPath = await findFirstExistingPath([
+    path.resolve(__dirname, '../../../../tools/playwright/scripts/ims-reservations-export.js'),
+    path.resolve(process.cwd(), '../../tools/playwright/scripts/ims-reservations-export.js'),
+    path.resolve(process.cwd(), '../tools/playwright/scripts/ims-reservations-export.js'),
+  ]);
+
+  const rentalDate = extractDate(payload.rentalAt);
+  const returnDate = extractDate(payload.returnAt);
+  const outputDir = path.join(
+    process.cwd(),
+    '.ims-create-lookup',
+    `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
+
+  const result = await execFileAsync(
+    'node',
+    [scriptPath, outputDir, rentalDate, returnDate, rentalDate],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      timeout: 1000 * 60 * 3,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+
+  const lines = `${result.stdout || ''}\n${result.stderr || ''}`
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const lastJsonLine = [...lines]
+    .reverse()
+    .find((line) => line.startsWith('{') && line.endsWith('}'));
+  if (!lastJsonLine) return { ok: false, message: 'missing ims export result' };
+  return JSON.parse(lastJsonLine);
+}
+
+function isSameReservationForBinding(row, payload) {
+  return normalizeText(row?.car_number) === normalizeText(payload.carNumber) &&
+    normalizeText(row?.customer_name) === normalizeText(payload.customerName) &&
+    digitsOnly(row?.customer_contact) === digitsOnly(payload.customerPhone) &&
+    normalizeImsDateTime(row?.start_at) === normalizeImsDateTime(payload.rentalAt) &&
+    normalizeImsDateTime(row?.end_at) === normalizeImsDateTime(payload.returnAt) &&
+    normalizeText(row?.pickup_address) === normalizeText(payload.address);
+}
+
+function appendMemoPart(memo, part) {
+  const cleanMemo = String(memo || '').trim();
+  if (!cleanMemo) return part;
+  return `${cleanMemo} | ${part}`;
+}
+
+function buildLinkKey(payload) {
+  return payload?.reservationId ? `OPS:${payload.reservationId}` : '';
+}
+
+function extractDate(value) {
+  return String(value || '').trim().split(/\s+/)[0] || '';
+}
+
+function normalizeImsDateTime(value) {
+  const text = String(value || '').trim().replace('T', ' ');
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+  if (!match) return text;
+  return `${match[1]} ${match[2]}`;
+}
+
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function digitsOnly(value) {
+  return String(value || '').replace(/\D+/g, '');
+}
+
+function stringifyNullable(value) {
+  if (value === null || value === undefined) return '';
+  return String(value);
 }
 
 async function runImsReservationScript(payload) {

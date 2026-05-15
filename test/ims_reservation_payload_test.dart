@@ -21,6 +21,8 @@ void main() {
       result.payload.toJson(),
       containsPair('customerPhone', '01012345678'),
     );
+    expect(result.payload.toJson(), containsPair('reservationId', 'draft'));
+    expect(result.payload.memo, contains('OPS:draft'));
   });
 
   test('invalid IMS fields are blocked before create', () {

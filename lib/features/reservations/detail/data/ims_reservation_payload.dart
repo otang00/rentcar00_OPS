@@ -13,6 +13,7 @@ class ImsReservationPayload {
     required this.address,
     required this.useDelivery,
     required this.memo,
+    required this.reservationId,
   });
 
   final String rentalAt;
@@ -24,6 +25,7 @@ class ImsReservationPayload {
   final String address;
   final bool useDelivery;
   final String memo;
+  final String reservationId;
 
   Map<String, dynamic> toJson() {
     return {
@@ -36,6 +38,7 @@ class ImsReservationPayload {
       'address': address,
       'useDelivery': useDelivery,
       'memo': memo,
+      'reservationId': reservationId,
     };
   }
 }
@@ -65,6 +68,7 @@ ImsReservationPayloadBuildResult buildImsReservationPayload(
     address: _primaryAddress(reservation),
     useDelivery: true,
     memo: buildImsReservationMemo(reservation),
+    reservationId: reservation.reservationId.trim(),
   );
 
   return ImsReservationPayloadBuildResult(
@@ -107,6 +111,8 @@ List<String> validateImsReservationPayload(
 
 String buildImsReservationMemo(ReservationRecord reservation) {
   final parts = <String>[
+    if (reservation.reservationId.trim().isNotEmpty)
+      'OPS:${reservation.reservationId.trim()}',
     if (reservation.reservationNumber.trim().isNotEmpty)
       '외부예약:${reservation.reservationNumber.trim()}',
     if (_isBirthDateFormatted(reservation.customerBirthDate))

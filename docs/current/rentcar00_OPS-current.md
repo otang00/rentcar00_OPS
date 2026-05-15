@@ -14,7 +14,7 @@
 
 1. 내부 예약 → IMS 예약추가 시 연동 식별자 저장
 2. 내부 예약 취소 시 확인창에서 IMS 삭제 여부를 함께 선택 가능하게 함
-3. 예약 상세의 `IMS추가`는 IMS 미연동 예약에서만 노출하고, 연동 예약은 `IMS연동됨`으로 표시
+3. 예약 상세의 미연동 상태에서는 `IMS추가`와 `IMS연동`을 제공하고, 연동 상태에서는 `IMS연동됨`과 `연동해제`만 제공
 4. IMS 예약 목록을 불러와 내부 예약판 예약으로 넣을 수 있게 함
 
 ---
@@ -60,7 +60,7 @@
 
 ### DB 현재 상태
 - `rc00_ops_reservations`에는 IMS 연동 전용 컬럼이 없다.
-- `meta_json`은 있으나 장기 운영 기준으로는 별도 link 테이블이 안전하다.
+- `meta_json`은 있으나 장기 운영 기준으로는 별도 IMS 예약 바인딩 테이블이 안전하다.
 - `rc00_ops_action_logs`, `rc00_ops_outbox`는 존재하지만 현재 앱에서는 대부분 preview/read-only 수준이다.
 
 ---
@@ -155,8 +155,8 @@
 
 ### Phase 0 결론
 - 삭제 기준 id는 `schedule_id`로 확정한다.
-- link 테이블의 `external_reservation_id`에는 IMS `schedule_id`를 저장한다.
-- link 테이블의 `external_detail_id`에는 export의 `detail_id`를 보조값으로 저장한다.
+- IMS 예약 바인딩 테이블의 `external_reservation_id`에는 IMS `schedule_id`를 저장한다.
+- IMS 예약 바인딩 테이블의 `external_detail_id`에는 export의 `detail_id`를 보조값으로 저장한다.
 - 생성 API 응답만으로는 id 확보가 불가능하다.
 - 생성 성공 후 목록 재조회/검색으로 id를 확보해야 한다.
 - id 확보 실패 시 정책은 **내부 예약/IMS 생성은 유지하고 `IMS연동실패`로 기록**하는 것이 안전하다.
@@ -165,6 +165,13 @@
 ---
 
 ## 최종 설계 잠금
+
+## 명칭 잠금
+- 기능명: **IMS Reservation Binding**
+- 한글명: **IMS 예약 바인딩**
+- 의미: OPS 예약 1건과 IMS 예약 1건의 1:1 연결
+- 제외: IMS 예약 목록 동기화, IMS 예약 가져오기, IMS 예약 생성 자체, 차량 가능/불가능 검색 기능
+- 코드 함수명에는 `Binding`을 사용하고, 화면/문서 설명에는 `IMS 예약 바인딩`을 사용한다.
 
 ### 1. 내부 ↔ IMS 연결 키
 - 내부 기준 키: `rc00_ops_reservations.reservation_id`
@@ -223,7 +230,7 @@
 - 생성 직후 id 확보는 복합키 조회로 한다.
 - 나중에 IMS 메모 조회 endpoint가 안정적으로 확인되면 `OPS:` 검색을 보조 검증으로 추가한다.
 
-### 4. Phase 1 DB link 테이블 확정 DDL
+### 4. Phase 1 DB IMS 예약 바인딩 테이블 확정 DDL
 Phase 1에서 실제 생성할 테이블은 아래 DDL과 동일해야 한다.
 
 ```sql
@@ -295,7 +302,7 @@ create policy rc00_ops_external_reservation_links_authenticated_all
 - `last_checked_at`: IMS 조회/검증 시각.
 - `deleted_at`: IMS 삭제 성공 시각.
 - `error_text`: 마지막 실패 메시지.
-- `created_at`, `updated_at`: link row 생성/수정 시각.
+- `created_at`, `updated_at`: IMS 예약 바인딩 row 생성/수정 시각.
 
 상태 정책:
 - `linked`: IMS `schedule_id` 확보 완료, active link.
@@ -324,31 +331,34 @@ Phase 1 검증 기준:
    - 전화
    - 문자
    - `IMS추가`
+   - `IMS연동`
 2. IMS 연동 예약
    - 전화
    - 문자
    - `IMS연동됨` 비활성 버튼 표시
-3. IMS 실패/삭제 상태
-   - 전화
-   - 문자
-   - `IMS재추가`
+
+정책:
+- `IMS추가`: OPS 예약 정보를 기준으로 IMS에 새 예약을 생성한 뒤 IMS 예약 바인딩을 저장한다.
+- `IMS연동`: 이미 IMS에 존재하는 예약을 선택해 현재 OPS 예약과 IMS 예약 바인딩을 저장한다.
+- `IMS재추가` 버튼은 만들지 않는다. 실패/해제 상태는 미연동 상태로 보고 `IMS추가` 또는 `IMS연동` 중 선택하게 한다.
 
 ### B. 예약 상세 > IMS 연동 정보 섹션
 항상 표시한다.
 
 표시:
-- 연동상태: 미연동 / 연동됨 / 삭제됨 / 실패
+- 연동상태: 미연동 / 연동됨 / 해제됨 / 실패
 - IMS ID: `schedule_id`
 - detail ID: export `detail_id`
 - 연동키: `OPS:{reservation_id}`
 - 마지막 확인시각
 - 오류 메시지
-- `IMS삭제` 버튼
+- `연동해제` 버튼
 
-`IMS삭제` 위치:
+`연동해제` 위치:
 - 기능 카드가 아니라 `IMS 연동 정보` 섹션 안에 둔다.
-- 목적은 잘못 연동되었을 때 대비용이다.
-- 일반 운영에서는 자주 쓰지 않는 기능으로 본다.
+- 이 버튼은 IMS 예약 자체를 삭제하지 않는다.
+- 현재 OPS 예약과 IMS 예약의 바인딩만 해제한다.
+- 해제 후 해당 OPS 예약은 미연동 상태가 되며 `IMS추가` 또는 `IMS연동`을 다시 선택할 수 있다.
 
 ### C. 예약 취소 기능
 예약 상세에 `예약취소` 기능을 추가한다.
@@ -356,7 +366,7 @@ Phase 1 검증 기준:
 동작:
 1. 사용자가 예약취소 클릭
 2. 확인창 표시
-3. IMS link가 active면 확인창 안에 `IMS 예약도 같이 삭제` 체크박스 표시
+3. IMS 예약 바인딩이 active면 확인창 안에 `IMS 예약도 같이 삭제` 체크박스 표시
 4. 체크 후 확인 시:
    - 내부 원장 상태를 `예약취소`로 변경
    - IMS 삭제도 함께 시도
@@ -385,7 +395,7 @@ Phase 1 검증 기준:
 - IMS 예약 목록 조회
 - 선택한 IMS 예약을 예약생성 폼에 프리필
 - 사용자가 부족한 값 확인/수정 후 저장
-- 저장 시 내부 예약 + 일정 + IMS link 생성
+- 저장 시 내부 예약 + 일정 + IMS 예약 바인딩 생성
 
 정책:
 - IMS에서 가져온 예약은 바로 저장하지 않는다.
@@ -399,14 +409,14 @@ Phase 1 검증 기준:
 
 ## 구현 Phase 잠금
 
-### Phase 1. DB link 테이블
+### Phase 1. DB IMS 예약 바인딩 테이블
 작업:
 - migration 작성
 - RLS policy 추가
 - repository link 조회/저장/상태변경 함수 추가
 
 종료 조건:
-- link row insert/select/update 검증
+- IMS 예약 바인딩 row insert/select/update 검증
 - 기존 예약 데이터 영향 없음
 
 ### Phase 2. IMS 생성 응답/검색 확장
@@ -422,28 +432,62 @@ Phase 1 검증 기준:
   - 배차지
 - 앱 client result model 확장
 
+구현 상태:
+- `ImsReservationPayload`에 `reservationId` 추가
+- `buildImsReservationMemo()`가 `OPS:{reservation_id}`를 memo 앞에 포함
+- 서버 `normalizeImsReservationPayload()`도 구버전 호출 대비 `reservationId`가 있으면 memo에 `OPS:`를 보강
+- `/ims/create-reservation` 성공 응답을 IMS 예약 바인딩 저장 가능한 형태로 확장
+  - `externalStatus`
+  - `externalReservationId` = IMS `schedule_id`
+  - `externalDetailId` = IMS export `detail_id`
+  - `linkKey` = `OPS:{reservation_id}`
+  - `errorText`
+  - `matchedReservation`
+- IMS 생성 `SUCCESS` 이후에만 export 조회로 id 확보 시도
+- `DRY_RUN`은 실제 IMS 예약이 생성되지 않으므로 id 조회를 하지 않음
+- id 확보 실패 시 `externalStatus='failed'`, `errorText='IMS id 확보 실패'`로 반환
+
 종료 조건:
-- IMS 생성 성공 결과가 앱에서 link 저장 가능한 형태로 돌아옴
+- IMS 생성 성공 결과가 앱에서 IMS 예약 바인딩 저장 가능한 형태로 돌아옴
 - id 확보 실패 시 `IMS연동실패`로 기록 가능
+
+검증:
+- `npm --prefix reservation_ai_parser run check`
+- `flutter test test/ims_reservation_payload_test.dart`
+- `flutter analyze`
 
 ### Phase 3. 예약 상세 IMS 연동 상태 UI
 작업:
-- 예약 상세 provider에서 IMS link 조회
+- 예약 상세 provider에서 IMS 예약 바인딩 조회
 - 미연동이면 `IMS추가`
 - 연동됨이면 `IMS연동됨` 비활성 버튼
-- 실패/삭제면 `IMS재추가`
+- 실패/해제 상태는 미연동으로 취급하고 `IMS추가` + `IMS연동` 표시
 - `IMS 연동 정보` 섹션 항상 표시
+- 연동됨 상태에서는 `연동해제`만 제공하고 IMS 예약 삭제는 제공하지 않음
 
 종료 조건:
 - 중복 IMS 추가 방지
 - 연동 상태가 눈에 보임
 
+### Phase 3-B. IMS연동 선택 바인딩
+작업:
+- 기능명은 화면에서 `IMS연동`으로 표시
+- 이미 IMS에 존재하는 예약 목록을 조회
+- 현재 OPS 예약과 같은 차량번호/고객명/전화번호/배차일시/반납일시/배차지를 기준으로 후보 표시
+- 후보 선택 후 비교 확인창 표시
+- 사용자가 확정하면 IMS 예약 바인딩 row 저장
+- IMS 예약 자체는 생성/수정/삭제하지 않음
+
+종료 조건:
+- 미연동 OPS 예약에서 기존 IMS 예약을 선택해 바인딩 가능
+- 잘못된 IMS 예약을 붙이지 않도록 비교 정보와 경고가 보임
+
 ### Phase 4. 예약 생성 시 IMS 연동 저장
 작업:
 - 차량상세 예약생성 + IMS 연동
 - 상단 `+` 예약추가 + IMS 연동
-- IMS 성공 시 link row 저장
-- IMS 실패/id 확보 실패 시 link failed 또는 action log 기록
+- IMS 성공 시 IMS 예약 바인딩 row 저장
+- IMS 실패/id 확보 실패 시 IMS 예약 바인딩 failed 또는 action log 기록
 
 종료 조건:
 - 신규 생성 예약도 IMS 연동 상태가 예약 상세에 바로 반영
@@ -452,9 +496,9 @@ Phase 1 검증 기준:
 작업:
 - 예약 상세 `예약취소` 기능 추가
 - 확인창에 IMS 같이 삭제 체크 추가
-- 중간서버 `/ims/delete-reservation` 추가
-- link의 `schedule_id`로 삭제
-- IMS 삭제 성공 시 link `deleted_at`, `external_status=deleted`
+- 예약취소 flow 전용 중간서버 `/ims/delete-reservation` 추가
+- IMS 예약 바인딩의 `schedule_id`로 삭제
+- IMS 삭제 성공 시 IMS 예약 바인딩 `deleted_at`, `external_status=deleted`
 - IMS 삭제 실패 시 내부 예약취소 유지 + 실패 기록
 
 종료 조건:
@@ -466,15 +510,15 @@ Phase 1 검증 기준:
 - 중간서버 `/ims/list-reservations` 추가
 - 앱 UI: 예약생성 다이얼로그에서 `IMS에서 가져오기`
 - IMS 예약 선택 → 예약생성 폼 프리필
-- 저장 시 내부 예약 + 일정 + link 생성
+- 저장 시 내부 예약 + 일정 + IMS 예약 바인딩 생성
 
 종료 조건:
 - IMS 예약 1건을 내부 예약판 예약으로 안전하게 생성
-- 이미 link된 IMS 예약은 중복 생성 방지
+- 이미 IMS 예약 바인딩된 IMS 예약은 중복 생성 방지
 
 ### Phase 7. 검증/릴리즈
 작업:
-- unit test: IMS payload/link mapper
+- unit test: IMS payload / IMS 예약 바인딩 mapper
 - parser server `--check`
 - IMS dry-run
 - 앱 `flutter analyze`
