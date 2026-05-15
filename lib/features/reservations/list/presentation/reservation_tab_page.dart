@@ -221,17 +221,15 @@ class _ReservationDateInfoCell extends StatelessWidget {
 }
 
 String _compactDateWithWeekday(DateTime value) {
-  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  final yy = (local.year % 100).toString().padLeft(2, '0');
+  final yy = (value.year % 100).toString().padLeft(2, '0');
   const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-  return '$yy.${two(local.month)}.${two(local.day)}(${weekdays[local.weekday - 1]})';
+  return '$yy.${two(value.month)}.${two(value.day)}(${weekdays[value.weekday - 1]})';
 }
 
 String _timeOnlyFromDate(DateTime value) {
-  final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.hour)}:${two(local.minute)}';
+  return '${two(value.hour)}:${two(value.minute)}';
 }
 
 class _StatusIconChip extends StatelessWidget {
