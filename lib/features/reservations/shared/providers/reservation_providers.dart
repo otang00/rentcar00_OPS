@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rentcar00_ops/app/domain/ops_layer.dart';
 import 'package:rentcar00_ops/data/models/action_log_entry.dart';
+import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/outbox_entry.dart';
 import 'package:rentcar00_ops/data/models/reservation_action_definition.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
@@ -75,6 +76,16 @@ final reservationDetailProvider =
         }
         return null;
       });
+    });
+
+final externalReservationLinkProvider =
+    FutureProvider.family<ExternalReservationLink?, String>((
+      ref,
+      reservationId,
+    ) {
+      return ref
+          .watch(supabaseOpsRepositoryProvider)
+          .fetchExternalReservationLink(reservationId: reservationId);
     });
 
 final reservationActionsProvider =

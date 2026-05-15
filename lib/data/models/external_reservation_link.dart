@@ -34,6 +34,8 @@ class ExternalReservationLink {
   bool get isLinked => externalStatus == 'linked' && deletedAt == null;
   bool get isFailed => externalStatus == 'failed';
   bool get isDeleted => externalStatus == 'deleted' || deletedAt != null;
+  bool get isUnlinked => externalStatus == 'unlinked';
+  bool get isActiveBinding => isLinked;
 
   factory ExternalReservationLink.fromRow(Map<String, dynamic> row) {
     return ExternalReservationLink(

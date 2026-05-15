@@ -234,6 +234,22 @@ class SupabaseOpsRepository {
         .eq('reservation_id', reservationId.trim());
   }
 
+  Future<void> markExternalReservationLinkUnlinked({
+    required String reservationId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await _client
+        .from('rc00_ops_external_reservation_links')
+        .update({
+          'external_status': 'unlinked',
+          'last_checked_at': now,
+          'error_text': null,
+          'updated_at': now,
+        })
+        .eq('provider', 'ims')
+        .eq('reservation_id', reservationId.trim());
+  }
+
   Future<void> updateCarInstantStatus({
     required String carRowId,
     required String status,

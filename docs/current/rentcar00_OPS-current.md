@@ -254,7 +254,7 @@ create table if not exists public.rc00_ops_external_reservation_links (
   constraint rc00_ops_external_reservation_links_provider_check
     check (provider in ('ims')),
   constraint rc00_ops_external_reservation_links_status_check
-    check (external_status in ('linked', 'failed', 'deleted')),
+    check (external_status in ('linked', 'failed', 'deleted', 'unlinked')),
   constraint rc00_ops_external_reservation_links_link_key_check
     check (length(trim(link_key)) > 0),
   constraint rc00_ops_external_reservation_links_provider_reservation_unique
@@ -294,7 +294,7 @@ create policy rc00_ops_external_reservation_links_authenticated_all
 - `provider`: 외부 시스템 구분. 이번 scope는 `ims`만 허용한다.
 - `external_reservation_id`: IMS `schedule_id`. 삭제 API의 primary key.
 - `external_detail_id`: IMS export의 `detail_id`. 조회/분석 보조값.
-- `external_status`: `linked`, `failed`, `deleted` 중 하나.
+- `external_status`: `linked`, `failed`, `deleted`, `unlinked` 중 하나.
 - `link_key`: `OPS:{reservation_id}`.
 - `last_payload_json`: IMS 생성/삭제/가져오기 요청 payload 보관.
 - `last_result_json`: IMS 생성/삭제/조회 결과 보관.
@@ -307,7 +307,8 @@ create policy rc00_ops_external_reservation_links_authenticated_all
 상태 정책:
 - `linked`: IMS `schedule_id` 확보 완료, active link.
 - `failed`: IMS 생성 또는 id 확보 실패. 재추가 가능.
-- `deleted`: IMS 삭제 완료. 재추가 가능.
+- `deleted`: 예약 삭제/취소 flow에서 IMS 삭제 완료. 재연동 가능.
+- `unlinked`: IMS 예약은 유지하고 OPS-IMS 바인딩만 해제. 재연동 가능.
 
 RLS 정책:
 - 기존 운영 테이블 정책과 동일하게 authenticated all로 시작한다.
@@ -456,18 +457,28 @@ Phase 1 검증 기준:
 - `flutter test test/ims_reservation_payload_test.dart`
 - `flutter analyze`
 
-### Phase 3. 예약 상세 IMS 연동 상태 UI
+### Phase 3-A. 예약 상세 IMS 연동 상태 UI
 작업:
 - 예약 상세 provider에서 IMS 예약 바인딩 조회
-- 미연동이면 `IMS추가`
+- 미연동이면 `IMS추가` + `IMS연동`
 - 연동됨이면 `IMS연동됨` 비활성 버튼
 - 실패/해제 상태는 미연동으로 취급하고 `IMS추가` + `IMS연동` 표시
 - `IMS 연동 정보` 섹션 항상 표시
 - 연동됨 상태에서는 `연동해제`만 제공하고 IMS 예약 삭제는 제공하지 않음
+- `external_status='unlinked'` 허용 migration 추가
+
+구현 상태:
+- 예약 상세 기능 카드에서 active binding 여부에 따라 `IMS추가/IMS연동` 또는 `IMS연동됨` 표시
+- `IMS 연동 정보` 섹션 상시 표시
+- active binding이면 IMS ID/detail ID/연동키/마지막 확인시각 표시
+- `연동해제` 버튼은 IMS 예약을 삭제하지 않고 `external_status='unlinked'`로 변경
+- `IMS연동` 버튼은 Phase 3-B 목록 선택 전까지 안내 메시지만 표시
 
 종료 조건:
 - 중복 IMS 추가 방지
 - 연동 상태가 눈에 보임
+- 일반 상세 화면에는 IMS 예약 삭제 버튼 없음
+- `flutter analyze` 통과
 
 ### Phase 3-B. IMS연동 선택 바인딩
 작업:
