@@ -325,6 +325,7 @@ class SupabaseOpsRepository {
 
   Future<void> updateSchedule({
     required String scheduleRowId,
+    required String reservationId,
     required String scheduleType,
     required DateTime scheduleAt,
     required String carNumber,
@@ -350,6 +351,13 @@ class SupabaseOpsRepository {
           'updated_at': DateTime.now().toIso8601String(),
         })
         .eq('id', scheduleRowId);
+
+    await _syncReservationFromScheduleEdit(
+      reservationId: reservationId,
+      scheduleType: normalizedScheduleType,
+      scheduleAt: scheduleAt,
+      locationText: locationText,
+    );
   }
 
   Future<void> completeSchedule({
@@ -358,23 +366,49 @@ class SupabaseOpsRepository {
     required String reservationId,
     required String carNumber,
   }) async {
+    final normalizedScheduleType = scheduleType.trim();
+    final normalizedReservationId = reservationId.trim();
+    final normalizedCarNumber = carNumber.trim();
+    final now = DateTime.now().toIso8601String();
+
     await _client
         .from('rc00_ops_schedules')
-        .update({'schedule_done': true})
+        .update({'schedule_done': true, 'updated_at': now})
         .eq('id', scheduleRowId);
 
-    if (scheduleType.trim() != '배차' || carNumber.trim().isEmpty) {
+    if (normalizedReservationId.isNotEmpty) {
+      if (normalizedScheduleType == '배차') {
+        await _updateReservationLifecycle(
+          reservationId: normalizedReservationId,
+          reservationStatus: '배차중',
+          tabKey: TabKeys.inUse,
+        );
+      } else if (normalizedScheduleType == '반납') {
+        await _updateReservationLifecycle(
+          reservationId: normalizedReservationId,
+          reservationStatus: '완료',
+          tabKey: TabKeys.completed,
+        );
+      }
+    }
+
+    if (normalizedScheduleType == '반납') {
+      if (normalizedCarNumber.isNotEmpty) {
+        await _resetCarAfterReturnByNumber(normalizedCarNumber);
+      }
       return;
     }
 
-    final reservationRow = reservationId.trim().isEmpty
+    if (normalizedScheduleType != '배차' || normalizedCarNumber.isEmpty) return;
+
+    final reservationRow = normalizedReservationId.isEmpty
         ? null
         : await _client
               .from('rc00_ops_reservations')
               .select(
                 'customer_name, customer_phone, pickup_location, start_at, end_at, note_text',
               )
-              .eq('reservation_id', reservationId.trim())
+              .eq('reservation_id', normalizedReservationId)
               .maybeSingle();
 
     final reservationStartAt = _parseDateTime(reservationRow?['start_at']);
@@ -403,6 +437,66 @@ class SupabaseOpsRepository {
     await _client
         .from('rc00_ops_cars')
         .update(updatePayload)
+        .eq('car_number', normalizedCarNumber);
+  }
+
+  Future<void> _syncReservationFromScheduleEdit({
+    required String reservationId,
+    required String scheduleType,
+    required DateTime scheduleAt,
+    required String locationText,
+  }) async {
+    final normalizedReservationId = reservationId.trim();
+    if (normalizedReservationId.isEmpty) return;
+
+    final normalizedScheduleType = scheduleType.trim();
+    final updatePayload = <String, dynamic>{
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+
+    if (normalizedScheduleType == '배차') {
+      updatePayload['start_at'] = _toDbTimestamp(scheduleAt);
+      updatePayload['pickup_location'] = locationText.trim();
+    } else if (normalizedScheduleType == '반납') {
+      updatePayload['end_at'] = _toDbTimestamp(scheduleAt);
+      updatePayload['dropoff_location'] = locationText.trim();
+    } else {
+      return;
+    }
+
+    await _client
+        .from('rc00_ops_reservations')
+        .update(updatePayload)
+        .eq('reservation_id', normalizedReservationId);
+  }
+
+  Future<void> _updateReservationLifecycle({
+    required String reservationId,
+    required String reservationStatus,
+    required String tabKey,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    await _client
+        .from('rc00_ops_reservations')
+        .update({'reservation_status': reservationStatus, 'updated_at': now})
+        .eq('reservation_id', reservationId.trim());
+
+    await _client
+        .from('rc00_ops_reservation_states')
+        .update({'tab_key': tabKey, 'last_action_at': now, 'updated_at': now})
+        .eq('reservation_id', reservationId.trim());
+  }
+
+  Future<void> _resetCarAfterReturnByNumber(String carNumber) async {
+    await _client
+        .from('rc00_ops_cars')
+        .update({
+          'status': '대기중',
+          'status_action': '반납 완료',
+          'car_wash': 'FALSE',
+          'interior_wash': 'FALSE',
+          'parking_location': '수푸레',
+        })
         .eq('car_number', carNumber.trim());
   }
 

@@ -2094,6 +2094,17 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
       return;
     }
 
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _ConfirmActionDialog(
+        icon: Icons.event_available_outlined,
+        title: '일정 완료',
+        message: '이 일정을 완료 처리하고 연결된 예약/차량 상태를 함께 갱신합니다.',
+        confirmLabel: '완료',
+      ),
+    );
+    if (confirmed != true) return;
+
     await _runScheduleAction(() async {
       await ref
           .read(supabaseOpsRepositoryProvider)
@@ -2138,6 +2149,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
           .read(supabaseOpsRepositoryProvider)
           .updateSchedule(
             scheduleRowId: scheduleRowId,
+            reservationId: record.reservationId,
             scheduleType: form.scheduleType,
             scheduleAt: form.scheduleAt,
             carNumber: form.carNumber,
