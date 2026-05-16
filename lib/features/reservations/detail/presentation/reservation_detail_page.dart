@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
+import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
@@ -308,6 +311,23 @@ class _ReservationDetailBodyState
     final externalLinkAsync = ref.watch(
       externalReservationLinkProvider(widget.reservationId),
     );
+    final linkedSchedulesAsync = ref
+        .watch(allStatusBoardRecordsProvider)
+        .whenData((items) {
+          final schedules = items
+              .where(
+                (item) =>
+                    item.isScheduleEntry &&
+                    item.reservationId.trim() == widget.reservationId.trim(),
+              )
+              .toList();
+          schedules.sort((a, b) {
+            final aTime = a.sortAt ?? DateTime(2999);
+            final bTime = b.sortAt ?? DateTime(2999);
+            return aTime.compareTo(bTime);
+          });
+          return schedules;
+        });
 
     return reservationAsync.when(
       data: (reservation) {
@@ -433,6 +453,11 @@ class _ReservationDetailBodyState
                   ],
                 ],
               ),
+            ),
+            const SizedBox(height: 14),
+            _SectionCard(
+              title: '연결된 일정',
+              child: _LinkedSchedulesList(schedulesAsync: linkedSchedulesAsync),
             ),
             const SizedBox(height: 14),
             _SectionCard(
@@ -693,6 +718,134 @@ class _ImsRegistrationInfo extends StatelessWidget {
   }
 }
 
+class _LinkedSchedulesList extends StatelessWidget {
+  const _LinkedSchedulesList({required this.schedulesAsync});
+
+  final AsyncValue<List<StatusBoardRecord>> schedulesAsync;
+
+  @override
+  Widget build(BuildContext context) {
+    return schedulesAsync.when(
+      data: (items) {
+        if (items.isEmpty) {
+          return const Text('연결된 일정이 없습니다.');
+        }
+        return Column(
+          children: [
+            for (final item in items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _LinkedScheduleCard(item: item),
+              ),
+          ],
+        );
+      },
+      loading: () => const LinearProgressIndicator(),
+      error: (error, stack) => Text('연결 일정을 불러오지 못했습니다.\n$error'),
+    );
+  }
+}
+
+class _LinkedScheduleCard extends StatelessWidget {
+  const _LinkedScheduleCard({required this.item});
+
+  final StatusBoardRecord item;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final isDone = _isTruthy(item.scheduleDone);
+    final type = item.scheduleType.trim().isEmpty ? '일정' : item.scheduleType;
+    final when = item.sortAt == null
+        ? item.timeLabel
+        : _formatLinkedScheduleDateTime(item.sortAt!);
+    final location = item.locationSummary.trim().isNotEmpty
+        ? item.locationSummary
+        : item.pickupLocation;
+
+    return Material(
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => context.push('/schedule/${item.recordId}'),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: _scheduleTypeColor(type).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  type == '반납'
+                      ? Icons.arrow_downward_rounded
+                      : Icons.arrow_upward_rounded,
+                  color: _scheduleTypeColor(type),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          type,
+                          style: textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (isDone)
+                          Text(
+                            '완료',
+                            style: textTheme.labelSmall?.copyWith(
+                              color: Colors.green.shade700,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      when,
+                      style: textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      _displayValue(location),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Color _scheduleTypeColor(String type) {
+  return type.trim() == '반납'
+      ? const Color(0xFFD32F2F)
+      : const Color(0xFF1976D2);
+}
+
 class _ReservationEditResult {
   const _ReservationEditResult({
     required this.reservationNumber,
@@ -758,7 +911,7 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
       text: reservation.customerPhone,
     );
     _customerBirthDateController = TextEditingController(
-      text: reservation.customerBirthDate,
+      text: _formatBirthDateInput(reservation.customerBirthDate),
     );
     _referralSourceController = TextEditingController(
       text: reservation.referralSource,
@@ -834,71 +987,78 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ReservationEditTextField(
-                  controller: _reservationNumberController,
-                  label: '외부예약번호',
-                ),
-                _ReservationEditTextField(
-                  controller: _customerNameController,
-                  label: '고객명',
-                  validator: _requiredValidator,
-                ),
-                _ReservationEditTextField(
-                  controller: _customerPhoneController,
-                  label: '고객번호',
-                  validator: _phoneValidator,
-                ),
-                _ReservationEditTextField(
-                  controller: _customerBirthDateController,
-                  label: '생년월일',
-                  hintText: '1990-01-31',
-                  validator: _birthDateValidator,
-                ),
-                _ReservationEditTextField(
-                  controller: _referralSourceController,
-                  label: '소개처',
-                ),
-                _ReservationEditTextField(
-                  controller: _paymentAmountController,
-                  label: '가격',
-                  hintText: '100000',
-                  validator: _positiveMoneyValidator,
-                ),
-                _ReservationEditTextField(
-                  controller: _startAtController,
-                  label: '배차일시',
-                  readOnly: true,
-                  validator: _dateTimeValidator,
-                  onTap: () => _pickDateTime(_startAtController),
-                  suffixIcon: const Icon(Icons.calendar_today_outlined),
-                ),
-                _ReservationEditTextField(
-                  controller: _endAtController,
-                  label: '반납일시',
-                  readOnly: true,
-                  validator: _dateTimeValidator,
-                  onTap: () => _pickDateTime(_endAtController),
-                  suffixIcon: const Icon(Icons.calendar_today_outlined),
-                ),
-                _ReservationEditTextField(
-                  controller: _pickupLocationController,
-                  label: '배차지',
-                  validator: _requiredValidator,
-                ),
-                _ReservationEditTextField(
-                  controller: _dropoffLocationController,
-                  label: '반납지',
-                  validator: _requiredValidator,
-                ),
-                _ReservationEditTextField(
-                  controller: _noteController,
-                  label: '메모',
-                  maxLines: 3,
-                ),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _ReservationEditTextField(
+                    controller: _reservationNumberController,
+                    label: '외부예약번호',
+                  ),
+                  _ReservationEditTextField(
+                    controller: _customerNameController,
+                    label: '고객명',
+                    validator: _requiredValidator,
+                  ),
+                  _ReservationEditTextField(
+                    controller: _customerPhoneController,
+                    label: '고객번호',
+                    validator: _phoneValidator,
+                  ),
+                  _ReservationEditTextField(
+                    controller: _customerBirthDateController,
+                    label: '생년월일',
+                    hintText: '1984-11-15',
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      _BirthDateInputFormatter(),
+                    ],
+                    validator: _birthDateValidator,
+                  ),
+                  _ReservationEditTextField(
+                    controller: _referralSourceController,
+                    label: '소개처',
+                  ),
+                  _ReservationEditTextField(
+                    controller: _paymentAmountController,
+                    label: '가격',
+                    hintText: '100000',
+                    validator: _positiveMoneyValidator,
+                  ),
+                  _ReservationEditTextField(
+                    controller: _startAtController,
+                    label: '배차일시',
+                    readOnly: true,
+                    validator: _dateTimeValidator,
+                    onTap: () => _pickDateTime(_startAtController),
+                    suffixIcon: const Icon(Icons.calendar_today_outlined),
+                  ),
+                  _ReservationEditTextField(
+                    controller: _endAtController,
+                    label: '반납일시',
+                    readOnly: true,
+                    validator: _dateTimeValidator,
+                    onTap: () => _pickDateTime(_endAtController),
+                    suffixIcon: const Icon(Icons.calendar_today_outlined),
+                  ),
+                  _ReservationEditTextField(
+                    controller: _pickupLocationController,
+                    label: '배차지',
+                  ),
+                  _ReservationEditTextField(
+                    controller: _dropoffLocationController,
+                    label: '반납지',
+                    validator: _requiredValidator,
+                  ),
+                  _ReservationEditTextField(
+                    controller: _noteController,
+                    label: '메모',
+                    maxLines: 3,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -957,6 +1117,8 @@ class _ReservationEditTextField extends StatelessWidget {
     this.readOnly = false,
     this.onTap,
     this.suffixIcon,
+    this.keyboardType,
+    this.inputFormatters,
   });
 
   final TextEditingController controller;
@@ -967,6 +1129,8 @@ class _ReservationEditTextField extends StatelessWidget {
   final bool readOnly;
   final VoidCallback? onTap;
   final Widget? suffixIcon;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -978,12 +1142,30 @@ class _ReservationEditTextField extends StatelessWidget {
         maxLines: maxLines,
         readOnly: readOnly,
         onTap: onTap,
+        keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
         decoration: InputDecoration(
           labelText: label,
           hintText: hintText,
           suffixIcon: suffixIcon,
         ),
       ),
+    );
+  }
+}
+
+class _BirthDateInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'\D+'), '');
+    final clipped = digits.length > 8 ? digits.substring(0, 8) : digits;
+    final formatted = _formatBirthDateDigits(clipped);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }
@@ -1148,6 +1330,13 @@ String _formatDateTime(DateTime value) {
   return '${two(local.month)}/${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }
 
+String _formatLinkedScheduleDateTime(DateTime value) {
+  final local = value.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+  return '${two(local.month)}/${two(local.day)}(${weekdays[local.weekday - 1]}) ${two(local.hour)}:${two(local.minute)}';
+}
+
 String _formatEditorDateTime(DateTime value) {
   final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
@@ -1173,6 +1362,20 @@ String _formatWon(String value) {
 
 String _normalizeMoneyForStorage(String value) {
   return value.replaceAll(RegExp(r'\D+'), '');
+}
+
+String _formatBirthDateInput(String value) {
+  final digits = value.replaceAll(RegExp(r'\D+'), '');
+  if (digits.length == 8) return _formatBirthDateDigits(digits);
+  return value.trim();
+}
+
+String _formatBirthDateDigits(String digits) {
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) {
+    return '${digits.substring(0, 4)}-${digits.substring(4)}';
+  }
+  return '${digits.substring(0, 4)}-${digits.substring(4, 6)}-${digits.substring(6)}';
 }
 
 String? _requiredValidator(String? value) {
@@ -1224,4 +1427,9 @@ String _formatOptionalDateTime(DateTime? value) {
 String _displayValue(String value) {
   final trimmed = value.trim();
   return trimmed.isEmpty ? '-' : trimmed;
+}
+
+bool _isTruthy(String value) {
+  final normalized = value.trim().toLowerCase();
+  return normalized == 'true' || normalized == '1' || normalized == 'yes';
 }

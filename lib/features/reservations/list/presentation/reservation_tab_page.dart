@@ -235,13 +235,14 @@ class _DateTimeDirectionLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isPickup = direction == _DateDirection.pickup;
-    final arrow = isPickup ? '⇈' : '⇊';
+    final arrow = isPickup ? '↑' : '↓';
     final arrowColor = isPickup
         ? const Color(0xFF1976D2)
         : const Color(0xFFD32F2F);
     final style = Theme.of(context).textTheme.labelMedium?.copyWith(
       fontWeight: FontWeight.w800,
       color: timeColor,
+      height: 1.0,
     );
 
     return FittedBox(
@@ -256,6 +257,8 @@ class _DateTimeDirectionLine extends StatelessWidget {
             style: style?.copyWith(
               color: arrowColor,
               fontWeight: FontWeight.w900,
+              fontSize: (style.fontSize ?? 12) + 3,
+              height: 0.9,
             ),
           ),
           const SizedBox(width: 2),
