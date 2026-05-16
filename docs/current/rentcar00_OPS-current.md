@@ -8,16 +8,16 @@
 ---
 
 ## 현재 active 작업
-**입력 UX 실기기 QA 및 b30 빌드 판단 대기**
+**b30 실기기 QA 대기**
 
 ## 목적
-예약/일정 입력 UX 공통 정리 구현이 실제 기기에서도 의도대로 동작하는지 확인하고, 문제가 없으면 최신 HEAD 기준 APK를 새 build number로 빌드한다.
+최신 APK가 실제 기기에서 입력 UX와 기존 예약/IMS 흐름을 깨지 않는지 확인한다.
 
 ## 현재 기준
-- 입력 UX 구현은 코드 반영 및 자동 검증 완료.
-- 빌드/APK는 아직 하지 않았다.
-- 최신 업로드 APK는 `b29-f5bd85c` 기준이다.
-- 최신 HEAD 기준 APK는 아직 없다.
+- 최신 앱 커밋: `78dcd51 Bump Android build number to 30`
+- 최신 기능 커밋: `7d2ca93 Improve reservation input formatting`
+- 최신 업로드 APK: `rentcar00_ops-app-release-arm64-b30-78dcd51.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
 
 ## 실기기 QA 포인트
 1. 예약수정
@@ -39,8 +39,8 @@
    - 일정 수정 후 연결 예약 동기화 유지
 
 ## 다음 결정
-- 실기기 QA 후 문제가 없으면 build number 30으로 올리고 arm64 release APK를 빌드/업로드한다.
-- 문제가 있으면 입력 formatter UX를 먼저 보정한다.
+- 실기기 QA에서 문제가 없으면 이 APK를 현장 테스트 기준으로 둔다.
+- 문제가 있으면 입력 formatter UX를 보정하고 b31로 재빌드한다.
 
 ## 리스크
 - 일시 입력 중 커서 중간 수정 UX는 실기기에서 확인이 필요하다.

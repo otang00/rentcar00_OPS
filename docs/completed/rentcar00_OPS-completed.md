@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-05-16 — 입력 UX b30 APK 빌드/업로드 완료
+### 사용자 표면
+- 입력 UX 개선분이 포함된 b30 APK를 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `29 → 30`으로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 커밋: `78dcd51 Bump Android build number to 30`
+- APK: `rentcar00_ops-app-release-arm64-b30-78dcd51.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,708,190 bytes`
+
+### 검증
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b30-78dcd51.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 실기기 설치 후 앱 실행이 정상인지
+2. 예약/일정 입력 formatter가 모바일 키보드에서 어색하지 않은지
+3. IMS 등록 흐름이 기존처럼 동작하는지
+4. 날짜만 입력한 예약/일정이 `10:00`으로 저장되는지
+
 ## 2026-05-16 — 예약/일정 입력 UX 공통 정리 완료
 ### 사용자 표면
 - 전화번호 입력 중 자동 하이픈이 붙는다.
