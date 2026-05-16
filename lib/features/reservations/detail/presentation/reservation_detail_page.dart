@@ -9,6 +9,7 @@ import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
+import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
 import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
 
 class ReservationDetailPage extends ConsumerWidget {
@@ -908,10 +909,10 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
       text: reservation.customerName,
     );
     _customerPhoneController = TextEditingController(
-      text: reservation.customerPhone,
+      text: opsFormatPhoneInput(reservation.customerPhone),
     );
     _customerBirthDateController = TextEditingController(
-      text: _formatBirthDateInput(reservation.customerBirthDate),
+      text: opsFormatBirthDateInput(reservation.customerBirthDate),
     );
     _referralSourceController = TextEditingController(
       text: reservation.referralSource,
@@ -980,6 +981,7 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final reservation = widget.reservation;
     return AlertDialog(
       title: const Text('예약 수정'),
       content: SizedBox(
@@ -1004,6 +1006,8 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
                   _ReservationEditTextField(
                     controller: _customerPhoneController,
                     label: '고객번호',
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: [OpsPhoneInputFormatter()],
                     validator: _phoneValidator,
                   ),
                   _ReservationEditTextField(
@@ -1011,10 +1015,7 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
                     label: '생년월일',
                     hintText: '1984-11-15',
                     keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      _BirthDateInputFormatter(),
-                    ],
+                    inputFormatters: [OpsBirthDateInputFormatter()],
                     validator: _birthDateValidator,
                   ),
                   _ReservationEditTextField(
@@ -1030,18 +1031,32 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
                   _ReservationEditTextField(
                     controller: _startAtController,
                     label: '배차일시',
-                    readOnly: true,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      OpsDateTimeInputFormatter(
+                        defaultYear: reservation.startAt.year,
+                      ),
+                    ],
                     validator: _dateTimeValidator,
-                    onTap: () => _pickDateTime(_startAtController),
-                    suffixIcon: const Icon(Icons.calendar_today_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () => _pickDateTime(_startAtController),
+                      icon: const Icon(Icons.calendar_today_outlined),
+                    ),
                   ),
                   _ReservationEditTextField(
                     controller: _endAtController,
                     label: '반납일시',
-                    readOnly: true,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      OpsDateTimeInputFormatter(
+                        defaultYear: reservation.endAt.year,
+                      ),
+                    ],
                     validator: _dateTimeValidator,
-                    onTap: () => _pickDateTime(_endAtController),
-                    suffixIcon: const Icon(Icons.calendar_today_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () => _pickDateTime(_endAtController),
+                      icon: const Icon(Icons.calendar_today_outlined),
+                    ),
                   ),
                   _ReservationEditTextField(
                     controller: _pickupLocationController,
@@ -1073,8 +1088,12 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
             if (!_formKey.currentState!.validate()) return;
             final startAt = _tryParseEditorDateTime(
               _startAtController.text.trim(),
+              fallback: widget.reservation.startAt,
             );
-            final endAt = _tryParseEditorDateTime(_endAtController.text.trim());
+            final endAt = _tryParseEditorDateTime(
+              _endAtController.text.trim(),
+              fallback: widget.reservation.endAt,
+            );
             if (startAt == null || endAt == null) return;
             if (!endAt.isAfter(startAt)) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -1082,12 +1101,18 @@ class _ReservationEditDialogState extends State<_ReservationEditDialog> {
               );
               return;
             }
+            _startAtController.text = _formatEditorDateTime(startAt);
+            _endAtController.text = _formatEditorDateTime(endAt);
             Navigator.of(context).pop(
               _ReservationEditResult(
                 reservationNumber: _reservationNumberController.text.trim(),
                 customerName: _customerNameController.text.trim(),
-                customerPhone: _customerPhoneController.text.trim(),
-                customerBirthDate: _customerBirthDateController.text.trim(),
+                customerPhone: opsNormalizePhoneForStorage(
+                  _customerPhoneController.text,
+                ),
+                customerBirthDate: opsNormalizeBirthDateForStorage(
+                  _customerBirthDateController.text,
+                ),
                 referralSource: _referralSourceController.text.trim(),
                 paymentAmount: _normalizeMoneyForStorage(
                   _paymentAmountController.text,
@@ -1114,8 +1139,6 @@ class _ReservationEditTextField extends StatelessWidget {
     this.hintText,
     this.validator,
     this.maxLines = 1,
-    this.readOnly = false,
-    this.onTap,
     this.suffixIcon,
     this.keyboardType,
     this.inputFormatters,
@@ -1126,8 +1149,6 @@ class _ReservationEditTextField extends StatelessWidget {
   final String? hintText;
   final String? Function(String?)? validator;
   final int maxLines;
-  final bool readOnly;
-  final VoidCallback? onTap;
   final Widget? suffixIcon;
   final TextInputType? keyboardType;
   final List<TextInputFormatter>? inputFormatters;
@@ -1140,8 +1161,6 @@ class _ReservationEditTextField extends StatelessWidget {
         controller: controller,
         validator: validator,
         maxLines: maxLines,
-        readOnly: readOnly,
-        onTap: onTap,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,
         decoration: InputDecoration(
@@ -1150,22 +1169,6 @@ class _ReservationEditTextField extends StatelessWidget {
           suffixIcon: suffixIcon,
         ),
       ),
-    );
-  }
-}
-
-class _BirthDateInputFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    final digits = newValue.text.replaceAll(RegExp(r'\D+'), '');
-    final clipped = digits.length > 8 ? digits.substring(0, 8) : digits;
-    final formatted = _formatBirthDateDigits(clipped);
-    return TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }
@@ -1338,15 +1341,11 @@ String _formatLinkedScheduleDateTime(DateTime value) {
 }
 
 String _formatEditorDateTime(DateTime value) {
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return opsFormatEditorDateTime(value);
 }
 
-DateTime? _tryParseEditorDateTime(String value) {
-  final raw = value.trim();
-  if (raw.isEmpty) return null;
-  return DateTime.tryParse(raw.replaceFirst(' ', 'T'));
+DateTime? _tryParseEditorDateTime(String value, {DateTime? fallback}) {
+  return opsTryParseEditorDateTime(value, fallback: fallback);
 }
 
 String _formatWon(String value) {
@@ -1364,29 +1363,14 @@ String _normalizeMoneyForStorage(String value) {
   return value.replaceAll(RegExp(r'\D+'), '');
 }
 
-String _formatBirthDateInput(String value) {
-  final digits = value.replaceAll(RegExp(r'\D+'), '');
-  if (digits.length == 8) return _formatBirthDateDigits(digits);
-  return value.trim();
-}
-
-String _formatBirthDateDigits(String digits) {
-  if (digits.length <= 4) return digits;
-  if (digits.length <= 6) {
-    return '${digits.substring(0, 4)}-${digits.substring(4)}';
-  }
-  return '${digits.substring(0, 4)}-${digits.substring(4, 6)}-${digits.substring(6)}';
-}
-
 String? _requiredValidator(String? value) {
   if (value == null || value.trim().isEmpty) return '필수 입력입니다';
   return null;
 }
 
 String? _phoneValidator(String? value) {
-  final digits = (value ?? '').replaceAll(RegExp(r'\D+'), '');
-  if (!RegExp(r'^\d{10,11}$').hasMatch(digits)) {
-    return '숫자 10~11자리로 입력해 주세요';
+  if (!opsIsValidPhoneForStorage(value ?? '')) {
+    return '전화번호 형식을 확인해 주세요';
   }
   return null;
 }
@@ -1399,7 +1383,7 @@ String? _positiveMoneyValidator(String? value) {
 
 String? _dateTimeValidator(String? value) {
   if (_tryParseEditorDateTime(value ?? '') == null) {
-    return 'YYYY-MM-DD HH:mm 형식으로 입력해 주세요';
+    return '예: 2026-05-17 10:00';
   }
   return null;
 }
@@ -1407,13 +1391,7 @@ String? _dateTimeValidator(String? value) {
 String? _birthDateValidator(String? value) {
   final text = (value ?? '').trim();
   if (text.isEmpty) return null;
-  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(text);
-  if (match == null) return 'YYYY-MM-DD 형식으로 입력해 주세요';
-  final year = int.parse(match.group(1)!);
-  final month = int.parse(match.group(2)!);
-  final day = int.parse(match.group(3)!);
-  final parsed = DateTime(year, month, day);
-  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+  if (!opsIsCompleteBirthDate(text)) {
     return '실제 날짜를 입력해 주세요';
   }
   return null;

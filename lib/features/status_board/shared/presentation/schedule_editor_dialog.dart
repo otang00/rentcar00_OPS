@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
 
 class ScheduleEditorDialog extends StatefulWidget {
   const ScheduleEditorDialog({
@@ -47,7 +49,9 @@ class _ScheduleEditorDialogState extends State<ScheduleEditorDialog> {
         ? widget.initialType.trim()
         : _scheduleTypes.first;
     _scheduleAtController = TextEditingController(
-      text: formatScheduleEditorDateTime(initial),
+      text: widget.initialScheduleAt == null
+          ? opsYearPrefix(initial)
+          : formatScheduleEditorDateTime(initial),
     );
     _carNumberController = TextEditingController(text: widget.initialCarNumber);
     _carNameController = TextEditingController(text: widget.initialCarName);
@@ -131,9 +135,14 @@ class _ScheduleEditorDialogState extends State<ScheduleEditorDialog> {
                   controller: _scheduleAtController,
                   label: '일정시각',
                   validator: scheduleDateTimeValidator,
-                  readOnly: true,
-                  onTap: _pickDateTime,
-                  suffixIcon: const Icon(Icons.calendar_today_outlined),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    OpsDateTimeInputFormatter(defaultYear: DateTime.now().year),
+                  ],
+                  suffixIcon: IconButton(
+                    onPressed: _pickDateTime,
+                    icon: const Icon(Icons.calendar_today_outlined),
+                  ),
                 ),
                 _ScheduleDialogTextField(
                   controller: _carNumberController,
@@ -169,6 +178,9 @@ class _ScheduleEditorDialogState extends State<ScheduleEditorDialog> {
               _scheduleAtController.text.trim(),
             );
             if (scheduleAt == null) return;
+            _scheduleAtController.text = formatScheduleEditorDateTime(
+              scheduleAt,
+            );
             Navigator.of(context).pop(
               ScheduleEditorResult(
                 scheduleType: _scheduleType,
@@ -193,8 +205,8 @@ class _ScheduleDialogTextField extends StatelessWidget {
     required this.label,
     this.validator,
     this.maxLines = 1,
-    this.readOnly = false,
-    this.onTap,
+    this.keyboardType,
+    this.inputFormatters,
     this.suffixIcon,
   });
 
@@ -202,8 +214,8 @@ class _ScheduleDialogTextField extends StatelessWidget {
   final String label;
   final String? Function(String?)? validator;
   final int maxLines;
-  final bool readOnly;
-  final VoidCallback? onTap;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
   final Widget? suffixIcon;
 
   @override
@@ -214,8 +226,8 @@ class _ScheduleDialogTextField extends StatelessWidget {
         controller: controller,
         validator: validator,
         maxLines: maxLines,
-        readOnly: readOnly,
-        onTap: onTap,
+        keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
         decoration: InputDecoration(labelText: label, suffixIcon: suffixIcon),
       ),
     );
@@ -241,15 +253,11 @@ class ScheduleEditorResult {
 }
 
 String formatScheduleEditorDateTime(DateTime value) {
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return opsFormatEditorDateTime(value);
 }
 
 DateTime? tryParseScheduleDateTime(String value) {
-  final normalized = value.trim();
-  if (normalized.isEmpty) return null;
-  return DateTime.tryParse(normalized.replaceFirst(' ', 'T'));
+  return opsTryParseEditorDateTime(value);
 }
 
 String? scheduleDateTimeValidator(String? value) {

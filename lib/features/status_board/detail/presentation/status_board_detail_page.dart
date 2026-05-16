@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
@@ -11,6 +12,7 @@ import 'package:rentcar00_ops/features/status_board/detail/data/reservation_ai_p
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/features/status_board/shared/presentation/schedule_editor_dialog.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
+import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
 import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
 
 const _parkingLocationOptions = [
@@ -1279,10 +1281,8 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
     _pickupLocationController = TextEditingController();
     _dropoffLocationController = TextEditingController();
     _noteController = TextEditingController();
-    _startAtController = TextEditingController(
-      text: _formatEditorDateTime(start),
-    );
-    _endAtController = TextEditingController(text: _formatEditorDateTime(end));
+    _startAtController = TextEditingController(text: opsYearPrefix(start));
+    _endAtController = TextEditingController(text: opsYearPrefix(end));
   }
 
   Future<void> _openAiParserInput() async {
@@ -1336,8 +1336,18 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
 
     fillIfNotEmpty(_reservationNumberController, fields.reservationNumber);
     fillIfNotEmpty(_customerNameController, fields.customerName);
-    fillIfNotEmpty(_customerPhoneController, fields.customerPhone);
-    fillIfNotEmpty(_customerBirthDateController, fields.birthDate);
+    fillIfNotEmpty(
+      _customerPhoneController,
+      fields.customerPhone == null
+          ? null
+          : opsFormatPhoneInput(fields.customerPhone!),
+    );
+    fillIfNotEmpty(
+      _customerBirthDateController,
+      fields.birthDate == null
+          ? null
+          : opsFormatBirthDateInput(fields.birthDate!),
+    );
     fillIfNotEmpty(_referralSourceController, fields.referrer);
     fillIfNotEmpty(_paymentAmountController, fields.price);
     fillIfNotEmpty(_pickupLocationController, fields.pickupLocation);
@@ -1472,12 +1482,16 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                   _DialogTextField(
                     controller: _customerPhoneController,
                     label: '고객번호',
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: [OpsPhoneInputFormatter()],
                     validator: _phoneValidator,
                   ),
                   _DialogTextField(
                     controller: _customerBirthDateController,
                     label: '생년월일',
                     hintText: '1990-01-31',
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [OpsBirthDateInputFormatter()],
                     validator: _birthDateValidator,
                   ),
                   _DialogTextField(
@@ -1493,20 +1507,34 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                   _DialogTextField(
                     controller: _startAtController,
                     label: '배차일시',
-                    hintText: '2026-05-11 10:00',
+                    hintText: '2026-05171030',
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      OpsDateTimeInputFormatter(
+                        defaultYear: DateTime.now().year,
+                      ),
+                    ],
                     validator: _dateTimeValidator,
-                    readOnly: true,
-                    onTap: () => _pickDateTime(_startAtController),
-                    suffixIcon: const Icon(Icons.calendar_today_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () => _pickDateTime(_startAtController),
+                      icon: const Icon(Icons.calendar_today_outlined),
+                    ),
                   ),
                   _DialogTextField(
                     controller: _endAtController,
                     label: '반납일시',
-                    hintText: '2026-05-12 10:00',
+                    hintText: '2026-05181030',
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      OpsDateTimeInputFormatter(
+                        defaultYear: DateTime.now().year,
+                      ),
+                    ],
                     validator: _dateTimeValidator,
-                    readOnly: true,
-                    onTap: () => _pickDateTime(_endAtController),
-                    suffixIcon: const Icon(Icons.calendar_today_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () => _pickDateTime(_endAtController),
+                      icon: const Icon(Icons.calendar_today_outlined),
+                    ),
                   ),
                   _DialogTextField(
                     controller: _pickupLocationController,
@@ -1565,6 +1593,8 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
               );
               return;
             }
+            _startAtController.text = _formatEditorDateTime(startAt);
+            _endAtController.text = _formatEditorDateTime(endAt);
             final result = _ReservationCreateFormResult(
               car: selectedCar,
               reservationNumber: _reservationNumberController.text.trim(),
@@ -1675,7 +1705,7 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
       text: widget.record.customerName,
     );
     _customerPhoneController = TextEditingController(
-      text: widget.record.customerPhone,
+      text: opsFormatPhoneInput(widget.record.customerPhone),
     );
     _pickupLocationController = TextEditingController(
       text: widget.record.pickupLocation,
@@ -1684,8 +1714,17 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
       text: widget.record.parkingLocation,
     );
     _noteController = TextEditingController(text: widget.record.noteText);
-    _startAtController = TextEditingController(text: widget.record.startAt);
-    _endAtController = TextEditingController(text: widget.record.endAt);
+    final now = DateTime.now();
+    _startAtController = TextEditingController(
+      text: widget.record.startAt.trim().isEmpty
+          ? opsYearPrefix(now)
+          : widget.record.startAt,
+    );
+    _endAtController = TextEditingController(
+      text: widget.record.endAt.trim().isEmpty
+          ? opsYearPrefix(now)
+          : widget.record.endAt,
+    );
   }
 
   @override
@@ -1808,17 +1847,27 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                 _DialogTextField(
                   controller: _customerPhoneController,
                   label: '고객번호',
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [OpsPhoneInputFormatter()],
                 ),
                 _DialogTextField(
                   controller: _startAtController,
                   label: '대여일시',
-                  hintText: '2026-05-11 10:00',
+                  hintText: '2026-05171030',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    OpsDateTimeInputFormatter(defaultYear: DateTime.now().year),
+                  ],
                   validator: _requiresTripFields ? _requiredValidator : null,
                 ),
                 _DialogTextField(
                   controller: _endAtController,
                   label: '반납일시',
-                  hintText: '2026-05-12 10:00',
+                  hintText: '2026-05181030',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    OpsDateTimeInputFormatter(defaultYear: DateTime.now().year),
+                  ],
                   validator: _requiresTripFields ? _requiredValidator : null,
                 ),
                 _DialogTextField(
@@ -1859,6 +1908,12 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
               );
               return;
             }
+            if (startAt != null) {
+              _startAtController.text = _formatEditorDateTime(startAt);
+            }
+            if (endAt != null) {
+              _endAtController.text = _formatEditorDateTime(endAt);
+            }
             Navigator.of(context).pop(
               _InstantStatusFormResult(
                 status: _selectedStatus,
@@ -1866,7 +1921,9 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                     ? _dispatchStatusAction(_selectedStatus)
                     : widget.statusAction,
                 customerName: _customerNameController.text.trim(),
-                customerPhone: _customerPhoneController.text.trim(),
+                customerPhone: _normalizePhoneForStorage(
+                  _customerPhoneController.text,
+                ),
                 startAt: startAt,
                 endAt: endAt,
                 pickupLocation: _pickupLocationController.text.trim(),
@@ -2583,6 +2640,7 @@ class _DialogTextField extends StatelessWidget {
     this.autofocus = false,
     this.readOnly = false,
     this.keyboardType,
+    this.inputFormatters,
     this.onTap,
     this.suffixIcon,
   });
@@ -2595,6 +2653,7 @@ class _DialogTextField extends StatelessWidget {
   final bool autofocus;
   final bool readOnly;
   final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
   final VoidCallback? onTap;
   final Widget? suffixIcon;
 
@@ -2609,6 +2668,7 @@ class _DialogTextField extends StatelessWidget {
         maxLines: maxLines,
         readOnly: readOnly,
         keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
         onTap: onTap,
         decoration: InputDecoration(
           labelText: label,
@@ -2827,16 +2887,11 @@ class _InstantStatusFormResult {
 }
 
 String _formatEditorDateTime(DateTime value) {
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return opsFormatEditorDateTime(value);
 }
 
 DateTime? _tryParseDateTime(String value) {
-  final raw = value.trim();
-  if (raw.isEmpty) return null;
-  return DateTime.tryParse(raw.replaceFirst(' ', 'T')) ??
-      DateTime.tryParse(raw);
+  return opsTryParseEditorDateTime(value);
 }
 
 String? _requiredValidator(String? value) {
@@ -2851,7 +2906,7 @@ String? _dateTimeValidator(String? value) {
     return '필수 입력입니다.';
   }
   if (_tryParseDateTime(value) == null) {
-    return '예: 2026-05-11 10:00';
+    return '예: 2026-05-17 10:00';
   }
   return null;
 }
@@ -2859,8 +2914,8 @@ String? _dateTimeValidator(String? value) {
 String? _phoneValidator(String? value) {
   final digits = _normalizePhoneForStorage(value ?? '');
   if (digits.isEmpty) return '필수 입력입니다.';
-  if (!RegExp(r'^\d{10,11}$').hasMatch(digits)) {
-    return '숫자 10~11자리로 입력하세요.';
+  if (!opsIsValidPhoneForStorage(digits)) {
+    return '전화번호 형식을 확인하세요.';
   }
   return null;
 }
@@ -2876,15 +2931,9 @@ String? _positiveMoneyValidator(String? value) {
 }
 
 String? _birthDateValidator(String? value) {
-  final normalized = _normalizeBirthDateForStorage(value ?? '');
-  if (normalized.isEmpty) return '필수 입력입니다.';
-  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(normalized);
-  if (match == null) return '예: 1990-01-31';
-  final year = int.parse(match.group(1)!);
-  final month = int.parse(match.group(2)!);
-  final day = int.parse(match.group(3)!);
-  final parsed = DateTime(year, month, day);
-  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+  final text = (value ?? '').trim();
+  if (text.isEmpty) return '필수 입력입니다.';
+  if (!opsIsCompleteBirthDate(text)) {
     return '실제 날짜를 입력하세요.';
   }
   return null;
@@ -2897,7 +2946,7 @@ String? _extractRawRowId(String recordId, String prefix) {
 }
 
 String _normalizePhoneForStorage(String value) {
-  return value.replaceAll(RegExp(r'\D+'), '');
+  return opsNormalizePhoneForStorage(value);
 }
 
 String _normalizeMoneyForStorage(String value) {
@@ -2905,22 +2954,7 @@ String _normalizeMoneyForStorage(String value) {
 }
 
 String _normalizeBirthDateForStorage(String value) {
-  final trimmed = value.trim();
-  if (trimmed.isEmpty) return '';
-
-  final digits = trimmed.replaceAll(RegExp(r'\D+'), '');
-  if (digits.length == 8) {
-    return '${digits.substring(0, 4)}-${digits.substring(4, 6)}-${digits.substring(6, 8)}';
-  }
-  if (digits.length == 6) {
-    final currentYearTwoDigits = DateTime.now().year % 100;
-    final yy = int.tryParse(digits.substring(0, 2));
-    if (yy == null) return trimmed;
-    final year = yy <= currentYearTwoDigits ? 2000 + yy : 1900 + yy;
-    return '$year-${digits.substring(2, 4)}-${digits.substring(4, 6)}';
-  }
-
-  return trimmed.replaceAll(RegExp(r'[./]'), '-');
+  return opsNormalizeBirthDateForStorage(value);
 }
 
 String _normalizeEditableStatus(String status) {

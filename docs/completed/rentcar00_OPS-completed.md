@@ -5,6 +5,90 @@
 
 ---
 
+## 2026-05-16 — 예약/일정 입력 UX 공통 정리 완료
+### 사용자 표면
+- 전화번호 입력 중 자동 하이픈이 붙는다.
+- 생년월일은 숫자 입력만으로 `YYYY-MM-DD` 형식이 된다.
+- 배차/반납/일정 일시는 연도 prefix 기준으로 숫자를 입력하면 자동 포맷된다.
+- 날짜만 입력한 예약성 일시는 `10:00`으로 보정된다.
+- 기타 일정도 날짜만 입력하면 `10:00`으로 보정된다.
+
+### 실제 동작
+- 공통 입력 formatter를 `lib/shared/input/ops_input_formatters.dart`에 추가했다.
+- 전화번호는 화면에서 하이픈 표시, 저장 시 숫자만 유지한다.
+- 생년월일은 실제 날짜까지 완성된 값만 저장 허용한다.
+- 예약수정에서 날짜만 바꾸면 기존 시간을 유지한다.
+- 예약생성/즉시배차/일정 생성·수정에서 날짜만 입력하면 `10:00`을 붙인다.
+- IMS payload 저장/검증 규칙은 변경하지 않았다.
+
+### 핵심 파일
+- `lib/shared/input/ops_input_formatters.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/status_board/shared/presentation/schedule_editor_dialog.dart`
+- `test/ops_input_formatters_test.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. 실기기 키보드에서 자동 하이픈/날짜 포맷이 입력 흐름을 방해하지 않는지
+2. 날짜만 입력 후 저장 시 화면과 저장값이 `10:00`으로 맞는지
+3. 예약수정에서 날짜만 바꿀 때 기존 시간이 유지되는지
+4. 기타 일정 날짜만 입력 시 `10:00`으로 저장되는지
+5. IMS 체크 예약에서 전화번호 10~11자리 검증이 그대로 동작하는지
+
+### 남은 주의점
+- 최신 HEAD 기준 APK는 아직 빌드하지 않았다.
+- 다음 APK는 build number 30으로 진행하는 것이 자연스럽다.
+
+## 2026-05-16 — 예약/일정/차량 lifecycle + 상세 UX 정리 완료
+### 사용자 표면
+- 일정 완료/수정 시 연결 예약과 차량 상태가 함께 맞춰진다.
+- 예약 상세에서 예약 내용을 수정할 수 있고, 연결 일정도 같이 갱신된다.
+- 대기 차량 상세의 배차/세차/주차 기능이 단순해졌다.
+- 예약 상세 기능카드 아래에 연결 일정 카드가 보이고, 카드를 누르면 해당 일정 상세로 이동한다.
+- 카드 시간 화살표는 큰 단일 화살표 `↑/↓`로 보인다.
+
+### 실제 동작
+- 배차 일정 완료 시 예약 상태를 `배차중`, 예약 탭을 `in_use`로 갱신한다.
+- 반납 일정 완료 시 예약 상태를 `완료`, 예약 탭을 `completed`로 갱신하고 차량을 대기중 기준으로 초기화한다.
+- 일정 수정 시 배차/반납 일시와 위치를 연결 예약에 동기화한다.
+- 예약 수정 저장 시 예약 row와 연결된 배차/반납 일정이 함께 갱신된다.
+- 대기 차량 상세는 `배차` 단일 버튼 안에서 보험/일반/장기를 선택한다.
+- `세차` 단일 버튼 안에서 외부세차/실내세차를 선택한다.
+- 주차 직접추가 입력은 `직접추가` 버튼을 눌렀을 때만 표시된다.
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/reservations/list/presentation/reservation_tab_page.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/ims_reservation_payload_test.dart` 통과
+- `git diff --check` 통과
+- 관련 커밋:
+  - `2ab57e3 Sync schedules with reservations on lifecycle changes`
+  - `dd6998e Add reservation detail edit flow`
+  - `5c5fe71 Phase 3 idle vehicle detail cleanup`
+  - `3e056ae Polish reservation detail schedule UX`
+
+### 1차 장애 확인 포인트
+1. 배차 일정 완료 후 예약이 배차중 탭으로 이동하는지
+2. 반납 일정 완료 후 예약이 완료 탭으로 이동하고 차량이 대기중으로 보이는지
+3. 예약 수정 후 연결 일정의 날짜/위치가 함께 바뀌는지
+4. 대기 차량 배차/세차/주차 UX가 실기기에서 어색하지 않은지
+5. 예약 상세 연결 일정 카드 탭 시 올바른 일정 상세로 진입하는지
+
+### 남은 주의점
+- 최신 APK는 `b29-f5bd85c` 기준으로 업로드되어 있다.
+- `3e056ae` UX 보정은 b29 업로드 이후 커밋이므로, 최신 HEAD 기준 APK는 아직 다시 빌드하지 않았다.
+
 
 ## 2026-05-16 — IMS API 직결 등록 + APK b28 재배포 완료
 ### 사용자 표면
