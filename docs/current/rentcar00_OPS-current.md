@@ -1,332 +1,186 @@
 # rentcar00_OPS Current
 
 ## 문서 역할
-이 문서는 `rentcar00_OPS`의 **현재 실행 문서**다.
-현재 진행 중인 IMS 등록/삭제/가져오기 기준만 유지한다.
-완료 이력은 `docs/completed/` 또는 `docs/past/`로 옮긴다.
+이 문서는 `rentcar00_OPS`의 **유일한 현재 active 실행 문서**다.
+현재 실행 중인 작업 1건만 적는다.
+프로젝트 전체 기준/과거 정책 문서는 `docs/past/current-archive-2026-05-16/` 및 `docs/completed/`로 보관한다.
 
 ---
 
-## 현재 실행 작업
-**IMS 등록 정보 정리 → 예약생성 시 IMS 등록 저장 → 예약취소/삭제 시 IMS 삭제 옵션 → IMS에서 가져오기**
+## 현재 active 작업
+**예약원장 ↔ 일정 ↔ 차량상태 lifecycle 연동 + 예약/차량 상세 UX 정리**
+
+## 목적
+예약원장, 일정, 차량 현황이 따로 움직이지 않게 한다.
+운영자가 일정 완료/수정 또는 예약 수정 중 하나만 처리해도 연결된 데이터가 같이 맞춰지도록 한다.
 
 ## 핵심 기준
-OPS 예약과 IMS 예약은 실시간 동기화하지 않는다.
-OPS에는 IMS 예약의 `schedule_id`를 **등록 정보**로 저장한다.
-
-`IMS등록됨`의 의미:
-- OPS가 IMS `schedule_id`를 알고 있음
-- IMS 예약이 현재도 IMS에 존재한다는 보장은 아님
-- 관리자가 IMS에서 직접 삭제해도 OPS는 자동 감지하지 않음
-
-따라서 화면 용어는 **IMS 등록 정보**로 쓴다.
+1. 예약원장이 기준 데이터다.
+2. 일정은 예약 lifecycle의 실행 이벤트다.
+3. 차량 현황은 실제 운영 상태 표면이다.
+4. 연결된 예약/일정이 있으면 한쪽 수정이 다른 쪽에 반영되어야 한다.
+5. 자동 반영 대상이 없거나 중복이면 임의 추정하지 않고 중단/오류 표시한다.
+6. 빌드는 별도 지시 전까지 하지 않는다.
 
 ---
 
-## 확정 정책
+## 전체 Phase 잠금
 
-### 1. 예약 상세 IMS 상태
-#### 미등록
-- 기능 카드: `IMS추가`
-- `IMS 등록 정보` 섹션:
-  - 상태: `미등록`
-  - 안내: `IMS 예약을 새로 추가할 수 있습니다.`
-  - 버튼: `IMS추가`
-
-#### 등록됨
-- 기능 카드: `IMS등록됨` 비활성
-- `IMS 등록 정보` 섹션:
-  - 상태: `IMS등록됨`
-  - IMS ID: `schedule_id`
-  - detail ID: export `detail_id`
-  - 등록키: `OPS:{reservation_id}`
-  - 마지막 등록/확인시각
-  - 버튼: `등록해제`
-
-#### 등록실패 / 등록해제 / 삭제됨
-- 미등록처럼 취급한다.
-- `IMS추가`만 다시 실행할 수 있다.
-- 오류 메시지가 있으면 `IMS 등록 정보` 섹션에 표시한다.
-
-### 2. `등록해제`
-- IMS 예약을 삭제하지 않는다.
-- OPS에 저장된 IMS 등록 정보만 `external_status='unlinked'`로 변경한다.
-- 이후 사용자는 다시 `IMS추가`를 실행할 수 있다.
-
-### 3. 수동 IMS 연결 제거
-아래 기능은 만들지 않는다.
-- 기존 IMS 예약을 현재 OPS 예약에 수동으로 붙이기
-- 차량번호로 IMS 예약을 조회해서 현재 OPS 예약에 연결하기
-- 자동 추천 매칭 / 수동 선택 연결
-
-운영 기준:
-- OPS 예약을 만들었는데 IMS에 이미 예약이 있어 `IMS추가`가 막히면, 관리자가 IMS에 직접 들어가 기존 예약을 정리한다.
-- 그 다음 OPS에서 `IMS추가`를 다시 실행한다.
-
-### 4. 예약취소/삭제 시 IMS 삭제 옵션
-일반 예약 상세 화면에는 IMS 삭제 버튼을 두지 않는다.
-
-예약취소/삭제 확인창에서만:
-- IMS 등록 정보가 active일 때 `IMS 예약도 같이 삭제` 체크박스를 표시한다.
-- 기본값은 체크 해제다.
-
-체크한 경우:
-1. 내부 예약취소/삭제 진행
-2. IMS `schedule_id`로 IMS 예약 삭제 시도
-3. IMS 삭제 성공 시 `external_status='deleted'`, `deleted_at` 기록
-4. IMS 삭제 실패해도 내부 예약취소/삭제는 유지
-5. 실패 메시지를 등록 정보에 기록
-
-체크하지 않은 경우:
-1. 내부 예약취소/삭제만 진행
-2. IMS 예약은 그대로 둔다
-3. OPS IMS 등록 정보는 `external_status='unlinked'`로 해제 처리한다.
-
-### 5. IMS에서 가져오기
-이 기능은 “기존 OPS 예약에 IMS 예약을 붙이는 기능”이 아니다.
-
-정확한 의미:
-- IMS 예약 목록에서 1건 선택
-- 그 IMS 예약 정보를 기준으로 **새 OPS 예약을 생성**
-- 저장 시 내부 예약 + 일정 + IMS 등록 정보를 함께 생성
-
-즉, IMS 기준 예약이 이미 있으면 `IMS에서 가져오기`로 OPS 예약을 새로 만드는 게 정석이다.
-
----
-
-## 현재 확인된 구조
-
-### 앱 코드
-- IMS payload builder
-  `lib/features/reservations/detail/data/ims_reservation_payload.dart`
-- IMS client
-  `lib/features/reservations/detail/data/ims_reservation_client.dart`
-- 예약 상세 IMS UI
-  `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
-- 예약 생성 flow
-  `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
-- Supabase repository
-  `lib/data/repositories/supabase_ops_repository.dart`
-- IMS 등록 정보 model
-  `lib/data/models/external_reservation_link.dart`
-
-### IMS 중간서버
-- 서버 위치: `reservation_ai_parser/src/server.js`
-- 현재 endpoint:
-  - `GET /health`
-  - `POST /parse-reservation`
-  - `POST /ims/create-reservation`
-
-### IMS API
-- 매뉴얼: `/Users/otang_server/.openclaw/workspace/IMS_API_MANUAL.md`
-- Auth:
-  - `POST https://api.rencar.co.kr/auth`
-  - 이후 `Authorization: JWT <token>` 사용
-- 차량 조회:
-  - `GET https://api.rencar.co.kr/v2/rent-company-cars/available`
-  - 차량번호/시간대 기준으로 IMS `car_id` 확보
-- 예약 생성:
-  - `POST https://api.rencar.co.kr/v2/company-car-schedules`
-- 예약 삭제:
-  - `POST https://api.rencar.co.kr/v2/company-car-schedules/delete`
-  - body: `{ ids: [scheduleId] }`
-- Playwright 생성 flow는 직접 API 실패 시 조사/폴백용으로만 본다.
-
----
-
-## IMS 등록 정보 저장 방식
-
-테이블:
-`rc00_ops_external_reservation_links`
-
-주요 컬럼:
-- `reservation_id`: OPS 예약 문자열 ID
-- `reservation_ref_id`: OPS 예약 uuid FK
-- `provider`: `ims`
-- `external_reservation_id`: IMS `schedule_id`
-- `external_detail_id`: IMS export `detail_id`
-- `external_status`: `linked`, `failed`, `deleted`, `unlinked`
-- `link_key`: `OPS:{reservation_id}`
-- `last_payload_json`: IMS 생성/삭제/가져오기 요청 payload
-- `last_result_json`: IMS 생성/삭제/조회 결과
-- `linked_at`: IMS 등록 성공 시각
-- `last_checked_at`: 마지막 등록/조회/검증 시각. 실시간 생존 보장 아님
-- `deleted_at`: 예약취소/삭제 flow에서 IMS 삭제 성공 시각
-- `error_text`: 마지막 실패 메시지
-
-상태 의미:
-- `linked`: IMS `schedule_id` 확보 완료. 화면에서는 `IMS등록됨`
-- `failed`: IMS 생성 또는 id 확보 실패. 화면에서는 `등록실패`
-- `deleted`: 예약취소/삭제 flow에서 IMS 삭제 완료
-- `unlinked`: IMS 예약은 유지하고 OPS 등록 정보만 해제
-
-원칙:
-- 등록 정보 row는 이력이다.
-- IMS 삭제/등록해제 후에도 가능하면 row를 삭제하지 않는다.
-- 화면에서는 사용자에게 DB 내부 용어 `linked` 대신 `IMS등록됨`을 보여준다.
-
----
-
-## Phase 0 테스트 기준 잠금
-
-테스트 일시: 2026-05-15 KST
-
-테스트 payload:
-```json
-{
-  "rentalAt": "2026-12-01 10:00",
-  "returnAt": "2026-12-02 10:00",
-  "carNumber": "101허4014",
-  "totalFee": "100000",
-  "customerName": "IMS테스트",
-  "customerPhone": "01012345678",
-  "address": "IMS 테스트 주소",
-  "useDelivery": true,
-  "memo": "OPS:PHASE0-TEST-20260515-1631 | 테스트생성삭제 | 삭제예정"
-}
-```
-
-생성 결과:
-- IMS 생성: `SUCCESS`
-- 생성 직후 목록 조회로 1건 매칭
-- `schedule_id`: `4186133`
-- `detail_id`: `204161`
-- 차량번호: `101허4014`
-- 고객명: `IMS테스트`
-- 연락처: `01012345678`
-- 배차: `2026-12-01 10:00:00`
-- 반납: `2026-12-02 10:00:00`
-
-삭제 결과:
-- 삭제 API 기준 ID는 `schedule_id`
-- `IMS_CANCEL_DELETE=true`
-- 삭제 결과: `SUCCESS`
-- 삭제 후 동일 기간 목록 재조회 결과 0건
-
-중요 결론:
-- 과거 Playwright 생성 방식은 느리고 사용자가 다른 동작을 할 수 있어 혼란이 있었다.
-- 2026-05-16 KST에 브라우저 저장 요청을 abort 방식으로 캡처해 직접 API 생성 endpoint를 확인했다.
-- 직접 API 방식은 `auth → available 조회로 car_id 확보 → company-car-schedules POST` 순서로 간다.
-- `memo`/`OPS:`는 보조 식별자이며, OPS 등록 정보의 1차 키는 IMS `schedule_id`다.
-- 직접 API 생성 응답에서 `schedule_id`가 없으면 생성 후 목록 조회 fallback으로 확보한다.
-
-
----
-
-## Phase 4 실제 IMS API 테스트 결과
-
-테스트 일시: 2026-05-16 KST
-
-테스트 방식:
-- 현재 코드 기준 중간서버를 별도 포트 `43111`로 실행
-- `POST /ims/create-reservation` 직접 호출
-- 실제 IMS API 저장 실행
-- 생성된 IMS 예약을 삭제 API로 즉시 삭제
-
-테스트 payload 요약:
-- 차량번호: `101허4014`
-- 고객명: `IMSAPI테스트`
-- 고객번호: `01012345678`
-- 배차: `2026-12-01 10:00`
-- 반납: `2026-12-02 10:00`
-- 배차지: `IMS API 테스트 주소`
-- 예약 ID: `API-TEST-20260516-0128`
-
-생성 결과:
-- `/ims/create-reservation` 응답: `ok=true`
-- `result.code`: `SUCCESS`
-- `externalStatus`: `linked`
-- `externalReservationId`: `4187211`
-- `externalDetailId`: `204233`
-- `linkKey`: `OPS:API-TEST-20260516-0128`
-- 직접 API 생성 응답 자체는 `{ "success": true }` 형태였고, `schedule_id`는 후속 목록 조회 fallback으로 확보했다.
-
-삭제 결과:
-- 삭제 API: `POST /v2/company-car-schedules/delete`
-- 요청 ID: `4187211`
-- 삭제 응답: `success=true`, `failed_deletion_schedule_ids=[]`
-- 삭제 후 상세 조회: `400`, `존재하지 않는 스케쥴입니다.`
-
-결론:
-- 브라우저 생성 없이 IMS 직접 API 예약 생성 가능 확인.
-- 생성 후 `schedule_id` 확보 fallback 정상 동작 확인.
-- 삭제 API로 테스트 예약 정리 완료.
-- 다음 남은 확인은 실제 앱 UI에서 모달/등록정보 저장이 화면에 정상 반영되는지 QA하는 것이다.
-
----
-
-## 구현 Phase
-
-### Phase 3-B. 상세 UI 용어 보정 / 수동 연결 제거
-완료.
-
-결과:
-- 예약 상세 기능 카드에서 기존 수동 연결 버튼 제거
-- 등록 상태 버튼 문구를 `IMS등록됨`으로 정리
-- 정보 섹션 제목을 `IMS 등록 정보`로 정리
-- 해제 버튼 문구를 `등록해제`로 정리
-- 안내 문구에서 수동 연결 설명 제거
-
-### Phase 4. IMS API 직결 + 등록 정보 저장 + 진행중 잠금
-현재 진행 중.
+### Phase 1. 일정 완료/수정 → 예약원장/차량 상태 연동
+목적:
+- 일정에서 완료/수정한 내용이 예약원장과 차량 상태에 반영되게 한다.
 
 작업:
-- 중간서버 `/ims/create-reservation`을 Playwright 생성 대신 Rencar 직접 API로 전환
-  - `/auth`
-  - `/v2/rent-company-cars/available`
-  - `/v2/company-car-schedules`
-- 기본 동작은 실제 저장이며 `dryRun=true`일 때만 저장 생략
-- 차량상세 예약생성 + `IMS` 체크 시 IMS 등록 정보 저장
-- 상단 `+` 예약생성 + `IMS` 체크 시 IMS 등록 정보 저장
-- 예약 상세 `IMS추가` 시 IMS 등록 정보 저장
-- IMS 진행 중에는 dismiss/back 불가 모달 표시
-- 차량상세 예약생성에서 `draft` payload로 IMS 호출하던 문제 수정
-- 예약생성 다이얼로그 첫 필드 label이 상단에서 잘리는 문제 수정
+1. 일정 완료 버튼에 확인창 추가
+2. 배차 일정 완료 시:
+   - `rc00_ops_schedules.schedule_done = true`
+   - `rc00_ops_reservations.reservation_status = '배차중'`
+   - `rc00_ops_reservation_states.tab_key = 'in_use'`
+   - 차량은 기존 배차 반영 로직 유지
+3. 반납 일정 완료 시:
+   - `rc00_ops_schedules.schedule_done = true`
+   - `rc00_ops_reservations.reservation_status = '완료'`
+   - `rc00_ops_reservation_states.tab_key = 'completed'`
+   - 차량은 기존 `completeCarReturn()` 기준으로 대기중/세차 초기화/주차지 초기화
+4. 일정 수정 시 연결 예약이 있으면:
+   - 배차 일정: 예약 `start_at`, `pickup_location` 갱신
+   - 반납 일정: 예약 `end_at`, `dropoff_location` 갱신
 
 종료 조건:
-- 브라우저 생성 없이 IMS API 직접 등록 가능
-- IMS 진행 중 다른 동작 불가
-- IMS 성공 + schedule_id 확보 → `linked`
-- IMS 실패/id 확보 실패 → `failed`
-- 상세에서 `IMS등록됨` 또는 `등록실패` 확인 가능
-- `npm --prefix reservation_ai_parser run check` 통과
-- `flutter test test/ims_reservation_payload_test.dart` 통과
+- 배차 일정 완료 후 예약이 배차중 탭으로 이동
+- 반납 일정 완료 후 예약이 완료 탭으로 이동
+- 일정 수정 후 예약 상세의 배차/반납 일시와 위치가 갱신
+- 확인창 없이 일정 완료가 바로 실행되지 않음
 - `flutter analyze` 통과
-- 실제 IMS 저장 테스트는 별도 승인 후 1건만 진행
+- 커밋 완료
 
-### Phase 5. 예약취소/삭제 + IMS 삭제 옵션
+### Phase 2. 예약 상세 수정 기능 + 예약 수정 → 연결 일정 동기화
+목적:
+- 예약 상세에서 예약내용을 직접 수정하고, 연결 일정을 같이 맞춘다.
+
 작업:
-- 예약 상세 `예약취소` 또는 삭제 기능 추가
-- 확인창에 `IMS 예약도 같이 삭제` 체크 추가
-- 예약취소/삭제 flow 전용 중간서버 `/ims/delete-reservation` 추가
-- IMS 등록 정보의 `schedule_id`로 IMS 삭제
-- IMS 삭제 성공 시 `external_status='deleted'`
-- IMS 삭제 실패 시 내부 예약취소/삭제 유지 + 실패 기록
-- 체크하지 않으면 IMS 예약은 유지하고 등록 정보만 `unlinked`
+1. 예약 상세 기능 버튼 맨 앞에 `수정` 추가
+2. 예약 수정 다이얼로그 추가
+   - 외부예약번호
+   - 고객명/전화/생년월일
+   - 소개처
+   - 가격
+   - 배차/반납 일시
+   - 배차지/반납지
+   - 메모
+3. 예약 수정 저장 시 연결 일정도 갱신
+   - 배차 일정: 배차일/배차지
+   - 반납 일정: 반납일/반납지
+4. 예약 상세 가격 표시 포맷 변경
+   - `163400` → `163,400원`
 
 종료 조건:
-- 예약취소/삭제와 IMS 삭제 동시 실행 가능
-- 실패 시 사용자가 상태를 알 수 있음
-- 일반 상세 화면에서는 IMS 삭제 불가
+- 예약 상세에서 수정 가능
+- 예약 수정 후 일정 탭에도 반영
+- 가격 표시 콤마/원 정상
+- `flutter analyze` 통과
+- 커밋 완료
 
-### Phase 6. IMS에서 가져오기
+### Phase 3. 대기 차량 상세 UX 정리
+목적:
+- 대기 차량 상세 기능을 단순화한다.
+
 작업:
-- 중간서버 `/ims/list-reservations` 추가
-- 앱 UI: 예약생성 다이얼로그에서 `IMS에서 가져오기`
-- IMS 예약 선택 → 예약생성 폼 프리필
-- 사용자 확인 후 내부 예약 + 일정 + IMS 등록 정보 생성
+1. 보험/일반/장기 버튼 제거
+2. `배차` 버튼 하나로 통합
+3. 배차 입력창 상단에서 보험/일반/장기 선택
+4. 외부/실내 세차 버튼 제거
+5. `세차` 버튼 하나로 통합
+   - 선택창에서 외부세차/실내세차 선택
+   - 바깥 누르면 닫힘
+6. 주차 다이얼로그는 기본 목록만 표시
+   - `직접추가` 버튼을 눌렀을 때만 새 주차지 입력폼 표시
 
 종료 조건:
-- IMS 예약 1건을 기준으로 새 OPS 예약 생성 가능
-- 이미 IMS 등록 정보가 있는 IMS 예약은 중복 생성 방지
+- 대기 차량 상세 버튼 수 감소
+- 기존 배차/세차/주차 기능 유지
+- UI 정렬 깨짐 없음
+- `flutter analyze` 통과
+- 커밋 완료
 
-### Phase 7. 검증/릴리즈
-작업:
-- unit test: IMS payload / IMS 등록 정보 mapper
-- parser server check
-- IMS dry-run
+---
+
+## Phase 1 구체 실행계획
+
+### 1. 현재 경로
+대상 파일:
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- 필요 시 `lib/features/reservations/shared/providers/reservation_providers.dart`
+
+현재 확인된 사실:
+- 일정 완료 UI: `_ScheduleDetailBodyState._completeSchedule()`
+- 완료 저장 함수: `SupabaseOpsRepository.completeSchedule()`
+- 현재 `completeSchedule()`은 `schedule_done=true` 처리 후, 배차 일정일 때만 차량 상태를 `일반`으로 반영한다.
+- 반납 일정 완료 시 예약원장/차량 상태 변경 로직은 아직 없다.
+
+### 2. repository 변경
+`completeSchedule()` 내부를 다음 기준으로 정리한다.
+
+공통:
+- `schedule_done=true`
+- `updated_at` 기록
+- `reservationId`가 비어 있으면 예약원장 동기화는 생략
+
+배차:
+- 예약 row 조회
+- 예약 `reservation_status='배차중'`
+- reservation state `tab_key='in_use'`
+- 차량 `status='일반'`, `status_action='일정완료'`
+- 예약의 고객/전화/배차지/시작/종료/메모를 차량에 반영
+
+반납:
+- 예약 `reservation_status='완료'`
+- reservation state `tab_key='completed'`
+- 차량번호가 있으면 차량을 대기중으로 초기화
+  - 기준은 기존 `completeCarReturn()`과 동일
+
+### 3. 일정 수정 동기화
+`updateSchedule()`에서 schedule update 후 다음을 추가한다.
+
+조건:
+- `reservationId`를 인자로 추가로 받는다.
+- `reservationId`가 비어 있으면 예약원장 동기화 생략.
+
+배차 일정:
+- 예약 `start_at = scheduleAt`
+- 예약 `pickup_location = locationText`
+
+반납 일정:
+- 예약 `end_at = scheduleAt`
+- 예약 `dropoff_location = locationText`
+
+기타 일정:
+- 예약원장 동기화 없음.
+
+### 4. UI 변경
+`_completeSchedule()` 실행 전 확인창 추가.
+
+문구:
+- 제목: `일정 완료`
+- 메시지: `이 일정을 완료 처리하고 연결된 예약/차량 상태를 함께 갱신합니다.`
+- 확인 버튼: `완료`
+
+`_editSchedule()`에서 `updateSchedule()` 호출 시 `reservationId: record.reservationId` 전달.
+
+### 5. 검증
+실행할 검증:
 - `flutter analyze`
-- APK build/upload
+- 필요 시 기존 관련 test가 있으면 선택 실행
 
-종료 조건:
-- 다음 build 업로드
+수동 QA 포인트:
+1. 배차 일정 완료 → 예약원장 `배차중`, 차량 일반/보험/장기 현황 진입 확인
+2. 반납 일정 완료 → 예약원장 `완료`, 차량 `대기중` 확인
+3. 배차 일정 수정 → 예약 상세 배차일/배차지 변경 확인
+4. 반납 일정 수정 → 예약 상세 반납일/반납지 변경 확인
+5. 연결 없는 기타 일정 완료/수정은 기존처럼 일정만 처리
+
+### 6. 되돌리기
+- 이번 phase는 앱 코드 변경만 한다.
+- DB schema 변경 없음.
+- 문제 발생 시 Phase 1 커밋 revert로 되돌린다.
