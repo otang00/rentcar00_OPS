@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
@@ -49,6 +50,46 @@ class _ReservationDetailBodyState
     extends ConsumerState<_ReservationDetailBody> {
   bool _imsSubmitting = false;
   bool _registrationUpdating = false;
+  bool _reservationUpdating = false;
+
+  Future<void> _editReservation(ReservationRecord reservation) async {
+    if (_reservationUpdating) return;
+
+    final form = await showDialog<_ReservationEditResult>(
+      context: context,
+      builder: (context) => _ReservationEditDialog(reservation: reservation),
+    );
+    if (form == null) return;
+
+    setState(() => _reservationUpdating = true);
+    try {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .updateReservationAndLinkedSchedules(
+            reservationId: reservation.reservationId,
+            reservationNumber: form.reservationNumber,
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            customerBirthDate: form.customerBirthDate,
+            referralSource: form.referralSource,
+            paymentAmount: form.paymentAmount,
+            startAt: form.startAt,
+            endAt: form.endAt,
+            pickupLocation: form.pickupLocation,
+            dropoffLocation: form.dropoffLocation,
+            noteText: form.noteText,
+          );
+      ref.invalidate(allReservationsProvider);
+      ref.invalidate(allStatusBoardRecordsProvider);
+      if (!mounted) return;
+      _showSnack('예약 정보를 수정했습니다.', backgroundColor: Colors.green.shade700);
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('예약 수정 실패($error)', backgroundColor: Colors.red.shade700);
+    } finally {
+      if (mounted) setState(() => _reservationUpdating = false);
+    }
+  }
 
   Future<void> _submitImsReservation() async {
     if (_imsSubmitting) return;
@@ -333,6 +374,15 @@ class _ReservationDetailBodyState
                     mainAxisSpacing: 6,
                     childAspectRatio: 1.05,
                     children: [
+                      _DetailActionButton(
+                        label: '수정',
+                        icon: Icons.edit_outlined,
+                        loading: _reservationUpdating,
+                        emphasis: true,
+                        onPressed: _reservationUpdating
+                            ? null
+                            : () => _editReservation(reservation),
+                      ),
                       if (hasPhone)
                         _DetailActionButton(
                           label: '전화',
@@ -416,7 +466,10 @@ class _ReservationDetailBodyState
                   ),
                   _DetailField(label: '차종', value: reservation.carName),
                   _DetailField(label: '소개처', value: reservation.referralSource),
-                  _DetailField(label: '가격', value: reservation.paymentAmount),
+                  _DetailField(
+                    label: '가격',
+                    value: _formatWon(reservation.paymentAmount),
+                  ),
                   _DetailField(
                     label: '생년월일',
                     value: reservation.customerBirthDate,
@@ -443,7 +496,14 @@ class _ReservationDetailBodyState
                     label: '반납',
                     value: _formatDateTime(reservation.endAt),
                   ),
-                  _DetailField(label: '위치', value: reservation.locationSummary),
+                  _DetailField(
+                    label: '배차지',
+                    value: reservation.locationSummary,
+                  ),
+                  _DetailField(
+                    label: '반납지',
+                    value: reservation.dropoffLocation,
+                  ),
                 ],
               ),
             ),
@@ -492,7 +552,7 @@ class _ReservationDetailBodyState
             if (outboxPreview.isNotEmpty) const SizedBox(height: 14),
             _SectionCard(
               title: '메모',
-              child: Text(_displayValue(reservation.noteText)),
+              child: Text(_displayValue(reservation.rawNoteText)),
             ),
           ],
         );
@@ -629,6 +689,301 @@ class _ImsRegistrationInfo extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _ReservationEditResult {
+  const _ReservationEditResult({
+    required this.reservationNumber,
+    required this.customerName,
+    required this.customerPhone,
+    required this.customerBirthDate,
+    required this.referralSource,
+    required this.paymentAmount,
+    required this.startAt,
+    required this.endAt,
+    required this.pickupLocation,
+    required this.dropoffLocation,
+    required this.noteText,
+  });
+
+  final String reservationNumber;
+  final String customerName;
+  final String customerPhone;
+  final String customerBirthDate;
+  final String referralSource;
+  final String paymentAmount;
+  final DateTime startAt;
+  final DateTime endAt;
+  final String pickupLocation;
+  final String dropoffLocation;
+  final String noteText;
+}
+
+class _ReservationEditDialog extends StatefulWidget {
+  const _ReservationEditDialog({required this.reservation});
+
+  final ReservationRecord reservation;
+
+  @override
+  State<_ReservationEditDialog> createState() => _ReservationEditDialogState();
+}
+
+class _ReservationEditDialogState extends State<_ReservationEditDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _reservationNumberController;
+  late final TextEditingController _customerNameController;
+  late final TextEditingController _customerPhoneController;
+  late final TextEditingController _customerBirthDateController;
+  late final TextEditingController _referralSourceController;
+  late final TextEditingController _paymentAmountController;
+  late final TextEditingController _startAtController;
+  late final TextEditingController _endAtController;
+  late final TextEditingController _pickupLocationController;
+  late final TextEditingController _dropoffLocationController;
+  late final TextEditingController _noteController;
+
+  @override
+  void initState() {
+    super.initState();
+    final reservation = widget.reservation;
+    _reservationNumberController = TextEditingController(
+      text: reservation.reservationNumber,
+    );
+    _customerNameController = TextEditingController(
+      text: reservation.customerName,
+    );
+    _customerPhoneController = TextEditingController(
+      text: reservation.customerPhone,
+    );
+    _customerBirthDateController = TextEditingController(
+      text: reservation.customerBirthDate,
+    );
+    _referralSourceController = TextEditingController(
+      text: reservation.referralSource,
+    );
+    _paymentAmountController = TextEditingController(
+      text: reservation.paymentAmount,
+    );
+    _startAtController = TextEditingController(
+      text: _formatEditorDateTime(reservation.startAt),
+    );
+    _endAtController = TextEditingController(
+      text: _formatEditorDateTime(reservation.endAt),
+    );
+    _pickupLocationController = TextEditingController(
+      text: reservation.locationSummary,
+    );
+    _dropoffLocationController = TextEditingController(
+      text: reservation.dropoffLocation,
+    );
+    _noteController = TextEditingController(text: reservation.rawNoteText);
+  }
+
+  @override
+  void dispose() {
+    _reservationNumberController.dispose();
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
+    _customerBirthDateController.dispose();
+    _referralSourceController.dispose();
+    _paymentAmountController.dispose();
+    _startAtController.dispose();
+    _endAtController.dispose();
+    _pickupLocationController.dispose();
+    _dropoffLocationController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDateTime(TextEditingController controller) async {
+    final now = DateTime.now();
+    final initial = _tryParseEditorDateTime(controller.text.trim()) ?? now;
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (pickedTime == null || !mounted) return;
+
+    controller.text = _formatEditorDateTime(
+      DateTime(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        pickedTime.hour,
+        pickedTime.minute,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('예약 수정'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ReservationEditTextField(
+                  controller: _reservationNumberController,
+                  label: '외부예약번호',
+                ),
+                _ReservationEditTextField(
+                  controller: _customerNameController,
+                  label: '고객명',
+                  validator: _requiredValidator,
+                ),
+                _ReservationEditTextField(
+                  controller: _customerPhoneController,
+                  label: '고객번호',
+                  validator: _phoneValidator,
+                ),
+                _ReservationEditTextField(
+                  controller: _customerBirthDateController,
+                  label: '생년월일',
+                  hintText: '1990-01-31',
+                  validator: _birthDateValidator,
+                ),
+                _ReservationEditTextField(
+                  controller: _referralSourceController,
+                  label: '소개처',
+                ),
+                _ReservationEditTextField(
+                  controller: _paymentAmountController,
+                  label: '가격',
+                  hintText: '100000',
+                  validator: _positiveMoneyValidator,
+                ),
+                _ReservationEditTextField(
+                  controller: _startAtController,
+                  label: '배차일시',
+                  readOnly: true,
+                  validator: _dateTimeValidator,
+                  onTap: () => _pickDateTime(_startAtController),
+                  suffixIcon: const Icon(Icons.calendar_today_outlined),
+                ),
+                _ReservationEditTextField(
+                  controller: _endAtController,
+                  label: '반납일시',
+                  readOnly: true,
+                  validator: _dateTimeValidator,
+                  onTap: () => _pickDateTime(_endAtController),
+                  suffixIcon: const Icon(Icons.calendar_today_outlined),
+                ),
+                _ReservationEditTextField(
+                  controller: _pickupLocationController,
+                  label: '배차지',
+                  validator: _requiredValidator,
+                ),
+                _ReservationEditTextField(
+                  controller: _dropoffLocationController,
+                  label: '반납지',
+                  validator: _requiredValidator,
+                ),
+                _ReservationEditTextField(
+                  controller: _noteController,
+                  label: '메모',
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            final startAt = _tryParseEditorDateTime(
+              _startAtController.text.trim(),
+            );
+            final endAt = _tryParseEditorDateTime(_endAtController.text.trim());
+            if (startAt == null || endAt == null) return;
+            if (!endAt.isAfter(startAt)) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('반납일시는 배차일시 이후여야 합니다.')),
+              );
+              return;
+            }
+            Navigator.of(context).pop(
+              _ReservationEditResult(
+                reservationNumber: _reservationNumberController.text.trim(),
+                customerName: _customerNameController.text.trim(),
+                customerPhone: _customerPhoneController.text.trim(),
+                customerBirthDate: _customerBirthDateController.text.trim(),
+                referralSource: _referralSourceController.text.trim(),
+                paymentAmount: _normalizeMoneyForStorage(
+                  _paymentAmountController.text,
+                ),
+                startAt: startAt,
+                endAt: endAt,
+                pickupLocation: _pickupLocationController.text.trim(),
+                dropoffLocation: _dropoffLocationController.text.trim(),
+                noteText: _noteController.text.trim(),
+              ),
+            );
+          },
+          child: const Text('저장'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReservationEditTextField extends StatelessWidget {
+  const _ReservationEditTextField({
+    required this.controller,
+    required this.label,
+    this.hintText,
+    this.validator,
+    this.maxLines = 1,
+    this.readOnly = false,
+    this.onTap,
+    this.suffixIcon,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String? hintText;
+  final String? Function(String?)? validator;
+  final int maxLines;
+  final bool readOnly;
+  final VoidCallback? onTap;
+  final Widget? suffixIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextFormField(
+        controller: controller,
+        validator: validator,
+        maxLines: maxLines,
+        readOnly: readOnly,
+        onTap: onTap,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hintText,
+          suffixIcon: suffixIcon,
+        ),
+      ),
     );
   }
 }
@@ -791,6 +1146,74 @@ String _formatDateTime(DateTime value) {
   final local = value.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(local.month)}/${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+}
+
+String _formatEditorDateTime(DateTime value) {
+  final local = value.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+}
+
+DateTime? _tryParseEditorDateTime(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return null;
+  return DateTime.tryParse(raw.replaceFirst(' ', 'T'));
+}
+
+String _formatWon(String value) {
+  final digits = value.replaceAll(RegExp(r'\D+'), '');
+  if (digits.isEmpty) return '';
+  final buffer = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+    buffer.write(digits[i]);
+  }
+  return '$buffer원';
+}
+
+String _normalizeMoneyForStorage(String value) {
+  return value.replaceAll(RegExp(r'\D+'), '');
+}
+
+String? _requiredValidator(String? value) {
+  if (value == null || value.trim().isEmpty) return '필수 입력입니다';
+  return null;
+}
+
+String? _phoneValidator(String? value) {
+  final digits = (value ?? '').replaceAll(RegExp(r'\D+'), '');
+  if (!RegExp(r'^\d{10,11}$').hasMatch(digits)) {
+    return '숫자 10~11자리로 입력해 주세요';
+  }
+  return null;
+}
+
+String? _positiveMoneyValidator(String? value) {
+  final amount = int.tryParse(_normalizeMoneyForStorage(value ?? ''));
+  if (amount == null || amount <= 0) return '0보다 큰 금액을 입력해 주세요';
+  return null;
+}
+
+String? _dateTimeValidator(String? value) {
+  if (_tryParseEditorDateTime(value ?? '') == null) {
+    return 'YYYY-MM-DD HH:mm 형식으로 입력해 주세요';
+  }
+  return null;
+}
+
+String? _birthDateValidator(String? value) {
+  final text = (value ?? '').trim();
+  if (text.isEmpty) return null;
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(text);
+  if (match == null) return 'YYYY-MM-DD 형식으로 입력해 주세요';
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final parsed = DateTime(year, month, day);
+  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+    return '실제 날짜를 입력해 주세요';
+  }
+  return null;
 }
 
 String _formatOptionalDateTime(DateTime? value) {

@@ -63,6 +63,8 @@ ReservationRecord _reservation({
     startAt: DateTime(2026, 5, 21, 9),
     endAt: endAt ?? DateTime(2026, 5, 22, 9),
     locationSummary: '김포공항',
+    dropoffLocation: '김포공항',
+    rawNoteText: '',
     noteText: '',
     primaryBadges: const [],
     checkPayload: const {},

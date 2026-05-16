@@ -24,6 +24,8 @@ void main() {
       startAt: DateTime(2026, 5, 9, 10),
       endAt: DateTime(2026, 5, 10, 10),
       locationSummary: '김해공항',
+      dropoffLocation: '김해공항',
+      rawNoteText: '테스트 메모',
       noteText: '테스트 메모',
       primaryBadges: const ['연락처 미확인', '준비 미완료', '오늘배차'],
       checkPayload: const {'customer_phone_verified': 'pending'},

@@ -140,6 +140,103 @@ class SupabaseOpsRepository {
     return reservationId;
   }
 
+  Future<void> updateReservationAndLinkedSchedules({
+    required String reservationId,
+    required String reservationNumber,
+    required String customerName,
+    required String customerPhone,
+    required String customerBirthDate,
+    required String referralSource,
+    required String paymentAmount,
+    required DateTime startAt,
+    required DateTime endAt,
+    required String pickupLocation,
+    required String dropoffLocation,
+    required String noteText,
+  }) async {
+    final normalizedReservationId = reservationId.trim();
+    if (normalizedReservationId.isEmpty) return;
+
+    final normalizedReservationNumber = reservationNumber.trim();
+    final normalizedCustomerName = customerName.trim();
+    final normalizedCustomerPhone = _digitsOnly(customerPhone);
+    final normalizedCustomerBirthDate = _normalizeBirthDate(customerBirthDate);
+    final normalizedReferralSource = referralSource.trim();
+    final normalizedPaymentAmount = _digitsOnly(paymentAmount);
+    final normalizedPickupLocation = pickupLocation.trim();
+    final normalizedDropoffLocation = dropoffLocation.trim();
+    final normalizedNoteText = noteText.trim();
+    final now = DateTime.now().toIso8601String();
+
+    await _client
+        .from('rc00_ops_reservations')
+        .update({
+          'reservation_number': normalizedReservationNumber,
+          'customer_name': normalizedCustomerName,
+          'customer_phone': normalizedCustomerPhone,
+          'customer_birth_date': normalizedCustomerBirthDate,
+          'referral_source': normalizedReferralSource,
+          'payment_amount': normalizedPaymentAmount,
+          'start_at': _toDbTimestamp(startAt),
+          'end_at': _toDbTimestamp(endAt),
+          'pickup_location': normalizedPickupLocation,
+          'dropoff_location': normalizedDropoffLocation,
+          'note_text': normalizedNoteText,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId);
+
+    final checkPayload = {
+      'customer_name_verified': normalizedCustomerName.isEmpty
+          ? 'pending'
+          : 'done',
+      'customer_phone_verified': normalizedCustomerPhone.isEmpty
+          ? 'pending'
+          : 'done',
+      'pickup_location_verified': normalizedPickupLocation.isEmpty
+          ? 'pending'
+          : 'done',
+    };
+
+    await _client
+        .from('rc00_ops_reservation_states')
+        .update({
+          'needs_attention': checkPayload.values.contains('pending'),
+          'warning_level': checkPayload.values.contains('pending')
+              ? 'warning'
+              : null,
+          'check_payload_json': checkPayload,
+          'memo_text': normalizedNoteText.isEmpty ? null : normalizedNoteText,
+          'last_action_at': now,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId);
+
+    await _client
+        .from('rc00_ops_schedules')
+        .update({
+          'reservation_number': normalizedReservationNumber,
+          'schedule_at': _toDbTimestamp(startAt),
+          'location_text': normalizedPickupLocation,
+          'detail_text': normalizedNoteText,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId)
+        .eq('schedule_type', '배차');
+
+    await _client
+        .from('rc00_ops_schedules')
+        .update({
+          'reservation_number': normalizedReservationNumber,
+          'schedule_at': _toDbTimestamp(endAt),
+          'location_text': normalizedDropoffLocation,
+          'detail_text': normalizedNoteText,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId)
+        .eq('schedule_type', '반납');
+  }
+
   Future<ExternalReservationLink?> fetchExternalReservationLink({
     required String reservationId,
   }) async {
@@ -593,6 +690,8 @@ class SupabaseOpsRepository {
           startAt: _parseDateTime(row['start_at']) ?? DateTime(2000),
           endAt: _parseDateTime(row['end_at']) ?? DateTime(2000),
           locationSummary: (row['pickup_location'] as String?) ?? '',
+          dropoffLocation: (row['dropoff_location'] as String?) ?? '',
+          rawNoteText: (row['note_text'] as String?) ?? '',
           noteText: noteParts.join(' · '),
           primaryBadges: _deriveBadges(
             checkPayload: checkPayload,

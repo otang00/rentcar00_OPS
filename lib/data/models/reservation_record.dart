@@ -17,6 +17,8 @@ class ReservationRecord {
     required this.startAt,
     required this.endAt,
     required this.locationSummary,
+    required this.dropoffLocation,
+    required this.rawNoteText,
     required this.noteText,
     required this.primaryBadges,
     required this.checkPayload,
@@ -37,6 +39,8 @@ class ReservationRecord {
   final DateTime startAt;
   final DateTime endAt;
   final String locationSummary;
+  final String dropoffLocation;
+  final String rawNoteText;
   final String noteText;
   final List<String> primaryBadges;
   final Map<String, String> checkPayload;
@@ -57,6 +61,8 @@ class ReservationRecord {
     DateTime? startAt,
     DateTime? endAt,
     String? locationSummary,
+    String? dropoffLocation,
+    String? rawNoteText,
     String? noteText,
     List<String>? primaryBadges,
     Map<String, String>? checkPayload,
@@ -77,6 +83,8 @@ class ReservationRecord {
       startAt: startAt ?? this.startAt,
       endAt: endAt ?? this.endAt,
       locationSummary: locationSummary ?? this.locationSummary,
+      dropoffLocation: dropoffLocation ?? this.dropoffLocation,
+      rawNoteText: rawNoteText ?? this.rawNoteText,
       noteText: noteText ?? this.noteText,
       primaryBadges: primaryBadges ?? this.primaryBadges,
       checkPayload: checkPayload ?? this.checkPayload,
