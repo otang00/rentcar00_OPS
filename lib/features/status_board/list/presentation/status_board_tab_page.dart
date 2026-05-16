@@ -530,6 +530,7 @@ class _ServiceStatusCard extends StatelessWidget {
                     child: _ServiceDateInfoCell(
                       label: _compactDateWithWeekdayFromDateTime(startAt),
                       time: _timeOnlyFromDateTime(startAt),
+                      direction: _DateDirection.pickup,
                       color: startAt == null
                           ? colorScheme.onSurfaceVariant
                           : opsDateColor(startAt),
@@ -541,6 +542,7 @@ class _ServiceStatusCard extends StatelessWidget {
                     child: _ServiceDateInfoCell(
                       label: _compactDateWithWeekdayFromDateTime(endAt),
                       time: _timeOnlyFromDateTime(endAt),
+                      direction: _DateDirection.returning,
                       color: endAt == null
                           ? colorScheme.onSurfaceVariant
                           : opsDateColor(endAt),
@@ -575,11 +577,13 @@ class _ServiceDateInfoCell extends StatelessWidget {
   const _ServiceDateInfoCell({
     required this.label,
     required this.time,
+    required this.direction,
     required this.color,
   });
 
   final String label;
   final String time;
+  final _DateDirection direction;
   final Color color;
 
   @override
@@ -605,17 +609,59 @@ class _ServiceDateInfoCell extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 1),
-        Text(
-          time,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.right,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: timeColor,
-          ),
+        _DateTimeDirectionLine(
+          time: time,
+          direction: direction,
+          timeColor: timeColor,
         ),
       ],
+    );
+  }
+}
+
+enum _DateDirection { pickup, returning }
+
+class _DateTimeDirectionLine extends StatelessWidget {
+  const _DateTimeDirectionLine({
+    required this.time,
+    required this.direction,
+    required this.timeColor,
+  });
+
+  final String time;
+  final _DateDirection direction;
+  final Color timeColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPickup = direction == _DateDirection.pickup;
+    final arrow = isPickup ? '⇈' : '⇊';
+    final arrowColor = isPickup
+        ? const Color(0xFF1976D2)
+        : const Color(0xFFD32F2F);
+    final style = Theme.of(context).textTheme.labelMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+      color: timeColor,
+    );
+
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerRight,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            arrow,
+            maxLines: 1,
+            style: style?.copyWith(
+              color: arrowColor,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(width: 2),
+          Text(time, maxLines: 1, style: style),
+        ],
+      ),
     );
   }
 }
