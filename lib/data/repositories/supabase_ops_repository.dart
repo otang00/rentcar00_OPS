@@ -457,6 +457,35 @@ class SupabaseOpsRepository {
     );
   }
 
+  Future<void> updateLinkedScheduleTime({
+    required String scheduleRowId,
+    required String reservationId,
+    required String scheduleType,
+    required DateTime scheduleAt,
+  }) async {
+    final normalizedScheduleType = scheduleType.trim();
+
+    await _client
+        .from('rc00_ops_schedules')
+        .update({
+          'schedule_at': _toDbTimestamp(scheduleAt),
+          'payload_json': {
+            'updated_via': 'status_board_linked_schedule_time',
+            'status': normalizedScheduleType,
+          },
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', scheduleRowId);
+
+    await _syncReservationFromScheduleEdit(
+      reservationId: reservationId,
+      scheduleType: normalizedScheduleType,
+      scheduleAt: scheduleAt,
+      locationText: '',
+      syncLocation: false,
+    );
+  }
+
   Future<void> completeSchedule({
     required String scheduleRowId,
     required String scheduleType,
@@ -542,6 +571,7 @@ class SupabaseOpsRepository {
     required String scheduleType,
     required DateTime scheduleAt,
     required String locationText,
+    bool syncLocation = true,
   }) async {
     final normalizedReservationId = reservationId.trim();
     if (normalizedReservationId.isEmpty) return;
@@ -553,10 +583,10 @@ class SupabaseOpsRepository {
 
     if (normalizedScheduleType == '배차') {
       updatePayload['start_at'] = _toDbTimestamp(scheduleAt);
-      updatePayload['pickup_location'] = locationText.trim();
+      if (syncLocation) updatePayload['pickup_location'] = locationText.trim();
     } else if (normalizedScheduleType == '반납') {
       updatePayload['end_at'] = _toDbTimestamp(scheduleAt);
-      updatePayload['dropoff_location'] = locationText.trim();
+      if (syncLocation) updatePayload['dropoff_location'] = locationText.trim();
     } else {
       return;
     }

@@ -702,14 +702,19 @@ class _ScheduleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final linkedReservation = item.reservationId.trim().isNotEmpty;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
-      color: Colors.white,
+      color: linkedReservation ? const Color(0xFFEAF5FF) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: colorScheme.outlineVariant),
+        side: BorderSide(
+          color: linkedReservation
+              ? const Color(0xFFBBD7F5)
+              : colorScheme.outlineVariant,
+        ),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),

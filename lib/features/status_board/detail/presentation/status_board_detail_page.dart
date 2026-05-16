@@ -487,22 +487,12 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     });
   }
 
-  Future<void> _openInstantStatus(
-    String status,
-    String statusAction, {
-    bool allowDispatchTypeSelection = false,
-  }) async {
-    final form = await showDialog<_InstantStatusFormResult>(
+  Future<void> _openDispatchStatus() async {
+    final selectedStatus = await showDialog<String>(
       context: context,
-      builder: (context) => _InstantStatusDialog(
-        record: record,
-        title: allowDispatchTypeSelection ? '배차' : statusAction,
-        initialStatus: status,
-        statusAction: statusAction,
-        allowDispatchTypeSelection: allowDispatchTypeSelection,
-      ),
+      builder: (context) => const _DispatchTypeDialog(),
     );
-    if (form == null) return;
+    if (selectedStatus == null) return;
 
     final carRowId = _extractRawRowId(record.recordId, 'car');
     if (carRowId == null) {
@@ -515,29 +505,21 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
           .read(supabaseOpsRepositoryProvider)
           .updateCarInstantStatus(
             carRowId: carRowId,
-            status: form.status,
-            statusAction: form.statusAction,
-            customerName: form.customerName,
-            customerPhone: form.customerPhone,
-            startAt: form.startAt,
-            endAt: form.endAt,
-            pickupLocation: form.pickupLocation,
-            parkingLocation: form.parkingLocation,
-            noteText: form.noteText,
+            status: selectedStatus,
+            statusAction: _dispatchStatusAction(selectedStatus),
+            customerName: record.customerName,
+            customerPhone: record.customerPhone,
+            startAt: DateTime.now(),
+            endAt: _tryParseDateTime(record.endAt),
+            pickupLocation: record.pickupLocation,
+            parkingLocation: record.parkingLocation,
+            noteText: record.noteText,
           );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${form.statusAction} 상태로 저장했습니다.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('배차 $selectedStatus 상태로 전환했습니다.')));
     });
-  }
-
-  Future<void> _openDispatchStatus() async {
-    await _openInstantStatus(
-      '일반',
-      _dispatchStatusAction('일반'),
-      allowDispatchTypeSelection: true,
-    );
   }
 
   Future<void> _editVehicleStatus() async {
@@ -581,69 +563,37 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     });
   }
 
-  Future<void> _toggleWash({required bool interior}) async {
+  Future<void> _setWashFlag({
+    required String carRowId,
+    required bool interior,
+    required bool active,
+  }) async {
+    await ref
+        .read(supabaseOpsRepositoryProvider)
+        .setCarWashFlag(carRowId: carRowId, interior: interior, active: active);
+    ref.invalidate(allStatusBoardRecordsProvider);
+  }
+
+  Future<void> _openWashChoice() async {
     final carRowId = _extractRawRowId(record.recordId, 'car');
     if (carRowId == null) {
       _showError('차량 row id 를 찾지 못했습니다.');
       return;
     }
 
-    final current = interior ? record.interiorWash : record.carWash;
-    final next = !_isTruthy(current);
-    await _runAction(() async {
-      await ref
-          .read(supabaseOpsRepositoryProvider)
-          .setCarWashFlag(carRowId: carRowId, interior: interior, active: next);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${interior ? '실내세차' : '외부세차'}를 ${next ? '완료' : '해제'}했습니다.',
-          ),
-        ),
-      );
-    });
-  }
-
-  Future<void> _openWashChoice() async {
-    final interior = await showDialog<bool>(
+    await showDialog<void>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('세차'),
-        children: [
-          SimpleDialogOption(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Row(
-              children: [
-                Icon(
-                  _isTruthy(record.carWash)
-                      ? Icons.local_car_wash_rounded
-                      : Icons.local_car_wash_outlined,
-                ),
-                const SizedBox(width: 12),
-                const Text('외부세차'),
-              ],
-            ),
-          ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Row(
-              children: [
-                Icon(
-                  _isTruthy(record.interiorWash)
-                      ? Icons.airline_seat_recline_normal_rounded
-                      : Icons.airline_seat_recline_normal_outlined,
-                ),
-                const SizedBox(width: 12),
-                const Text('실내세차'),
-              ],
-            ),
-          ),
-        ],
+      barrierDismissible: true,
+      builder: (context) => _WashChoiceDialog(
+        exteriorActive: _isTruthy(record.carWash),
+        interiorActive: _isTruthy(record.interiorWash),
+        onChanged: (interior, active) => _setWashFlag(
+          carRowId: carRowId,
+          interior: interior,
+          active: active,
+        ),
       ),
     );
-    if (interior == null) return;
-    await _toggleWash(interior: interior);
   }
 
   Future<void> _editParking() async {
@@ -923,26 +873,43 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
               return Column(
                 children: [
                   for (final item in items)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: Text(
-                        item.scheduleType.isEmpty
-                            ? item.timeLabel
-                            : '${item.scheduleType} · ${item.timeLabel}',
-                        style: textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: item.reservationId.trim().isEmpty
+                            ? Colors.transparent
+                            : const Color(0xFFEAF5FF),
+                        borderRadius: BorderRadius.circular(12),
+                        border: item.reservationId.trim().isEmpty
+                            ? null
+                            : Border.all(color: const Color(0xFFBBD7F5)),
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 2,
                         ),
-                      ),
-                      subtitle: Text(
-                        item.locationSummary.isEmpty
-                            ? (item.detailText.isEmpty ? '-' : item.detailText)
-                            : item.locationSummary,
-                        style: textTheme.bodyMedium?.copyWith(height: 1.3),
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => context.push(
-                        '/schedule/${Uri.encodeComponent(item.recordId)}',
+                        dense: true,
+                        title: Text(
+                          item.scheduleType.isEmpty
+                              ? item.timeLabel
+                              : '${item.scheduleType} · ${item.timeLabel}',
+                          style: textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text(
+                          item.locationSummary.isEmpty
+                              ? (item.detailText.isEmpty
+                                    ? '-'
+                                    : item.detailText)
+                              : item.locationSummary,
+                          style: textTheme.bodyMedium?.copyWith(height: 1.3),
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => context.push(
+                          '/schedule/${Uri.encodeComponent(item.recordId)}',
+                        ),
                       ),
                     ),
                 ],
@@ -1663,6 +1630,272 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
   }
 }
 
+class _DispatchTypeDialog extends StatelessWidget {
+  const _DispatchTypeDialog();
+
+  static const _statuses = ['보험', '일반', '장기'];
+
+  @override
+  Widget build(BuildContext context) {
+    return SimpleDialog(
+      title: const Text('배차'),
+      children: [
+        for (final status in _statuses)
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop(status),
+            child: Row(
+              children: [
+                const Icon(Icons.directions_car_filled_outlined),
+                const SizedBox(width: 12),
+                Text(status),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _WashChoiceDialog extends StatefulWidget {
+  const _WashChoiceDialog({
+    required this.exteriorActive,
+    required this.interiorActive,
+    required this.onChanged,
+  });
+
+  final bool exteriorActive;
+  final bool interiorActive;
+  final Future<void> Function(bool interior, bool active) onChanged;
+
+  @override
+  State<_WashChoiceDialog> createState() => _WashChoiceDialogState();
+}
+
+class _WashChoiceDialogState extends State<_WashChoiceDialog> {
+  late bool _exteriorActive;
+  late bool _interiorActive;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _exteriorActive = widget.exteriorActive;
+    _interiorActive = widget.interiorActive;
+  }
+
+  Future<void> _toggle({required bool interior}) async {
+    if (_submitting) return;
+    final next = interior ? !_interiorActive : !_exteriorActive;
+    setState(() => _submitting = true);
+    try {
+      await widget.onChanged(interior, next);
+      if (!mounted) return;
+      setState(() {
+        if (interior) {
+          _interiorActive = next;
+        } else {
+          _exteriorActive = next;
+        }
+      });
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Expanded(child: Text('세차')),
+          IconButton(
+            tooltip: '닫기',
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_submitting) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 8),
+            ],
+            _WashToggleTile(
+              label: '외부세차',
+              active: _exteriorActive,
+              icon: Icons.local_car_wash_outlined,
+              activeIcon: Icons.local_car_wash_rounded,
+              onTap: _submitting ? null : () => _toggle(interior: false),
+            ),
+            const SizedBox(height: 6),
+            _WashToggleTile(
+              label: '실내세차',
+              active: _interiorActive,
+              icon: Icons.airline_seat_recline_normal_outlined,
+              activeIcon: Icons.airline_seat_recline_normal_rounded,
+              onTap: _submitting ? null : () => _toggle(interior: true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WashToggleTile extends StatelessWidget {
+  const _WashToggleTile({
+    required this.label,
+    required this.active,
+    required this.icon,
+    required this.activeIcon,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final IconData icon;
+  final IconData activeIcon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: active
+          ? colorScheme.primaryContainer.withValues(alpha: 0.55)
+          : colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(12),
+      child: ListTile(
+        enabled: onTap != null,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        leading: Icon(
+          active ? activeIcon : icon,
+          color: active ? colorScheme.primary : colorScheme.onSurfaceVariant,
+        ),
+        title: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+        trailing: Icon(
+          active ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+          color: active ? colorScheme.primary : colorScheme.outline,
+        ),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _LinkedScheduleTimeDialog extends StatefulWidget {
+  const _LinkedScheduleTimeDialog({
+    required this.title,
+    required this.initialScheduleAt,
+  });
+
+  final String title;
+  final DateTime initialScheduleAt;
+
+  @override
+  State<_LinkedScheduleTimeDialog> createState() =>
+      _LinkedScheduleTimeDialogState();
+}
+
+class _LinkedScheduleTimeDialogState extends State<_LinkedScheduleTimeDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _scheduleAtController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleAtController = TextEditingController(
+      text: _formatEditorDateTime(widget.initialScheduleAt),
+    );
+  }
+
+  @override
+  void dispose() {
+    _scheduleAtController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDateTime() async {
+    final now = DateTime.now();
+    final initial =
+        _tryParseDateTime(_scheduleAtController.text.trim()) ??
+        widget.initialScheduleAt;
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (pickedTime == null || !mounted) return;
+
+    _scheduleAtController.text = _formatEditorDateTime(
+      DateTime(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        pickedTime.hour,
+        pickedTime.minute,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 360,
+        child: Form(
+          key: _formKey,
+          child: _DialogTextField(
+            controller: _scheduleAtController,
+            label: '일정 시간',
+            hintText: '${widget.initialScheduleAt.year}-05171000',
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              OpsDateTimeInputFormatter(
+                defaultYear: widget.initialScheduleAt.year,
+              ),
+            ],
+            validator: _dateTimeValidator,
+            suffixIcon: IconButton(
+              tooltip: '날짜 선택',
+              onPressed: _pickDateTime,
+              icon: const Icon(Icons.event_outlined),
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            final parsed = _tryParseDateTime(_scheduleAtController.text.trim());
+            if (parsed == null) return;
+            Navigator.of(context).pop(parsed);
+          },
+          child: const Text('저장'),
+        ),
+      ],
+    );
+  }
+}
+
 class _InstantStatusDialog extends StatefulWidget {
   const _InstantStatusDialog({
     required this.record,
@@ -1670,7 +1903,6 @@ class _InstantStatusDialog extends StatefulWidget {
     required this.initialStatus,
     required this.statusAction,
     this.allowStatusSelection = false,
-    this.allowDispatchTypeSelection = false,
   });
 
   final StatusBoardRecord record;
@@ -1678,7 +1910,6 @@ class _InstantStatusDialog extends StatefulWidget {
   final String initialStatus;
   final String statusAction;
   final bool allowStatusSelection;
-  final bool allowDispatchTypeSelection;
 
   @override
   State<_InstantStatusDialog> createState() => _InstantStatusDialogState();
@@ -1687,7 +1918,6 @@ class _InstantStatusDialog extends StatefulWidget {
 class _InstantStatusDialogState extends State<_InstantStatusDialog> {
   final _formKey = GlobalKey<FormState>();
   static const _statusOptions = ['대기중', '보험', '일반', '장기'];
-  static const _dispatchTypeOptions = ['보험', '일반', '장기'];
   late String _selectedStatus;
   late final TextEditingController _customerNameController;
   late final TextEditingController _customerPhoneController;
@@ -1796,49 +2026,6 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                       ],
                     ),
                   ),
-                if (widget.allowDispatchTypeSelection)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4, bottom: 6),
-                          child: Text(
-                            '배차유형',
-                            style: Theme.of(context).textTheme.labelMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                          ),
-                        ),
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedStatus,
-                          decoration: const InputDecoration(
-                            isDense: false,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                          ),
-                          items: [
-                            for (final status in _dispatchTypeOptions)
-                              DropdownMenuItem(
-                                value: status,
-                                child: Text(status),
-                              ),
-                          ],
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() => _selectedStatus = value);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
                 _DialogTextField(
                   controller: _customerNameController,
                   label: '이용자/고객명',
@@ -1917,9 +2104,7 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
             Navigator.of(context).pop(
               _InstantStatusFormResult(
                 status: _selectedStatus,
-                statusAction: widget.allowDispatchTypeSelection
-                    ? _dispatchStatusAction(_selectedStatus)
-                    : widget.statusAction,
+                statusAction: widget.statusAction,
                 customerName: _customerNameController.text.trim(),
                 customerPhone: _normalizePhoneForStorage(
                   _customerPhoneController.text,
@@ -2254,6 +2439,37 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
     final scheduleRowId = _extractRawRowId(record.recordId, 'schedule');
     if (scheduleRowId == null) {
       _showError('일정 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    final isLinkedReservationSchedule =
+        record.reservationId.trim().isNotEmpty &&
+        (record.scheduleType.trim() == '배차' ||
+            record.scheduleType.trim() == '반납');
+    if (isLinkedReservationSchedule) {
+      final scheduleAt = await showDialog<DateTime>(
+        context: context,
+        builder: (context) => _LinkedScheduleTimeDialog(
+          title: '${record.scheduleType} 시간 수정',
+          initialScheduleAt: record.sortAt ?? DateTime.now(),
+        ),
+      );
+      if (scheduleAt == null) return;
+
+      await _runScheduleAction(() async {
+        await ref
+            .read(supabaseOpsRepositoryProvider)
+            .updateLinkedScheduleTime(
+              scheduleRowId: scheduleRowId,
+              reservationId: record.reservationId,
+              scheduleType: record.scheduleType,
+              scheduleAt: scheduleAt,
+            );
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('연결 일정 시간을 수정했습니다.')));
+      });
       return;
     }
 
