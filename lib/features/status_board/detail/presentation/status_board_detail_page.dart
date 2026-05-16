@@ -485,14 +485,19 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     });
   }
 
-  Future<void> _openInstantStatus(String status, String statusAction) async {
+  Future<void> _openInstantStatus(
+    String status,
+    String statusAction, {
+    bool allowDispatchTypeSelection = false,
+  }) async {
     final form = await showDialog<_InstantStatusFormResult>(
       context: context,
       builder: (context) => _InstantStatusDialog(
         record: record,
-        title: statusAction,
+        title: allowDispatchTypeSelection ? '배차' : statusAction,
         initialStatus: status,
         statusAction: statusAction,
+        allowDispatchTypeSelection: allowDispatchTypeSelection,
       ),
     );
     if (form == null) return;
@@ -523,6 +528,14 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         SnackBar(content: Text('${form.statusAction} 상태로 저장했습니다.')),
       );
     });
+  }
+
+  Future<void> _openDispatchStatus() async {
+    await _openInstantStatus(
+      '일반',
+      _dispatchStatusAction('일반'),
+      allowDispatchTypeSelection: true,
+    );
   }
 
   Future<void> _editVehicleStatus() async {
@@ -588,6 +601,47 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         ),
       );
     });
+  }
+
+  Future<void> _openWashChoice() async {
+    final interior = await showDialog<bool>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('세차'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Row(
+              children: [
+                Icon(
+                  _isTruthy(record.carWash)
+                      ? Icons.local_car_wash_rounded
+                      : Icons.local_car_wash_outlined,
+                ),
+                const SizedBox(width: 12),
+                const Text('외부세차'),
+              ],
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Row(
+              children: [
+                Icon(
+                  _isTruthy(record.interiorWash)
+                      ? Icons.airline_seat_recline_normal_rounded
+                      : Icons.airline_seat_recline_normal_outlined,
+                ),
+                const SizedBox(width: 12),
+                const Text('실내세차'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (interior == null) return;
+    await _toggleWash(interior: interior);
   }
 
   Future<void> _editParking() async {
@@ -803,28 +857,11 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
             ),
             if (idleActions) ...[
               _ActionChipButton(
-                label: '보험',
-                icon: Icons.shield_outlined,
-                expand: true,
-                onPressed: _submitting
-                    ? null
-                    : () => _openInstantStatus('보험', '배차 보험'),
-              ),
-              _ActionChipButton(
-                label: '일반',
+                label: '배차',
                 icon: Icons.directions_car_filled_outlined,
+                emphasis: _ActionChipEmphasis.primary,
                 expand: true,
-                onPressed: _submitting
-                    ? null
-                    : () => _openInstantStatus('일반', '배차 일반'),
-              ),
-              _ActionChipButton(
-                label: '장기',
-                icon: Icons.event_repeat_outlined,
-                expand: true,
-                onPressed: _submitting
-                    ? null
-                    : () => _openInstantStatus('장기', '배차 장기'),
+                onPressed: _submitting ? null : _openDispatchStatus,
               ),
             ],
             if (inServiceActions)
@@ -855,27 +892,14 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
               ),
             if (idleActions)
               _ActionChipButton(
-                label: '외부',
+                label: '세차',
                 icon: _isTruthy(record.carWash)
                     ? Icons.local_car_wash_rounded
                     : Icons.local_car_wash_outlined,
-                active: _isTruthy(record.carWash),
+                active:
+                    _isTruthy(record.carWash) || _isTruthy(record.interiorWash),
                 expand: true,
-                onPressed: _submitting
-                    ? null
-                    : () => _toggleWash(interior: false),
-              ),
-            if (idleActions)
-              _ActionChipButton(
-                label: '실내',
-                icon: _isTruthy(record.interiorWash)
-                    ? Icons.airline_seat_recline_normal_rounded
-                    : Icons.airline_seat_recline_normal_outlined,
-                active: _isTruthy(record.interiorWash),
-                expand: true,
-                onPressed: _submitting
-                    ? null
-                    : () => _toggleWash(interior: true),
+                onPressed: _submitting ? null : _openWashChoice,
               ),
             if (idleActions)
               _ActionChipButton(
@@ -1616,6 +1640,7 @@ class _InstantStatusDialog extends StatefulWidget {
     required this.initialStatus,
     required this.statusAction,
     this.allowStatusSelection = false,
+    this.allowDispatchTypeSelection = false,
   });
 
   final StatusBoardRecord record;
@@ -1623,6 +1648,7 @@ class _InstantStatusDialog extends StatefulWidget {
   final String initialStatus;
   final String statusAction;
   final bool allowStatusSelection;
+  final bool allowDispatchTypeSelection;
 
   @override
   State<_InstantStatusDialog> createState() => _InstantStatusDialogState();
@@ -1631,6 +1657,7 @@ class _InstantStatusDialog extends StatefulWidget {
 class _InstantStatusDialogState extends State<_InstantStatusDialog> {
   final _formKey = GlobalKey<FormState>();
   static const _statusOptions = ['대기중', '보험', '일반', '장기'];
+  static const _dispatchTypeOptions = ['보험', '일반', '장기'];
   late String _selectedStatus;
   late final TextEditingController _customerNameController;
   late final TextEditingController _customerPhoneController;
@@ -1730,6 +1757,49 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                       ],
                     ),
                   ),
+                if (widget.allowDispatchTypeSelection)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4, bottom: 6),
+                          child: Text(
+                            '배차유형',
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                        ),
+                        DropdownButtonFormField<String>(
+                          initialValue: _selectedStatus,
+                          decoration: const InputDecoration(
+                            isDense: false,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                          ),
+                          items: [
+                            for (final status in _dispatchTypeOptions)
+                              DropdownMenuItem(
+                                value: status,
+                                child: Text(status),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => _selectedStatus = value);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
                 _DialogTextField(
                   controller: _customerNameController,
                   label: '이용자/고객명',
@@ -1792,7 +1862,9 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
             Navigator.of(context).pop(
               _InstantStatusFormResult(
                 status: _selectedStatus,
-                statusAction: widget.statusAction,
+                statusAction: widget.allowDispatchTypeSelection
+                    ? _dispatchStatusAction(_selectedStatus)
+                    : widget.statusAction,
                 customerName: _customerNameController.text.trim(),
                 customerPhone: _customerPhoneController.text.trim(),
                 startAt: startAt,
@@ -1832,16 +1904,9 @@ class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
     super.initState();
     _options = [..._parkingLocationOptions];
     final initial = widget.initialValue.trim();
-    final hasInitial = initial.isNotEmpty;
     final inOptions = _options.contains(initial);
-    if (hasInitial && !inOptions) {
-      _options.add(initial);
-    }
-    _selectedValue = hasInitial ? initial : _options.first;
-    _showCustomInput = hasInitial && !inOptions;
-    _customController = TextEditingController(
-      text: _showCustomInput ? initial : '',
-    );
+    _selectedValue = inOptions ? initial : _options.first;
+    _customController = TextEditingController(text: '');
   }
 
   @override
@@ -2865,6 +2930,14 @@ String _normalizeEditableStatus(String status) {
     return normalized;
   }
   return '대기중';
+}
+
+String _dispatchStatusAction(String status) {
+  final normalized = status.trim();
+  if (normalized == '보험' || normalized == '일반' || normalized == '장기') {
+    return '배차 $normalized';
+  }
+  return '배차 일반';
 }
 
 bool _isIdleStatus(String status) {
