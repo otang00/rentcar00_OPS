@@ -37,8 +37,9 @@ class ImsReservationClient {
     required String contractId,
     required String reservationId,
     required DateTime doneAt,
-    int returnGasCharge = 100,
-    String drivenDistanceUponReturn = '',
+    required int returnGasCharge,
+    required String drivenDistanceUponReturn,
+    required int fuelCost,
   }) async {
     return _postIms(
       path: '/ims/complete-reservation-return',
@@ -48,6 +49,7 @@ class ImsReservationClient {
         'doneAt': _formatImsReturnDoneAt(doneAt),
         'returnGasCharge': returnGasCharge,
         'drivenDistanceUponReturn': drivenDistanceUponReturn.trim(),
+        'fuelCost': fuelCost,
       },
       timeoutMessage: 'IMS 반납완료 응답 시간이 초과되었습니다.',
       failureMessage: 'IMS 반납완료 호출에 실패했습니다.',

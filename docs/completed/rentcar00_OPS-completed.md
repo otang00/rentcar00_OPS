@@ -6,6 +6,75 @@
 ---
 
 
+## 2026-05-17 — IMS 가져오기 예약생성 1차 구현
+### 사용자 표면
+- 예약생성 화면 상단에서 `AI파서` 옆 `IMS 가져오기` 버튼을 사용할 수 있다.
+- 이름/차량번호/배차일로 기존 IMS 예약을 조회하고 1건을 선택하면 예약생성 폼이 자동 입력된다.
+- 하단 체크박스는 기본 체크이며 문구는 `IMS연동생성`으로 보인다.
+
+### 실제 동작
+- `POST /ims/search-reservations` 조회 전용 endpoint를 추가했다.
+- IMS 조회 결과에서 `scheduleId`, `detailId`, 고객명, 전화, 차량번호, 배차/반납일, 배차/반납지를 앱에 전달한다.
+- IMS 가져오기 선택 후 저장하면 OPS 예약을 새로 만들고, IMS 새 생성 호출 없이 external link만 `linked`로 저장한다.
+- 저장 기준은 `external_reservation_id=scheduleId`, `external_detail_id=detailId`다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/README.md`
+- `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `docs/current/rentcar00_OPS-current.md`
+
+### 검증
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- local `POST /ims/search-reservations` smoke 조회 성공: `2026-05-17` 기준 2건 반환
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. IMS 조회 결과의 차량번호가 OPS 차량 목록에 없으면 가져오기를 차단한다.
+2. IMS 조회는 read-only지만, 실제 앱 저장 시 OPS DB에는 예약/link가 생성된다.
+3. 추가 실기기 UI 확인과 APK 빌드는 아직 수행하지 않았다.
+
+---
+
+
+## 2026-05-17 — IMS 반납완료 연동 수정
+### 사용자 표면
+- 예약상세 `반납완료`와 반납 일정상세 `일정 완료`에서 IMS 연결 원장이 있으면 `IMS 반납 정보 입력` 창이 뜬다.
+- 직원은 반납 유류량, 반납 주행거리, 유류비를 입력한 뒤 OPS 반납완료와 IMS 반납완료를 함께 시도할 수 있다.
+
+### 실제 동작
+- 중간서버 IMS 반납완료 호출을 실테스트 성공 endpoint인 `POST /v2/normal-contracts/{detail_id}/set-done`으로 변경했다.
+- payload는 `done_at`, `return_gas_charge`, `driven_distance_upon_return`, `fuel_cost`를 보낸다.
+- 서버는 주행거리와 유류비 누락을 invalid payload로 막는다.
+- 앱은 `externalDetailId`를 우선 사용하고 없으면 `externalReservationId`를 fallback으로 사용한다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/README.md`
+- `lib/features/reservations/detail/data/ims_reservation_client.dart`
+- `lib/features/reservations/detail/presentation/ims_return_input_dialog.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `docs/current/rentcar00_OPS-current.md`
+- `/Users/otang_server/.openclaw/workspace/IMS_API_MANUAL.md`
+
+### 검증
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. 입력값이 실제 IMS 화면 기준과 다르면 IMS validation이 실패할 수 있다.
+2. `externalDetailId`가 비어 있고 `externalReservationId`가 schedule id인 오래된 binding은 여전히 실패할 수 있다.
+3. 이번 수정 후 추가 운영 IMS 재호출/실기기 APK 검증은 아직 수행하지 않았다.
+
+---
+
+
 
 
 

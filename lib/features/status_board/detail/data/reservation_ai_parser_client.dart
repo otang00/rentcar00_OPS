@@ -65,6 +65,143 @@ class ReservationAiParserClient {
 
     return ReservationAiParseResult.fromJson(json);
   }
+
+  Future<List<ImsReservationImportCandidate>> searchImsReservations({
+    required String customerName,
+    required String carNumber,
+    required DateTime rentalDate,
+  }) async {
+    if (baseUrl.trim().isEmpty) {
+      throw const ReservationAiParserException('AI파서 주소가 설정되지 않았습니다.');
+    }
+
+    final uri = Uri.parse(
+      '${baseUrl.replaceAll(RegExp(r'/+$'), '')}/ims/search-reservations',
+    );
+    final request = await _httpClient.postUrl(uri);
+    request.headers.contentType = ContentType.json;
+    request.write(
+      jsonEncode({
+        'customerName': customerName.trim(),
+        'carNumber': carNumber.trim(),
+        'rentalDate': _formatDate(rentalDate),
+      }),
+    );
+
+    final response = await request.close().timeout(
+      const Duration(seconds: 180),
+      onTimeout: () {
+        request.abort();
+        throw const ReservationAiParserException('IMS 예약 조회 시간이 초과되었습니다.');
+      },
+    );
+    final body = await utf8.decoder.bind(response).join();
+    final json = body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(body) as Map<String, dynamic>;
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ReservationAiParserException(
+        (json['message'] as String?)?.trim().isNotEmpty == true
+            ? json['message'] as String
+            : 'IMS 예약 조회에 실패했습니다. (${response.statusCode})',
+      );
+    }
+
+    final result =
+        (json['result'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return ((result['items'] as List?) ?? const [])
+        .map(
+          (item) => ImsReservationImportCandidate.fromJson(
+            (item as Map).cast<String, dynamic>(),
+          ),
+        )
+        .toList();
+  }
+}
+
+String _formatDate(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${value.year}-${two(value.month)}-${two(value.day)}';
+}
+
+class ImsReservationImportCandidate {
+  const ImsReservationImportCandidate({
+    required this.scheduleId,
+    required this.detailId,
+    required this.reservationNumber,
+    required this.status,
+    required this.detailStatus,
+    required this.reservationType,
+    required this.carNumber,
+    required this.carName,
+    required this.customerName,
+    required this.customerPhone,
+    required this.rentalAt,
+    required this.returnAt,
+    required this.pickupLocation,
+    required this.dropoffLocation,
+    required this.recommenderName,
+    required this.title,
+  });
+
+  final String scheduleId;
+  final String detailId;
+  final String reservationNumber;
+  final String status;
+  final String detailStatus;
+  final String reservationType;
+  final String carNumber;
+  final String carName;
+  final String customerName;
+  final String customerPhone;
+  final String rentalAt;
+  final String returnAt;
+  final String pickupLocation;
+  final String dropoffLocation;
+  final String recommenderName;
+  final String title;
+
+  Map<String, dynamic> toJson() => {
+    'scheduleId': scheduleId,
+    'detailId': detailId,
+    'reservationNumber': reservationNumber,
+    'status': status,
+    'detailStatus': detailStatus,
+    'reservationType': reservationType,
+    'carNumber': carNumber,
+    'carName': carName,
+    'customerName': customerName,
+    'customerPhone': customerPhone,
+    'rentalAt': rentalAt,
+    'returnAt': returnAt,
+    'pickupLocation': pickupLocation,
+    'dropoffLocation': dropoffLocation,
+    'recommenderName': recommenderName,
+    'title': title,
+  };
+
+  factory ImsReservationImportCandidate.fromJson(Map<String, dynamic> json) {
+    String read(String key) => json[key]?.toString().trim() ?? '';
+    return ImsReservationImportCandidate(
+      scheduleId: read('scheduleId'),
+      detailId: read('detailId'),
+      reservationNumber: read('reservationNumber'),
+      status: read('status'),
+      detailStatus: read('detailStatus'),
+      reservationType: read('reservationType'),
+      carNumber: read('carNumber'),
+      carName: read('carName'),
+      customerName: read('customerName'),
+      customerPhone: read('customerPhone'),
+      rentalAt: read('rentalAt'),
+      returnAt: read('returnAt'),
+      pickupLocation: read('pickupLocation'),
+      dropoffLocation: read('dropoffLocation'),
+      recommenderName: read('recommenderName'),
+      title: read('title'),
+    );
+  }
 }
 
 class ReservationAiParseResult {

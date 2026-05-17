@@ -86,6 +86,45 @@ Response:
 }
 ```
 
+### POST /ims/search-reservations
+기존 IMS 예약을 OPS로 가져오기 위해 IMS 예약 목록을 조회한다.
+
+Request:
+```json
+{
+  "customerName": "홍길동",
+  "carNumber": "125호6498",
+  "rentalDate": "2026-05-17"
+}
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "result": {
+    "code": "SUCCESS",
+    "totalCount": 1,
+    "items": [
+      {
+        "scheduleId": "4189193",
+        "detailId": "1209496",
+        "reservationNumber": "1209496",
+        "carNumber": "125호6498",
+        "customerName": "홍길동",
+        "customerPhone": "01000000000",
+        "rentalAt": "2026-05-17 10:00",
+        "returnAt": "2026-05-18 10:00"
+      }
+    ]
+  }
+}
+```
+
+주의:
+- 조회 전용이다. IMS 상태를 변경하지 않는다.
+- OPS 앱은 선택된 항목의 `scheduleId/detailId`를 external link로 저장하고, IMS 새 생성은 호출하지 않는다.
+
 ### POST /ims/change-reservation-car
 IMS에 이미 생성된 예약의 차량을 변경한다.
 
@@ -124,10 +163,11 @@ IMS에 이미 배차중인 계약을 반납완료 처리한다.
 Request:
 ```json
 {
-  "contractId": "204340",
+  "contractId": "1209357",
   "doneAt": "2026-05-17-12-30",
-  "returnGasCharge": 100,
-  "drivenDistanceUponReturn": "",
+  "returnGasCharge": 70,
+  "drivenDistanceUponReturn": "70483",
+  "fuelCost": -7010,
   "reservationId": "R-001"
 }
 ```
@@ -146,8 +186,9 @@ Response:
 
 주의:
 - 실제 IMS 상태를 변경한다.
-- `contractId`는 IMS 계약 id이며, 앱은 저장된 `externalDetailId`를 우선 사용하고 없으면 `externalReservationId`를 fallback으로 사용한다.
-- 현재 OPS 빠른 반납 버튼은 별도 유류량 입력 UI가 없어 `returnGasCharge=100`으로 보낸다.
+- `contractId`는 IMS `normal-contracts` detail id이며, 앱은 저장된 `externalDetailId`를 우선 사용하고 없으면 `externalReservationId`를 fallback으로 사용한다.
+- 내부 호출 대상은 `POST /v2/normal-contracts/{contractId}/set-done`이다.
+- `returnGasCharge`, `drivenDistanceUponReturn`, `fuelCost`는 필수다. OPS 앱은 IMS 연결 반납 시 입력창에서 세 값을 받은 뒤 호출한다.
 
 Response:
 ```json

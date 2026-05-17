@@ -7,6 +7,7 @@ import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
+import 'package:rentcar00_ops/features/reservations/detail/presentation/ims_return_input_dialog.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
@@ -329,6 +330,17 @@ class _ReservationDetailBodyState
     );
     if (confirmed != true) return;
 
+    ImsReturnInputResult? imsReturnInput;
+    if (imsActive) {
+      if (!mounted) return;
+      imsReturnInput = await showDialog<ImsReturnInputResult>(
+        context: context,
+        builder: (context) => const ImsReturnInputDialog(),
+      );
+      if (imsReturnInput == null) return;
+    }
+
+    if (!mounted) return;
     setState(() => _lifecycleUpdating = true);
     try {
       await ref
@@ -358,6 +370,10 @@ class _ReservationDetailBodyState
                   contractId: contractId,
                   reservationId: reservation.reservationId,
                   doneAt: DateTime.now(),
+                  returnGasCharge: imsReturnInput!.returnGasCharge,
+                  drivenDistanceUponReturn:
+                      imsReturnInput.drivenDistanceUponReturn,
+                  fuelCost: imsReturnInput.fuelCost,
                 );
             imsSucceeded = imsResult.isSuccess;
             imsMessage = imsSucceeded

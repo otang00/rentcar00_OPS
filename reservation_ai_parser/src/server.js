@@ -62,6 +62,16 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.url === '/ims/search-reservations') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeImsReservationSearchPayload(body);
+      const result = await searchImsReservationsForImport(payload);
+      return sendJson(res, 200, { ok: true, payload, result });
+    }
+
     if (req.url === '/ims/change-reservation-car') {
       if (req.method !== 'POST') {
         return sendMethodNotAllowed(res, ['POST']);
@@ -168,22 +178,40 @@ function normalizeImsChangeCarPayload(body = {}) {
   return payload;
 }
 
+function normalizeImsReservationSearchPayload(body = {}) {
+  const payload = {
+    customerName: String(body?.customerName || '').trim(),
+    carNumber: String(body?.carNumber || '').trim(),
+    rentalDate: extractDate(body?.rentalDate || body?.startDate || body?.rentalAt || ''),
+    endDate: extractDate(body?.endDate || body?.returnDate || ''),
+  };
+
+  if (!payload.rentalDate) {
+    throw new Error('missing required ims fields: rentalDate');
+  }
+  return payload;
+}
+
 function normalizeImsCompleteReturnPayload(body = {}) {
   const payload = {
     contractId: String(body?.contractId || body?.externalDetailId || body?.externalReservationId || '').trim(),
     doneAt: normalizeImsReturnDoneAt(body?.doneAt || body?.done_at || ''),
-    returnGasCharge: Number(body?.returnGasCharge || body?.return_gas_charge || 100),
+    returnGasCharge: Number(body?.returnGasCharge ?? body?.return_gas_charge ?? 100),
     drivenDistanceUponReturn: String(body?.drivenDistanceUponReturn || body?.driven_distance_upon_return || '').replace(/[^0-9.]/g, ''),
+    fuelCost: Number(body?.fuelCost ?? body?.fuel_cost),
     reservationId: String(body?.reservationId || '').trim(),
     dryRun: body?.dryRun === true,
   };
 
-  const missing = ['contractId', 'doneAt'].filter((key) => !payload[key]);
+  const missing = ['contractId', 'doneAt', 'drivenDistanceUponReturn'].filter((key) => !payload[key]);
   if (missing.length > 0) {
     throw new Error(`missing required ims fields: ${missing.join(', ')}`);
   }
   if (!Number.isFinite(payload.returnGasCharge) || payload.returnGasCharge < 0 || payload.returnGasCharge > 100) {
     throw new Error('missing required ims fields: returnGasCharge');
+  }
+  if (!Number.isFinite(payload.fuelCost)) {
+    throw new Error('missing required ims fields: fuelCost');
   }
 
   return payload;
@@ -252,6 +280,62 @@ async function resolveImsReservationBindingAfterCreate({ payload, result }) {
     externalDetailId: stringifyNullable(match.detail_id || match?.reservation?.id),
     linkKey: buildLinkKey(payload),
     matchedReservation: match,
+  };
+}
+
+async function searchImsReservationsForImport(payload) {
+  const exportResult = await exportImsReservationsForDateRange({
+    startDate: payload.rentalDate,
+    endDate: payload.endDate || addDaysToDateText(payload.rentalDate, 3),
+    baseDate: payload.rentalDate,
+  });
+  if (!exportResult?.ok || !exportResult?.flatPath) {
+    return {
+      code: 'ERROR',
+      message: exportResult?.message || 'IMS 예약 조회 실패',
+      items: [],
+    };
+  }
+
+  const raw = await fs.readFile(exportResult.flatPath, 'utf8');
+  const rows = JSON.parse(raw);
+  if (!Array.isArray(rows)) {
+    return { code: 'SUCCESS', items: [] };
+  }
+
+  const customerName = normalizeText(payload.customerName);
+  const carNumber = normalizeText(payload.carNumber);
+  const items = rows
+    .filter((row) => {
+      const matchesName = !customerName || normalizeText(row?.customer_name).includes(customerName);
+      const matchesCar = !carNumber || normalizeText(row?.car_number).includes(carNumber);
+      const matchesDate = extractDate(normalizeImsDateTime(row?.start_at)) === payload.rentalDate;
+      return matchesName && matchesCar && matchesDate;
+    })
+    .map((row) => ({
+      scheduleId: stringifyNullable(row?.schedule_id),
+      detailId: stringifyNullable(row?.detail_id),
+      reservationNumber: stringifyNullable(row?.detail_id || row?.schedule_id),
+      status: stringifyNullable(row?.status),
+      detailStatus: stringifyNullable(row?.detail_status),
+      reservationType: stringifyNullable(row?.reservation_type),
+      carNumber: stringifyNullable(row?.car_number),
+      carName: stringifyNullable(row?.car_name),
+      customerName: stringifyNullable(row?.customer_name),
+      customerPhone: digitsOnly(row?.customer_contact),
+      rentalAt: normalizeImsDateTime(row?.start_at),
+      returnAt: normalizeImsDateTime(row?.end_at),
+      pickupLocation: stringifyNullable(row?.pickup_address),
+      dropoffLocation: stringifyNullable(row?.dropoff_address),
+      recommenderName: stringifyNullable(row?.recommender_name),
+      title: stringifyNullable(row?.title),
+    }))
+    .filter((item) => item.scheduleId && item.detailId);
+
+  return {
+    code: 'SUCCESS',
+    totalCount: items.length,
+    items,
   };
 }
 
@@ -386,11 +470,12 @@ async function completeImsReservationReturnDirect(payload) {
   const token = await fetchImsAccessToken();
   const data = {
     done_at: payload.doneAt,
-    return_gas_charge: payload.returnGasCharge,
-    driven_distance_upon_return: payload.drivenDistanceUponReturn || null,
+    return_gas_charge: String(payload.returnGasCharge),
+    driven_distance_upon_return: String(payload.drivenDistanceUponReturn),
+    fuel_cost: payload.fuelCost,
   };
   const response = await fetch(
-    `https://api.rencar.co.kr/v2/rent-contracts/${encodeURIComponent(payload.contractId)}/return-gas-charge`,
+    `https://api.rencar.co.kr/v2/normal-contracts/${encodeURIComponent(payload.contractId)}/set-done`,
     {
       method: 'POST',
       headers: buildImsApiHeaders(token, { contentType: true }),
@@ -576,14 +661,20 @@ async function findCreatedImsReservationForBinding(payload) {
 }
 
 async function exportImsReservationsForBindingLookup(payload) {
+  return exportImsReservationsForDateRange({
+    startDate: extractDate(payload.rentalAt),
+    endDate: extractDate(payload.returnAt),
+    baseDate: extractDate(payload.rentalAt),
+  });
+}
+
+async function exportImsReservationsForDateRange({ startDate, endDate, baseDate }) {
   const scriptPath = await findFirstExistingPath([
     path.resolve(__dirname, '../../../../tools/playwright/scripts/ims-reservations-export.js'),
     path.resolve(process.cwd(), '../../tools/playwright/scripts/ims-reservations-export.js'),
     path.resolve(process.cwd(), '../tools/playwright/scripts/ims-reservations-export.js'),
   ]);
 
-  const rentalDate = extractDate(payload.rentalAt);
-  const returnDate = extractDate(payload.returnAt);
   const outputDir = path.join(
     process.cwd(),
     '.ims-create-lookup',
@@ -592,7 +683,7 @@ async function exportImsReservationsForBindingLookup(payload) {
 
   const result = await execFileAsync(
     'node',
-    [scriptPath, outputDir, rentalDate, returnDate, rentalDate],
+    [scriptPath, outputDir, startDate, endDate, baseDate || startDate],
     {
       cwd: process.cwd(),
       env: process.env,
@@ -634,6 +725,13 @@ function buildLinkKey(payload) {
 
 function extractDate(value) {
   return String(value || '').trim().split(/\s+/)[0] || '';
+}
+
+function addDaysToDateText(value, days) {
+  const date = new Date(`${extractDate(value)}T00:00:00+09:00`);
+  if (Number.isNaN(date.getTime())) return extractDate(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function normalizeImsDateTime(value) {

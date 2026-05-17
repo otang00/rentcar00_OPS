@@ -8,6 +8,7 @@ import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
+import 'package:rentcar00_ops/features/reservations/detail/presentation/ims_return_input_dialog.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/status_board/detail/data/reservation_ai_parser_client.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
@@ -159,6 +160,24 @@ Future<void> _saveImsRegistrationFailure({
       );
 }
 
+Future<void> _saveImportedImsRegistration({
+  required WidgetRef ref,
+  required String reservationId,
+  required ImsReservationImportCandidate imported,
+}) async {
+  await ref
+      .read(supabaseOpsRepositoryProvider)
+      .upsertExternalReservationLink(
+        reservationId: reservationId,
+        externalReservationId: imported.scheduleId,
+        externalDetailId: imported.detailId,
+        externalStatus: 'linked',
+        linkKey: 'OPS:${reservationId.trim()}',
+        lastPayloadJson: {'source': 'ims_import', ...imported.toJson()},
+        lastResultJson: {'code': 'IMPORTED', ...imported.toJson()},
+      );
+}
+
 Future<void> showReservationCreateFlow({
   required BuildContext context,
   required WidgetRef ref,
@@ -193,7 +212,9 @@ Future<void> showReservationCreateFlow({
     car: form.car,
   );
   final preflightPayload = buildImsReservationPayload(reservation);
-  if (form.imsChecked && !preflightPayload.isValid) {
+  if (form.importedIms == null &&
+      form.imsChecked &&
+      !preflightPayload.isValid) {
     messenger.showSnackBar(
       SnackBar(
         backgroundColor: Colors.redAccent,
@@ -226,7 +247,21 @@ Future<void> showReservationCreateFlow({
 
     if (!context.mounted) return;
 
-    if (form.imsChecked) {
+    if (form.importedIms != null) {
+      await _saveImportedImsRegistration(
+        ref: ref,
+        reservationId: reservationId,
+        imported: form.importedIms!,
+      );
+      if (!context.mounted) return;
+      _showReservationCreateSnackBar(
+        context,
+        label: 'IMS 가져오기 완료',
+        car: form.car,
+        startAt: form.startAt,
+        color: Colors.green,
+      );
+    } else if (form.imsChecked) {
       final confirmedReservation = _buildReservationRecordForIms(
         reservationId: reservationId,
         form: form,
@@ -395,7 +430,9 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       form: form,
     );
     final preflightPayload = buildImsReservationPayload(preflightReservation);
-    if (form.imsChecked && !preflightPayload.isValid) {
+    if (form.importedIms == null &&
+        form.imsChecked &&
+        !preflightPayload.isValid) {
       _showImsFailure(
         preflightPayload.errors.map(imsPayloadErrorLabel).join(', '),
       );
@@ -421,7 +458,15 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
           );
       if (!mounted) return;
 
-      if (form.imsChecked) {
+      if (form.importedIms != null) {
+        await _saveImportedImsRegistration(
+          ref: ref,
+          reservationId: reservationId,
+          imported: form.importedIms!,
+        );
+        if (!mounted) return;
+        _showImsSuccess(carNumber: form.car.carNumber, startAt: form.startAt);
+      } else if (form.imsChecked) {
         final reservation = _buildReservationRecordForIms(
           reservationId: reservationId,
           form: form,
@@ -1320,7 +1365,8 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
   late final TextEditingController _carController;
   StatusBoardRecord? _selectedCar;
   bool _aiParsing = false;
-  bool _imsChecked = false;
+  bool _imsChecked = true;
+  ImsReservationImportCandidate? _importedIms;
 
   @override
   void initState() {
@@ -1383,6 +1429,72 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
     }
   }
 
+  Future<void> _openImsImport() async {
+    final rentalAt =
+        _tryParseDateTime(_startAtController.text.trim()) ?? DateTime.now();
+    final selected = await showDialog<ImsReservationImportCandidate>(
+      context: context,
+      builder: (context) => _ImsReservationImportDialog(
+        aiParserBaseUrl: widget.aiParserBaseUrl,
+        initialCustomerName: _customerNameController.text.trim(),
+        initialCarNumber: _selectedCar?.carNumber ?? '',
+        initialRentalDate: rentalAt,
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    final matchedCar = _findCarByNumber(selected.carNumber);
+    if (matchedCar == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('OPS 차량 목록에서 ${selected.carNumber} 차량을 찾지 못했습니다.'),
+        ),
+      );
+      return;
+    }
+
+    _applyImsImport(selected, matchedCar);
+  }
+
+  StatusBoardRecord? _findCarByNumber(String carNumber) {
+    final target = carNumber.trim();
+    if (target.isEmpty) return null;
+    final current = widget.record;
+    if (current != null && current.carNumber.trim() == target) return current;
+    for (final car in widget.availableCars) {
+      if (car.carNumber.trim() == target) return car;
+    }
+    return null;
+  }
+
+  void _applyImsImport(
+    ImsReservationImportCandidate imported,
+    StatusBoardRecord car,
+  ) {
+    setState(() {
+      _importedIms = imported;
+      _imsChecked = false;
+      _selectedCar = car;
+      _carController.text = _carDisplayLabel(car);
+      _reservationNumberController.text = imported.reservationNumber;
+      _customerNameController.text = imported.customerName;
+      _customerPhoneController.text = opsFormatPhoneInput(
+        imported.customerPhone,
+      );
+      _referralSourceController.text = imported.recommenderName;
+      _startAtController.text = imported.rentalAt;
+      _endAtController.text = imported.returnAt;
+      _pickupLocationController.text = imported.pickupLocation;
+      _dropoffLocationController.text = imported.dropoffLocation;
+      _noteController.text = [
+        'IMS 가져오기',
+        if (imported.title.trim().isNotEmpty) imported.title.trim(),
+        'schedule:${imported.scheduleId}',
+        'detail:${imported.detailId}',
+      ].join(' | ');
+    });
+  }
+
   void _applyAiParserResult(
     ReservationAiParseResult result, {
     required String sourceText,
@@ -1418,6 +1530,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
     final parsedEndAt = _normalizeAiDateTime(fields.returnAt);
     fillIfNotEmpty(_startAtController, parsedStartAt);
     fillIfNotEmpty(_endAtController, parsedEndAt);
+    _importedIms = null;
   }
 
   String? _normalizeAiDateTime(String? value) {
@@ -1506,6 +1619,11 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                   )
                 : const Icon(Icons.auto_awesome_outlined),
             label: const Text('AI파서'),
+          ),
+          TextButton.icon(
+            onPressed: _openImsImport,
+            icon: const Icon(Icons.cloud_download_outlined),
+            label: const Text('IMS 가져오기'),
           ),
         ],
       ),
@@ -1611,6 +1729,21 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                     label: '비고',
                     maxLines: 3,
                   ),
+                  if (_importedIms != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'IMS 연결 예정: ${_importedIms!.scheduleId} / ${_importedIms!.detailId}',
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(
+                                color: Colors.green.shade700,
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1623,11 +1756,15 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
           children: [
             Checkbox(
               value: _imsChecked,
+              tristate: false,
               onChanged: (value) {
-                setState(() => _imsChecked = value ?? false);
+                setState(() {
+                  _imsChecked = value ?? false;
+                  if (_imsChecked) _importedIms = null;
+                });
               },
             ),
-            const Text('IMS'),
+            const Text('IMS연동생성'),
           ],
         ),
         TextButton(
@@ -1675,9 +1812,10 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
               dropoffLocation: _dropoffLocationController.text.trim(),
               noteText: _noteController.text.trim(),
               imsChecked: _imsChecked,
+              importedIms: _importedIms,
             );
 
-            if (_imsChecked) {
+            if (_importedIms == null && _imsChecked) {
               final reservation = ReservationRecord(
                 reservationId: 'draft',
                 reservationNumber: result.reservationNumber,
@@ -1721,6 +1859,205 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
       ],
     );
   }
+}
+
+class _ImsReservationImportDialog extends StatefulWidget {
+  const _ImsReservationImportDialog({
+    required this.aiParserBaseUrl,
+    required this.initialCustomerName,
+    required this.initialCarNumber,
+    required this.initialRentalDate,
+  });
+
+  final String aiParserBaseUrl;
+  final String initialCustomerName;
+  final String initialCarNumber;
+  final DateTime initialRentalDate;
+
+  @override
+  State<_ImsReservationImportDialog> createState() =>
+      _ImsReservationImportDialogState();
+}
+
+class _ImsReservationImportDialogState
+    extends State<_ImsReservationImportDialog> {
+  late final TextEditingController _customerNameController;
+  late final TextEditingController _carNumberController;
+  late final TextEditingController _rentalDateController;
+  bool _searching = false;
+  List<ImsReservationImportCandidate> _items = const [];
+  String _message = '이름/차량번호/배차일로 IMS 예약을 조회합니다.';
+
+  @override
+  void initState() {
+    super.initState();
+    _customerNameController = TextEditingController(
+      text: widget.initialCustomerName,
+    );
+    _carNumberController = TextEditingController(text: widget.initialCarNumber);
+    _rentalDateController = TextEditingController(
+      text: _formatDateOnly(widget.initialRentalDate),
+    );
+  }
+
+  @override
+  void dispose() {
+    _customerNameController.dispose();
+    _carNumberController.dispose();
+    _rentalDateController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final initial = DateTime.tryParse(_rentalDateController.text.trim()) ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _rentalDateController.text = _formatDateOnly(picked));
+  }
+
+  Future<void> _search() async {
+    final rentalDate = DateTime.tryParse(_rentalDateController.text.trim());
+    if (rentalDate == null) {
+      setState(() => _message = '배차일을 YYYY-MM-DD 형식으로 입력해 주세요.');
+      return;
+    }
+    setState(() {
+      _searching = true;
+      _message = 'IMS 예약 조회 중입니다.';
+      _items = const [];
+    });
+    try {
+      final client = ReservationAiParserClient(baseUrl: widget.aiParserBaseUrl);
+      final items = await client.searchImsReservations(
+        customerName: _customerNameController.text,
+        carNumber: _carNumberController.text,
+        rentalDate: rentalDate,
+      );
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _message = items.isEmpty ? '조회 결과가 없습니다.' : '${items.length}건 조회됨';
+      });
+    } on ReservationAiParserException catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.message);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _message = 'IMS 예약 조회 실패($error)');
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('IMS 예약 가져오기'),
+      content: SizedBox(
+        width: 460,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _customerNameController,
+                    decoration: const InputDecoration(labelText: '이름'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _carNumberController,
+                    decoration: const InputDecoration(labelText: '차량번호'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _rentalDateController,
+              decoration: InputDecoration(
+                labelText: '배차일',
+                hintText: '2026-05-17',
+                suffixIcon: IconButton(
+                  onPressed: _pickDate,
+                  icon: const Icon(Icons.calendar_today_outlined),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _searching ? null : _search,
+                icon: _searching
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.search_outlined),
+                label: const Text('조회'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(alignment: Alignment.centerLeft, child: Text(_message)),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 320),
+              child: _items.isEmpty
+                  ? const SizedBox.shrink()
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _items.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final item = _items[index];
+                        return ListTile(
+                          title: Text(
+                            '${item.customerName} · ${item.carNumber}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            [
+                              item.rentalAt,
+                              if (item.returnAt.trim().isNotEmpty)
+                                '~ ${item.returnAt}',
+                              'IMS ${item.scheduleId}/${item.detailId}',
+                            ].join('\n'),
+                          ),
+                          isThreeLine: true,
+                          onTap: () => Navigator.of(context).pop(item),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+      ],
+    );
+  }
+}
+
+String _formatDateOnly(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${value.year}-${two(value.month)}-${two(value.day)}';
 }
 
 class _DispatchTypeDialog extends StatelessWidget {
@@ -2704,6 +3041,15 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
               externalReservationLinkProvider(record.reservationId).future,
             )
           : null;
+      ImsReturnInputResult? imsReturnInput;
+      if (externalLink?.isActiveBinding == true) {
+        if (!mounted) return;
+        imsReturnInput = await showDialog<ImsReturnInputResult>(
+          context: context,
+          builder: (context) => const ImsReturnInputDialog(),
+        );
+        if (imsReturnInput == null) return;
+      }
       await ref
           .read(supabaseOpsRepositoryProvider)
           .completeSchedule(
@@ -2727,6 +3073,10 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                   contractId: contractId,
                   reservationId: record.reservationId,
                   doneAt: DateTime.now(),
+                  returnGasCharge: imsReturnInput!.returnGasCharge,
+                  drivenDistanceUponReturn:
+                      imsReturnInput.drivenDistanceUponReturn,
+                  fuelCost: imsReturnInput.fuelCost,
                 );
             imsMessage = imsResult.isSuccess
                 ? ' IMS도 반납완료 처리했습니다.'
@@ -3371,6 +3721,7 @@ class _ReservationCreateFormResult {
     required this.dropoffLocation,
     required this.noteText,
     required this.imsChecked,
+    this.importedIms,
   });
 
   final StatusBoardRecord car;
@@ -3386,6 +3737,7 @@ class _ReservationCreateFormResult {
   final String dropoffLocation;
   final String noteText;
   final bool imsChecked;
+  final ImsReservationImportCandidate? importedIms;
 }
 
 class _InstantStatusFormResult {
