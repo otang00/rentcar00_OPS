@@ -6,6 +6,51 @@
 ---
 
 
+
+## 2026-05-17 — 예약상세 배차/반납 완료 + IMS 반납 연동
+### 사용자 표면
+- 예약상세에서 상태에 따라 `배차완료` 또는 `반납완료` 버튼을 바로 사용할 수 있다.
+- 일정상세/예약상세에서 반납완료 시 IMS active binding이 있으면 IMS 반납완료도 함께 시도하고 결과를 안내한다.
+
+### 실제 동작
+- 미배차 예약은 `배차완료`, 배차중 예약은 `반납완료` 버튼을 표시한다.
+- 버튼 실행 전 확인 다이얼로그를 띄운다.
+- 배차완료는 연결 배차 일정을 완료 처리하고 차량을 `일반`으로 전환한다.
+- 반납완료는 연결 반납 일정을 완료 처리하고 차량을 `대기중`으로 전환한다.
+- 중간서버 `POST /ims/complete-reservation-return`을 추가했다.
+- 중간서버는 IMS `POST /v2/rent-contracts/{contractId}/return-gas-charge`를 호출한다.
+- 앱은 IMS binding의 `externalDetailId`를 우선 contract id로 쓰고, 없으면 `externalReservationId`를 fallback으로 사용한다.
+
+### 핵심 파일
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/reservations/detail/data/ims_reservation_client.dart`
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/README.md`
+- `docs/current/rentcar00_OPS-current.md`
+- `IMS_API_MANUAL.md`
+
+### 검증
+- IMS Web 정적 소스에서 `POST /v2/rent-contracts/{contractId}/return-gas-charge` 확인
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. 예약상세 버튼 노출이 미배차/배차중 상태와 맞는지
+2. 연결 일정이 없을 때 완료 처리하지 않고 안내하는지
+3. 반납완료 후 차량이 대기중으로 복귀하는지
+4. IMS active binding 예약에서 IMS 반납 성공/실패 snack 안내가 보이는지
+5. IMS contract id가 `externalDetailId`에 없을 때 fallback이 맞게 동작하는지
+
+### 남은 주의점
+- 실예약 IMS 반납완료 테스트는 수행하지 않았다.
+- OPS 빠른 반납 버튼에는 IMS 유류량/주행거리 입력 UI가 없어 현재 `returnGasCharge=100`, 주행거리 공백으로 호출한다.
+- IMS 반납은 실제 외부 상태 변경이므로 운영 예약은 대상 확인 후 진행한다.
+
+---
+
 ## 2026-05-17 — b32 APK 빌드/업로드 완료
 ### 사용자 표면
 - 수리중/배차 UX + 예약상세 차량변경 + IMS 차량변경 연동이 포함된 b32 APK를 실기기 설치 테스트할 수 있다.

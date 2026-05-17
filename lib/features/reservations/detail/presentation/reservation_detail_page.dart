@@ -7,6 +7,7 @@ import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
+import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
@@ -55,6 +56,7 @@ class _ReservationDetailBodyState
   bool _imsSubmitting = false;
   bool _registrationUpdating = false;
   bool _reservationUpdating = false;
+  bool _lifecycleUpdating = false;
 
   Future<void> _editReservation(ReservationRecord reservation) async {
     if (_reservationUpdating) return;
@@ -254,6 +256,126 @@ class _ReservationDetailBodyState
       _showSnack('차량변경 실패($error)', backgroundColor: Colors.red.shade700);
     } finally {
       if (mounted) setState(() => _reservationUpdating = false);
+    }
+  }
+
+  Future<void> _completeReservationLifecycle({
+    required ReservationRecord reservation,
+    required List<StatusBoardRecord> linkedSchedules,
+    required String scheduleType,
+    required ExternalReservationLink? externalLink,
+  }) async {
+    if (_lifecycleUpdating) return;
+
+    final normalizedType = scheduleType.trim();
+    StatusBoardRecord? target;
+    for (final item in linkedSchedules) {
+      if (item.scheduleType.trim() == normalizedType &&
+          !_isTruthy(item.scheduleDone)) {
+        target = item;
+        break;
+      }
+    }
+
+    if (target == null) {
+      _showSnack(
+        '완료 처리할 $normalizedType 일정이 없습니다.',
+        backgroundColor: Colors.red.shade700,
+      );
+      return;
+    }
+
+    final scheduleRowId = _extractRawRowId(target.recordId, 'schedule');
+    if (scheduleRowId == null) {
+      _showSnack('일정 row id를 찾지 못했습니다.', backgroundColor: Colors.red.shade700);
+      return;
+    }
+
+    final isReturn = normalizedType == '반납';
+    final imsActive = isReturn && externalLink?.isActiveBinding == true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isReturn ? '반납완료' : '배차완료'),
+        content: Text(
+          isReturn
+              ? '연결된 반납 일정을 완료 처리하고 차량을 대기중으로 전환합니다.${imsActive ? '\n\nIMS 연결 예약도 확인합니다.' : ''}'
+              : '연결된 배차 일정을 완료 처리하고 차량을 일반 상태로 전환합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('완료'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _lifecycleUpdating = true);
+    try {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .completeSchedule(
+            scheduleRowId: scheduleRowId,
+            scheduleType: target.scheduleType,
+            reservationId: reservation.reservationId,
+            carNumber: target.carNumber.trim().isEmpty
+                ? reservation.carNumber
+                : target.carNumber,
+          );
+
+      var imsMessage = '';
+      var imsSucceeded = false;
+      if (imsActive) {
+        final contractId = _resolveImsReturnContractId(externalLink);
+        if (contractId.isEmpty) {
+          imsMessage = ' IMS 반납완료는 실패했습니다(IMS 계약 ID 없음).';
+        } else {
+          try {
+            final appEnv = ref.read(appEnvProvider);
+            final imsResult =
+                await ImsReservationClient(
+                  baseUrl: appEnv.aiParserBaseUrl,
+                ).completeReservationReturn(
+                  contractId: contractId,
+                  reservationId: reservation.reservationId,
+                  doneAt: DateTime.now(),
+                );
+            imsSucceeded = imsResult.isSuccess;
+            imsMessage = imsSucceeded
+                ? ' IMS도 반납완료 처리했습니다.'
+                : ' IMS 반납완료는 실패했습니다(${imsResult.message.isEmpty ? imsResult.code : imsResult.message}).';
+          } catch (error) {
+            imsMessage = ' IMS 반납완료는 실패했습니다($error).';
+          }
+        }
+      }
+
+      ref.invalidate(allReservationsProvider);
+      ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(reservationDetailProvider(widget.reservationId));
+      ref.invalidate(externalReservationLinkProvider(widget.reservationId));
+
+      if (!mounted) return;
+      _showSnack(
+        '${isReturn ? '반납완료' : '배차완료'} 처리했습니다.$imsMessage',
+        backgroundColor: imsActive && !imsSucceeded
+            ? Colors.orange.shade800
+            : Colors.green.shade700,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack(
+        '${isReturn ? '반납완료' : '배차완료'} 실패($error)',
+        backgroundColor: Colors.red.shade700,
+      );
+    } finally {
+      if (mounted) setState(() => _lifecycleUpdating = false);
     }
   }
 
@@ -504,6 +626,26 @@ class _ReservationDetailBodyState
         final hasPhone = hasCallablePhone(reservation.customerPhone);
         final externalLink = externalLinkAsync.valueOrNull;
         final hasActiveImsRegistration = externalLink?.isActiveBinding == true;
+        final linkedSchedules =
+            linkedSchedulesAsync.valueOrNull ?? const <StatusBoardRecord>[];
+        final pickupPending = linkedSchedules.any(
+          (item) =>
+              item.scheduleType.trim() == '배차' && !_isTruthy(item.scheduleDone),
+        );
+        final returnPending = linkedSchedules.any(
+          (item) =>
+              item.scheduleType.trim() == '반납' && !_isTruthy(item.scheduleDone),
+        );
+        final isCompleted =
+            reservation.statusKey.trim() == '완료' ||
+            reservation.tab == ReservationTab.completed;
+        final isDispatched =
+            reservation.statusKey.trim() == '배차중' ||
+            reservation.tab == ReservationTab.inUse;
+        final showPickupComplete =
+            !isCompleted && !isDispatched && pickupPending;
+        final showReturnComplete =
+            !isCompleted && isDispatched && returnPending;
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
@@ -574,6 +716,36 @@ class _ReservationDetailBodyState
                             ? null
                             : () => _changeVehicle(reservation, externalLink),
                       ),
+                      if (showPickupComplete)
+                        _DetailActionButton(
+                          label: '배차완료',
+                          icon: Icons.upload_rounded,
+                          loading: _lifecycleUpdating,
+                          emphasis: true,
+                          onPressed: _lifecycleUpdating
+                              ? null
+                              : () => _completeReservationLifecycle(
+                                  reservation: reservation,
+                                  linkedSchedules: linkedSchedules,
+                                  scheduleType: '배차',
+                                  externalLink: externalLink,
+                                ),
+                        ),
+                      if (showReturnComplete)
+                        _DetailActionButton(
+                          label: '반납완료',
+                          icon: Icons.assignment_turned_in_outlined,
+                          loading: _lifecycleUpdating,
+                          emphasis: true,
+                          onPressed: _lifecycleUpdating
+                              ? null
+                              : () => _completeReservationLifecycle(
+                                  reservation: reservation,
+                                  linkedSchedules: linkedSchedules,
+                                  scheduleType: '반납',
+                                  externalLink: externalLink,
+                                ),
+                        ),
                       if (hasPhone)
                         _DetailActionButton(
                           label: '전화',
@@ -1704,6 +1876,19 @@ String _formatOptionalDateTime(DateTime? value) {
 String _displayValue(String value) {
   final trimmed = value.trim();
   return trimmed.isEmpty ? '-' : trimmed;
+}
+
+String _resolveImsReturnContractId(ExternalReservationLink? link) {
+  if (link == null) return '';
+  final detailId = link.externalDetailId.trim();
+  if (detailId.isNotEmpty) return detailId;
+  return link.externalReservationId.trim();
+}
+
+String? _extractRawRowId(String recordId, String prefix) {
+  final expected = '$prefix:';
+  if (!recordId.startsWith(expected)) return null;
+  return recordId.substring(expected.length);
 }
 
 bool _isTruthy(String value) {

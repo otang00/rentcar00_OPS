@@ -33,6 +33,27 @@ class ImsReservationClient {
     );
   }
 
+  Future<ImsReservationExecutionResult> completeReservationReturn({
+    required String contractId,
+    required String reservationId,
+    required DateTime doneAt,
+    int returnGasCharge = 100,
+    String drivenDistanceUponReturn = '',
+  }) async {
+    return _postIms(
+      path: '/ims/complete-reservation-return',
+      body: {
+        'contractId': contractId.trim(),
+        'reservationId': reservationId.trim(),
+        'doneAt': _formatImsReturnDoneAt(doneAt),
+        'returnGasCharge': returnGasCharge,
+        'drivenDistanceUponReturn': drivenDistanceUponReturn.trim(),
+      },
+      timeoutMessage: 'IMS 반납완료 응답 시간이 초과되었습니다.',
+      failureMessage: 'IMS 반납완료 호출에 실패했습니다.',
+    );
+  }
+
   Future<ImsReservationExecutionResult> _postIms({
     required String path,
     required Map<String, dynamic> body,
@@ -125,4 +146,10 @@ class ImsReservationClientException implements Exception {
 
   @override
   String toString() => message;
+}
+
+String _formatImsReturnDoneAt(DateTime value) {
+  final local = value.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)}-${two(local.hour)}-${two(local.minute)}';
 }

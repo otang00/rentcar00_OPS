@@ -23,6 +23,7 @@ rentcar00_OPS 예약생성 화면에 연결할 앱 전용 AI파서 서비스.
 - `POST /parse-reservation`
 - `POST /ims/create-reservation`
 - `POST /ims/change-reservation-car`
+- `POST /ims/complete-reservation-return`
 
 그 외 path/method 는 차단 방향으로 유지한다.
 
@@ -115,6 +116,38 @@ Response:
 - 실제 IMS 상태를 변경한다.
 - `scheduleId`는 IMS `company-car-schedules` id다.
 - `carNumber`는 대상 차량번호이며 서버가 available API로 IMS 내부 `company_car_id`를 조회한다.
+
+
+### POST /ims/complete-reservation-return
+IMS에 이미 배차중인 계약을 반납완료 처리한다.
+
+Request:
+```json
+{
+  "contractId": "204340",
+  "doneAt": "2026-05-17-12-30",
+  "returnGasCharge": 100,
+  "drivenDistanceUponReturn": "",
+  "reservationId": "R-001"
+}
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "result": {
+    "code": "SUCCESS",
+    "externalStatus": "linked",
+    "externalReservationId": "204340"
+  }
+}
+```
+
+주의:
+- 실제 IMS 상태를 변경한다.
+- `contractId`는 IMS 계약 id이며, 앱은 저장된 `externalDetailId`를 우선 사용하고 없으면 `externalReservationId`를 fallback으로 사용한다.
+- 현재 OPS 빠른 반납 버튼은 별도 유류량 입력 UI가 없어 `returnGasCharge=100`으로 보낸다.
 
 Response:
 ```json

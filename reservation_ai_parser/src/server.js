@@ -73,6 +73,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, ok ? 200 : 422, { ok, payload, result });
     }
 
+    if (req.url === '/ims/complete-reservation-return') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeImsCompleteReturnPayload(body);
+      const result = await completeImsReservationReturnDirect(payload);
+      const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
+      return sendJson(res, ok ? 200 : 422, { ok, payload, result });
+    }
+
     return sendJson(res, 404, { ok: false, error: 'not_found' });
   } catch (error) {
     const status = resolveErrorStatus(error);
@@ -152,6 +163,27 @@ function normalizeImsChangeCarPayload(body = {}) {
   const missing = required.filter((key) => !payload[key]);
   if (missing.length > 0) {
     throw new Error(`missing required ims fields: ${missing.join(', ')}`);
+  }
+
+  return payload;
+}
+
+function normalizeImsCompleteReturnPayload(body = {}) {
+  const payload = {
+    contractId: String(body?.contractId || body?.externalDetailId || body?.externalReservationId || '').trim(),
+    doneAt: normalizeImsReturnDoneAt(body?.doneAt || body?.done_at || ''),
+    returnGasCharge: Number(body?.returnGasCharge || body?.return_gas_charge || 100),
+    drivenDistanceUponReturn: String(body?.drivenDistanceUponReturn || body?.driven_distance_upon_return || '').replace(/[^0-9.]/g, ''),
+    reservationId: String(body?.reservationId || '').trim(),
+    dryRun: body?.dryRun === true,
+  };
+
+  const missing = ['contractId', 'doneAt'].filter((key) => !payload[key]);
+  if (missing.length > 0) {
+    throw new Error(`missing required ims fields: ${missing.join(', ')}`);
+  }
+  if (!Number.isFinite(payload.returnGasCharge) || payload.returnGasCharge < 0 || payload.returnGasCharge > 100) {
+    throw new Error('missing required ims fields: returnGasCharge');
   }
 
   return payload;
@@ -340,6 +372,52 @@ async function changeImsReservationCarDirect(payload) {
   };
 }
 
+async function completeImsReservationReturnDirect(payload) {
+  if (payload.dryRun) {
+    return {
+      code: 'DRY_RUN',
+      message: 'dryRun=true; IMS direct return skipped',
+      externalReservationId: payload.contractId,
+      externalStatus: 'linked',
+      linkKey: buildLinkKey(payload),
+    };
+  }
+
+  const token = await fetchImsAccessToken();
+  const data = {
+    done_at: payload.doneAt,
+    return_gas_charge: payload.returnGasCharge,
+    driven_distance_upon_return: payload.drivenDistanceUponReturn || null,
+  };
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/rent-contracts/${encodeURIComponent(payload.contractId)}/return-gas-charge`,
+    {
+      method: 'POST',
+      headers: buildImsApiHeaders(token, { contentType: true }),
+      body: JSON.stringify(data),
+    },
+  );
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    return {
+      code: 'ERROR',
+      message: resolveApiErrorMessage(json, response.status),
+      apiStatus: response.status,
+      apiResult: json,
+    };
+  }
+
+  return {
+    code: 'SUCCESS',
+    message: '',
+    externalStatus: 'linked',
+    externalReservationId: payload.contractId,
+    linkKey: buildLinkKey(payload),
+    apiResult: json,
+    requestBody: data,
+  };
+}
+
 async function fetchImsAccessToken() {
   const username = String(process.env.IMS_ID || '').trim();
   const rawPassword = String(process.env.IMS_PW || '').trim();
@@ -437,6 +515,13 @@ async function readJsonResponse(response) {
 
 function resolveApiErrorMessage(json, status, fallback = 'IMS API failed') {
   return stringifyNullable(json?.message || json?.msg || json?.error || json?.detail || json?.raw) || `${fallback} (${status})`;
+}
+
+function normalizeImsReturnDoneAt(value) {
+  const text = String(value || '').trim();
+  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T-](\d{2})[:\-](\d{2})/);
+  if (!match) return text;
+  return `${match[1]}-${match[2]}-${match[3]}-${match[4]}-${match[5]}`;
 }
 
 function toImsLocalApiDateTime(value) {

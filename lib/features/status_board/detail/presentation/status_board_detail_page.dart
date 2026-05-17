@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
+import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
@@ -2695,6 +2696,14 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
     if (confirmed != true) return;
 
     await _runScheduleAction(() async {
+      final isLinkedReturn =
+          record.scheduleType.trim() == '반납' &&
+          record.reservationId.trim().isNotEmpty;
+      final externalLink = isLinkedReturn
+          ? await ref.read(
+              externalReservationLinkProvider(record.reservationId).future,
+            )
+          : null;
       await ref
           .read(supabaseOpsRepositoryProvider)
           .completeSchedule(
@@ -2703,10 +2712,34 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
             reservationId: record.reservationId,
             carNumber: record.carNumber,
           );
+      var imsMessage = '';
+      if (externalLink?.isActiveBinding == true) {
+        final contractId = _resolveImsReturnContractId(externalLink);
+        if (contractId.isEmpty) {
+          imsMessage = ' IMS 반납완료는 실패했습니다(IMS 계약 ID 없음).';
+        } else {
+          try {
+            final appEnv = ref.read(appEnvProvider);
+            final imsResult =
+                await ImsReservationClient(
+                  baseUrl: appEnv.aiParserBaseUrl,
+                ).completeReservationReturn(
+                  contractId: contractId,
+                  reservationId: record.reservationId,
+                  doneAt: DateTime.now(),
+                );
+            imsMessage = imsResult.isSuccess
+                ? ' IMS도 반납완료 처리했습니다.'
+                : ' IMS 반납완료는 실패했습니다(${imsResult.message.isEmpty ? imsResult.code : imsResult.message}).';
+          } catch (error) {
+            imsMessage = ' IMS 반납완료는 실패했습니다($error).';
+          }
+        }
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('일정완료 처리했습니다.')));
+      ).showSnackBar(SnackBar(content: Text('일정완료 처리했습니다.$imsMessage')));
       context.pop();
     });
   }
@@ -3429,6 +3462,13 @@ String? _birthDateValidator(String? value) {
     return '실제 날짜를 입력하세요.';
   }
   return null;
+}
+
+String _resolveImsReturnContractId(ExternalReservationLink? link) {
+  if (link == null) return '';
+  final detailId = link.externalDetailId.trim();
+  if (detailId.isNotEmpty) return detailId;
+  return link.externalReservationId.trim();
 }
 
 String? _extractRawRowId(String recordId, String prefix) {
