@@ -62,6 +62,17 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.url === '/ims/change-reservation-car') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeImsChangeCarPayload(body);
+      const result = await changeImsReservationCarDirect(payload);
+      const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
+      return sendJson(res, ok ? 200 : 422, { ok, payload, result });
+    }
+
     return sendJson(res, 404, { ok: false, error: 'not_found' });
   } catch (error) {
     const status = resolveErrorStatus(error);
@@ -125,6 +136,25 @@ function resolveErrorCode(error) {
   if (error?.message?.startsWith('missing required ims fields')) return 'invalid_ims_payload';
   if (error?.name === 'AbortError') return 'timeout';
   return 'parse_failed';
+}
+
+function normalizeImsChangeCarPayload(body = {}) {
+  const payload = {
+    scheduleId: String(body?.scheduleId || body?.externalReservationId || '').trim(),
+    rentalAt: String(body?.rentalAt || '').trim(),
+    returnAt: String(body?.returnAt || '').trim(),
+    carNumber: String(body?.carNumber || '').trim(),
+    reservationId: String(body?.reservationId || '').trim(),
+    dryRun: body?.dryRun === true,
+  };
+
+  const required = ['scheduleId', 'rentalAt', 'returnAt', 'carNumber'];
+  const missing = required.filter((key) => !payload[key]);
+  if (missing.length > 0) {
+    throw new Error(`missing required ims fields: ${missing.join(', ')}`);
+  }
+
+  return payload;
 }
 
 function normalizeImsReservationPayload(body = {}) {
@@ -249,6 +279,64 @@ async function createImsReservationDirect(payload) {
     linkKey: buildLinkKey(payload),
     apiResult: json,
     requestBody: body,
+  };
+}
+
+async function changeImsReservationCarDirect(payload) {
+  if (payload.dryRun) {
+    return {
+      code: 'DRY_RUN',
+      message: 'dryRun=true; IMS direct API change skipped',
+      externalReservationId: payload.scheduleId,
+      externalStatus: 'linked',
+      linkKey: buildLinkKey(payload),
+    };
+  }
+
+  const token = await fetchImsAccessToken();
+  const car = await findAvailableImsCar({ token, payload });
+  if (!car) {
+    return {
+      code: 'DUPLICATE_OR_NOT_FOUND',
+      message: `available car not found: ${payload.carNumber}`,
+    };
+  }
+
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/company-car-schedules/${encodeURIComponent(payload.scheduleId)}`,
+    {
+      method: 'POST',
+      headers: buildImsApiHeaders(token, { contentType: true }),
+      body: JSON.stringify({ company_car_id: stringifyNullable(car.id) }),
+    },
+  );
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    return {
+      code: 'ERROR',
+      message: resolveApiErrorMessage(json, response.status),
+      apiStatus: response.status,
+      apiResult: json,
+    };
+  }
+
+  const scheduleId = findFirstNestedValue(json, [
+    'schedule_id',
+    'scheduleId',
+    'company_car_schedule_id',
+    'companyCarScheduleId',
+    'id',
+  ]) || payload.scheduleId;
+
+  return {
+    code: 'SUCCESS',
+    message: '',
+    externalStatus: 'linked',
+    externalReservationId: stringifyNullable(scheduleId),
+    externalDetailId: '',
+    linkKey: buildLinkKey(payload),
+    apiResult: json,
+    targetCarId: stringifyNullable(car.id),
   };
 }
 

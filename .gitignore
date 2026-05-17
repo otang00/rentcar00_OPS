@@ -48,3 +48,5 @@ app.*.map.json
 .env
 .env.*
 !.env.example
+# IMS lookup/export scratch artifacts
+reservation_ai_parser/.ims-create-lookup/

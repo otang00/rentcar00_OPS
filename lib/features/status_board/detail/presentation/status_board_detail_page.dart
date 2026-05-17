@@ -500,6 +500,9 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       return;
     }
 
+    final dispatchStartAt = DateTime.now();
+    final dispatchEndAt = _tryParseDateTime(record.endAt);
+
     await _runAction(() async {
       await ref
           .read(supabaseOpsRepositoryProvider)
@@ -509,10 +512,10 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
             statusAction: _dispatchStatusAction(selectedStatus),
             customerName: record.customerName,
             customerPhone: record.customerPhone,
-            startAt: DateTime.now(),
-            endAt: _tryParseDateTime(record.endAt),
-            pickupLocation: record.pickupLocation,
-            parkingLocation: record.parkingLocation,
+            startAt: dispatchStartAt,
+            endAt: dispatchEndAt,
+            pickupLocation: '',
+            parkingLocation: '',
             noteText: record.noteText,
           );
       if (!mounted) return;
@@ -520,15 +523,34 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         context,
       ).showSnackBar(SnackBar(content: Text('배차 $selectedStatus 상태로 전환했습니다.')));
     });
+
+    if (!mounted) return;
+    await _editVehicleStatus(
+      initialStatus: selectedStatus,
+      initialStartAt: dispatchStartAt,
+      initialEndAt: dispatchEndAt,
+      initialPickupLocation: '',
+      initialParkingLocation: '',
+    );
   }
 
-  Future<void> _editVehicleStatus() async {
+  Future<void> _editVehicleStatus({
+    String? initialStatus,
+    DateTime? initialStartAt,
+    DateTime? initialEndAt,
+    String? initialPickupLocation,
+    String? initialParkingLocation,
+  }) async {
     final form = await showDialog<_InstantStatusFormResult>(
       context: context,
       builder: (context) => _InstantStatusDialog(
         record: record,
         title: '차량 상태 수정',
-        initialStatus: _normalizeEditableStatus(record.status),
+        initialStatus: initialStatus ?? _normalizeEditableStatus(record.status),
+        initialStartAt: initialStartAt,
+        initialEndAt: initialEndAt,
+        initialPickupLocation: initialPickupLocation,
+        initialParkingLocation: initialParkingLocation,
         statusAction: '상태 수정',
         allowStatusSelection: true,
       ),
@@ -594,6 +616,60 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         ),
       ),
     );
+  }
+
+  Future<void> _markUnderRepair() async {
+    final factoryName = await showDialog<String>(
+      context: context,
+      builder: (context) =>
+          _RepairFactoryDialog(initialValue: record.parkingLocation),
+    );
+    if (factoryName == null) return;
+
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .markCarUnderRepair(carRowId: carRowId, factoryName: factoryName);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('수리중으로 전환했습니다.')));
+    });
+  }
+
+  Future<void> _completeRepair() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _ConfirmActionDialog(
+        icon: Icons.task_alt_rounded,
+        title: '수리완료',
+        message: '수리완료(대기중) 처리하시겠습니까?',
+        confirmLabel: '확인',
+      ),
+    );
+    if (confirmed != true) return;
+
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .completeCarRepair(carRowId: carRowId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('수리완료 처리했습니다.')));
+    });
   }
 
   Future<void> _editParking() async {
@@ -746,6 +822,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final idleActions = _isIdleStatus(record.status);
+    final repairActions = _isRepairStatus(record.status);
     final inServiceActions = _isInServiceStatus(record.status);
     final hasPhone = hasCallablePhone(record.customerPhone);
 
@@ -794,13 +871,14 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
           mainAxisSpacing: 6,
           childAspectRatio: 1.05,
           children: [
-            _ActionChipButton(
-              label: '예약',
-              icon: Icons.add_card_rounded,
-              emphasis: _ActionChipEmphasis.primary,
-              expand: true,
-              onPressed: _submitting ? null : _createReservation,
-            ),
+            if (!repairActions)
+              _ActionChipButton(
+                label: '예약',
+                icon: Icons.add_card_rounded,
+                emphasis: _ActionChipEmphasis.primary,
+                expand: true,
+                onPressed: _submitting ? null : _createReservation,
+              ),
             _ActionChipButton(
               label: '수정',
               icon: Icons.edit_outlined,
@@ -815,7 +893,21 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                 expand: true,
                 onPressed: _submitting ? null : _openDispatchStatus,
               ),
+              _ActionChipButton(
+                label: '수리중',
+                icon: Icons.build_circle_outlined,
+                expand: true,
+                onPressed: _submitting ? null : _markUnderRepair,
+              ),
             ],
+            if (repairActions)
+              _ActionChipButton(
+                label: '수리완료',
+                icon: Icons.task_alt_rounded,
+                emphasis: _ActionChipEmphasis.primary,
+                expand: true,
+                onPressed: _submitting ? null : _completeRepair,
+              ),
             if (inServiceActions)
               _ActionChipButton(
                 label: '반납',
@@ -1633,25 +1725,70 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
 class _DispatchTypeDialog extends StatelessWidget {
   const _DispatchTypeDialog();
 
-  static const _statuses = ['보험', '일반', '장기'];
+  static const _statuses = [
+    ('보험', Icons.health_and_safety_outlined),
+    ('일반', Icons.directions_car_filled_outlined),
+    ('장기', Icons.event_available_outlined),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return SimpleDialog(
-      title: const Text('배차'),
-      children: [
-        for (final status in _statuses)
-          SimpleDialogOption(
-            onPressed: () => Navigator.of(context).pop(status),
-            child: Row(
-              children: [
-                const Icon(Icons.directions_car_filled_outlined),
-                const SizedBox(width: 12),
-                Text(status),
-              ],
-            ),
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Expanded(child: Text('즉시배차')),
+          IconButton(
+            tooltip: '닫기',
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close),
           ),
-      ],
+        ],
+      ),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final option in _statuses) ...[
+              _DispatchOptionTile(
+                label: option.$1,
+                icon: option.$2,
+                onTap: () => Navigator.of(context).pop(option.$1),
+              ),
+              if (option != _statuses.last) const SizedBox(height: 6),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DispatchOptionTile extends StatelessWidget {
+  const _DispatchOptionTile({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(12),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        leading: Icon(icon, color: colorScheme.primary),
+        title: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: onTap,
+      ),
     );
   }
 }
@@ -1902,6 +2039,10 @@ class _InstantStatusDialog extends StatefulWidget {
     required this.title,
     required this.initialStatus,
     required this.statusAction,
+    this.initialStartAt,
+    this.initialEndAt,
+    this.initialPickupLocation,
+    this.initialParkingLocation,
     this.allowStatusSelection = false,
   });
 
@@ -1909,6 +2050,10 @@ class _InstantStatusDialog extends StatefulWidget {
   final String title;
   final String initialStatus;
   final String statusAction;
+  final DateTime? initialStartAt;
+  final DateTime? initialEndAt;
+  final String? initialPickupLocation;
+  final String? initialParkingLocation;
   final bool allowStatusSelection;
 
   @override
@@ -1938,20 +2083,24 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
       text: opsFormatPhoneInput(widget.record.customerPhone),
     );
     _pickupLocationController = TextEditingController(
-      text: widget.record.pickupLocation,
+      text: widget.initialPickupLocation ?? widget.record.pickupLocation,
     );
     _parkingLocationController = TextEditingController(
-      text: widget.record.parkingLocation,
+      text: widget.initialParkingLocation ?? widget.record.parkingLocation,
     );
     _noteController = TextEditingController(text: widget.record.noteText);
     final now = DateTime.now();
     _startAtController = TextEditingController(
-      text: widget.record.startAt.trim().isEmpty
+      text: widget.initialStartAt != null
+          ? _formatEditorDateTime(widget.initialStartAt!)
+          : widget.record.startAt.trim().isEmpty
           ? opsYearPrefix(now)
           : widget.record.startAt,
     );
     _endAtController = TextEditingController(
-      text: widget.record.endAt.trim().isEmpty
+      text: widget.initialEndAt != null
+          ? _formatEditorDateTime(widget.initialEndAt!)
+          : widget.record.endAt.trim().isEmpty
           ? opsYearPrefix(now)
           : widget.record.endAt,
     );
@@ -2241,6 +2390,133 @@ class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
           onPressed: () => Navigator.of(context).pop(_selectedValue.trim()),
           child: const Text('저장'),
         ),
+      ],
+    );
+  }
+}
+
+class _RepairFactoryDialog extends StatefulWidget {
+  const _RepairFactoryDialog({required this.initialValue});
+
+  final String initialValue;
+
+  @override
+  State<_RepairFactoryDialog> createState() => _RepairFactoryDialogState();
+}
+
+class _RepairFactoryDialogState extends State<_RepairFactoryDialog> {
+  static const _placeholder = '입고공장 선택';
+  late final TextEditingController _customController;
+  late final List<String> _options;
+  late String _selectedValue;
+  bool _showCustomInput = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialValue.trim();
+    _options = [if (initial.isNotEmpty) initial, _placeholder];
+    _selectedValue = initial.isNotEmpty ? initial : _placeholder;
+    _customController = TextEditingController(text: '');
+  }
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    super.dispose();
+  }
+
+  void _addCustomOption() {
+    final value = _customController.text.trim();
+    if (value.isEmpty) return;
+    setState(() {
+      if (!_options.contains(value)) {
+        _options.insert(0, value);
+      }
+      _selectedValue = value;
+      _showCustomInput = false;
+      _customController.clear();
+    });
+  }
+
+  void _save() {
+    final value = _selectedValue.trim();
+    if (value.isEmpty || value == _placeholder) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('입고공장을 선택하거나 추가해 주세요.')));
+      return;
+    }
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('입고공장 선택'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              initialValue: _selectedValue,
+              decoration: const InputDecoration(labelText: '입고공장'),
+              items: [
+                for (final option in _options)
+                  DropdownMenuItem(value: option, child: Text(option)),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _selectedValue = value);
+              },
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() => _showCustomInput = !_showCustomInput);
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('공장추가'),
+                  ),
+                ),
+              ],
+            ),
+            if (_showCustomInput) ...[
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _DialogTextField(
+                      controller: _customController,
+                      label: '새 공장명',
+                      autofocus: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: FilledButton(
+                      onPressed: _addCustomOption,
+                      child: const Text('추가'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('저장')),
       ],
     );
   }
@@ -3193,6 +3469,10 @@ String _dispatchStatusAction(String status) {
 bool _isIdleStatus(String status) {
   final normalized = status.trim();
   return normalized == '대기' || normalized == '대기중';
+}
+
+bool _isRepairStatus(String status) {
+  return status.trim() == '수리중';
 }
 
 bool _isInServiceStatus(String status) {

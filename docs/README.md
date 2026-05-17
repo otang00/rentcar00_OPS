@@ -3,16 +3,16 @@
 ## 바로 볼 문서
 1. `docs/current/rentcar00_OPS-current.md`
    - 지금 실제로 실행 중인 작업 1건
-2. `docs/current/rentcar00_OPS-main.md`
-   - 프로젝트 전체 구조 / 정책 / 운영 기준 / 현재 baseline
-3. `docs/completed/rentcar00_OPS-completed.md`
+2. `docs/completed/rentcar00_OPS-completed.md`
    - 완료된 기능의 운영/검증/장애 대응 누적
+3. `docs/past/current-archive-2026-05-16/rentcar00_OPS-main.md`
+   - 과거 main 기준 문서 archive. 현재 active 문서로 취급하지 않는다.
 
 ## 폴더 역할
 - `docs/current/`
   - active 문서만 둔다
   - `current`: 현재 실행 작업 1건
-  - `main`: 전체 기준 문서 1건
+  - 현재 구조에서는 `main` 문서를 current에 두지 않는다
 - `docs/completed/`
   - 완료 기능 단일 누적 문서
 - `docs/past/`
@@ -36,6 +36,6 @@
 
 ## 잠금 규칙
 - current에는 실행 문서 1개만 유지한다.
-- main에는 현재 유효한 기준만 남긴다.
+- main 성격의 과거 기준 문서는 current가 아니라 `past/current-archive-*`에 둔다.
 - completed에는 완료 사실만 누적한다.
 - 더 이상 안 쓰는 설계, 스냅샷, 아이디어 문서는 새로 current/main에 두지 않고 `past`로 보낸다.

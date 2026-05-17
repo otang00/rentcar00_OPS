@@ -827,14 +827,26 @@ class _IdleDataRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    final isRepair = item.status.trim() == '수리중';
+    final foregroundColor = isRepair ? Colors.white : null;
+    final secondaryColor = isRepair
+        ? Colors.white70
+        : colorScheme.onSurfaceVariant;
+
     return InkWell(
       onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
+          color: isRepair ? const Color(0xFF333842) : null,
           border: showDivider
               ? Border(
-                  bottom: BorderSide(color: Theme.of(context).dividerColor),
+                  bottom: BorderSide(
+                    color: isRepair
+                        ? Colors.white24
+                        : Theme.of(context).dividerColor,
+                  ),
                 )
               : null,
         ),
@@ -848,6 +860,7 @@ class _IdleDataRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: textTheme.bodyMedium?.copyWith(
+                  color: foregroundColor,
                   fontWeight: FontWeight.w800,
                   height: 1.1,
                 ),
@@ -861,7 +874,7 @@ class _IdleDataRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: secondaryColor,
                   fontWeight: FontWeight.w600,
                   height: 1.1,
                 ),
@@ -888,13 +901,36 @@ class _IdleDataRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
+            if (isRepair) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: const Text(
+                  '배차불가',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
             Expanded(
               child: Text(
                 item.parkingLocation.isEmpty ? '-' : item.parkingLocation,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.right,
-                style: textTheme.bodySmall?.copyWith(height: 1.1),
+                style: textTheme.bodySmall?.copyWith(
+                  color: isRepair ? Colors.white : null,
+                  fontWeight: isRepair ? FontWeight.w800 : null,
+                  height: 1.1,
+                ),
               ),
             ),
           ],

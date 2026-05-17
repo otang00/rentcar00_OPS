@@ -13,36 +13,60 @@ class ImsReservationClient {
   Future<ImsReservationExecutionResult> createReservation(
     ImsReservationPayload payload,
   ) async {
+    return _postIms(
+      path: '/ims/create-reservation',
+      body: payload.toJson(),
+      timeoutMessage: 'IMS 예약추가 응답 시간이 초과되었습니다.',
+      failureMessage: 'IMS 예약추가 호출에 실패했습니다.',
+    );
+  }
+
+  Future<ImsReservationExecutionResult> changeReservationCar({
+    required ImsReservationPayload payload,
+    required String scheduleId,
+  }) async {
+    return _postIms(
+      path: '/ims/change-reservation-car',
+      body: {...payload.toJson(), 'scheduleId': scheduleId.trim()},
+      timeoutMessage: 'IMS 차량변경 응답 시간이 초과되었습니다.',
+      failureMessage: 'IMS 차량변경 호출에 실패했습니다.',
+    );
+  }
+
+  Future<ImsReservationExecutionResult> _postIms({
+    required String path,
+    required Map<String, dynamic> body,
+    required String timeoutMessage,
+    required String failureMessage,
+  }) async {
     if (baseUrl.trim().isEmpty) {
       throw const ImsReservationClientException('AI파서 주소가 설정되지 않았습니다.');
     }
 
-    final uri = Uri.parse(
-      '${baseUrl.replaceAll(RegExp(r'/+$'), '')}/ims/create-reservation',
-    );
+    final uri = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
-    request.write(jsonEncode(payload.toJson()));
+    request.write(jsonEncode(body));
 
     final response = await request.close().timeout(
       const Duration(seconds: 360),
       onTimeout: () {
         request.abort();
-        throw const ImsReservationClientException('IMS 예약추가 응답 시간이 초과되었습니다.');
+        throw ImsReservationClientException(timeoutMessage);
       },
     );
 
-    final body = await utf8.decoder.bind(response).join();
-    final json = body.isEmpty
+    final responseBody = await utf8.decoder.bind(response).join();
+    final json = responseBody.isEmpty
         ? <String, dynamic>{}
-        : jsonDecode(body) as Map<String, dynamic>;
+        : jsonDecode(responseBody) as Map<String, dynamic>;
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final message = (json['result'] as Map?)?['message']?.toString().trim();
       throw ImsReservationClientException(
         message != null && message.isNotEmpty
             ? message
-            : 'IMS 예약추가 호출에 실패했습니다. (${response.statusCode})',
+            : '$failureMessage (${response.statusCode})',
       );
     }
 

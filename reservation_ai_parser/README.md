@@ -22,6 +22,7 @@ rentcar00_OPS 예약생성 화면에 연결할 앱 전용 AI파서 서비스.
 - `GET /health`
 - `POST /parse-reservation`
 - `POST /ims/create-reservation`
+- `POST /ims/change-reservation-car`
 
 그 외 path/method 는 차단 방향으로 유지한다.
 
@@ -83,6 +84,37 @@ Response:
   }
 }
 ```
+
+### POST /ims/change-reservation-car
+IMS에 이미 생성된 예약의 차량을 변경한다.
+
+Request:
+```json
+{
+  "scheduleId": "4189163",
+  "rentalAt": "2026-12-15 10:00",
+  "returnAt": "2026-12-15 12:00",
+  "carNumber": "101허4014",
+  "reservationId": "R-001"
+}
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "result": {
+    "code": "SUCCESS",
+    "externalStatus": "linked",
+    "externalReservationId": "4189163"
+  }
+}
+```
+
+주의:
+- 실제 IMS 상태를 변경한다.
+- `scheduleId`는 IMS `company-car-schedules` id다.
+- `carNumber`는 대상 차량번호이며 서버가 available API로 IMS 내부 `company_car_id`를 조회한다.
 
 Response:
 ```json

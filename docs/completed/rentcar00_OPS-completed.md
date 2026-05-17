@@ -5,6 +5,87 @@
 
 ---
 
+
+## 2026-05-17 — 수리중/배차 UX + 예약상세 차량변경 완료
+### 사용자 표면
+- 대기 차량을 `수리중`으로 전환해 대기탭에 남기되 배차불가 차량으로 어둡게 표시한다.
+- 차량상세에서 입고공장 선택/추가 후 수리중 처리하고, 수리완료 시 확인 다이얼로그를 거쳐 대기중으로 복귀한다.
+- 차량상세 배차 선택은 세차 다이얼로그와 비슷한 카드형 버튼 UI로 통일했다.
+- 즉시 배차 후 해당 차량 상태 수정창을 바로 열어 시간/위치/상세를 이어서 보정할 수 있다.
+- 예약상세에서 차량검색/선택 후 `차량 변경하시겠습니까?` 확인을 거쳐 예약 차량을 변경할 수 있다.
+
+### 실제 동작
+- `수리중` 차량은 `idle` 탭에 포함하되 배차 버튼 대신 배차불가 표시를 제공한다.
+- 입고공장명은 기존 규칙대로 `parking_location`에 저장한다.
+- 수리완료 시 차량 상태를 `대기중`으로 복귀시키고 수리 액션 상태를 초기화한다.
+- 예약상세 차량변경은 OPS 원장 기준으로 대상 차량의 시간 중복을 먼저 검사한다.
+- IMS active binding 예약은 IMS 차량변경 성공 후 OPS 원장/연결 일정을 변경한다.
+- IMS 차량변경 실패 시 `연동 끊고 원장만 변경` 또는 `변경취소`를 선택한다.
+- 중간서버는 `/ims/change-reservation-car`에서 IMS available 조회 후 `POST /v2/company-car-schedules/{schedule_id}`를 호출한다.
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/reservations/detail/data/ims_reservation_client.dart`
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/README.md`
+- `IMS_API_MANUAL.md`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- IMS 실예약 생성 → 차량변경 → 삭제 테스트 성공
+  - 테스트 예약: `4189163`
+  - detail id: `204340`
+  - 차량: `101허4041 → 101허4014`
+
+### 1차 장애 확인 포인트
+1. 수리중 차량이 대기탭에 남되 어두운 배경/배차불가로 보이는지
+2. 입고공장 직접추가 후 `parking_location`에 공장명이 남는지
+3. 수리완료 후 대기중 복귀가 정상인지
+4. 즉시 배차 후 수정창이 바로 열리는지
+5. 예약상세 차량변경 시 OPS 중복 예약이 차단되는지
+6. IMS 연동 예약에서 IMS 실패 시 연동해제/취소 분기가 정상인지
+
+### 남은 주의점
+- 실기기에서 수리중/차량변경 UI는 b32 설치 후 최종 확인해야 한다.
+- IMS 차량변경은 외부 상태 변경이므로 테스트 예약 외 실제 예약 변경은 운영자가 확인 후 진행해야 한다.
+
+---
+## 2026-05-17 — b31 APK 빌드/업로드 완료
+### 사용자 표면
+- 상태보드 배차/세차/연결 일정 UX 보정분이 포함된 b31 APK를 실기기 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `30 → 31`로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 기준 커밋: `8c18738 Fix status board quick actions UX`
+- APK: `rentcar00_ops-app-release-arm64-b31-8c18738.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,708,318 bytes`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b31-8c18738.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 실기기 설치 후 앱 실행이 정상인지
+2. 대기 차량 배차/세차 UX가 b31에서 의도대로 보이는지
+3. 예약 연결 일정 시간 수정이 실제 원장 시간과 함께 바뀌는지
+4. b31 이후 새 작업인 `수리중/배차 UX 보정`과 혼동하지 않는지
+
+### 남은 주의점
+- `pubspec.yaml`의 build number `+31` 변경은 아직 커밋하지 않았다.
+- 다음 구현 작업은 `docs/current/rentcar00_OPS-current.md`의 `상태보드 수리중/배차 UX 보정`이다.
+
 ## 2026-05-16 — 상태보드 배차/세차/연결 일정 UX 보정 완료
 ### 사용자 표면
 - 대기 차량의 `배차` 버튼은 전체 수정 폼을 열지 않고 `보험 / 일반 / 장기` 선택만 보여준다.
@@ -264,7 +345,7 @@
 - `lib/features/status_board/list/presentation/status_board_tab_page.dart`
 - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
 - `lib/features/status_board/shared/presentation/schedule_editor_dialog.dart`
-- `docs/current/rentcar00_OPS-main.md`
+- 당시 기준 문서: `docs/past/current-archive-2026-05-16/rentcar00_OPS-main.md`
 
 ### 검증
 - raw import success 확인

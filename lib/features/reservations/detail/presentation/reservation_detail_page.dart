@@ -85,11 +85,173 @@ class _ReservationDetailBodyState
           );
       ref.invalidate(allReservationsProvider);
       ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(
+        externalReservationLinkProvider(reservation.reservationId),
+      );
       if (!mounted) return;
       _showSnack('예약 정보를 수정했습니다.', backgroundColor: Colors.green.shade700);
     } catch (error) {
       if (!mounted) return;
       _showSnack('예약 수정 실패($error)', backgroundColor: Colors.red.shade700);
+    } finally {
+      if (mounted) setState(() => _reservationUpdating = false);
+    }
+  }
+
+  Future<void> _changeVehicle(
+    ReservationRecord reservation,
+    ExternalReservationLink? externalLink,
+  ) async {
+    if (_reservationUpdating) return;
+
+    final cars = ref
+        .read(allStatusBoardRecordsProvider)
+        .valueOrNull
+        ?.where(
+          (item) =>
+              item.sourceKind == 'car' && item.carNumber.trim().isNotEmpty,
+        )
+        .toList();
+    if (cars == null || cars.isEmpty) {
+      _showSnack('차량 목록을 아직 불러오지 못했습니다.', backgroundColor: Colors.red.shade700);
+      return;
+    }
+
+    final selectedCar = await showDialog<StatusBoardRecord>(
+      context: context,
+      builder: (context) => _VehicleChangeDialog(
+        cars: cars,
+        currentCarNumber: reservation.carNumber,
+      ),
+    );
+    if (selectedCar == null || !mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('차량변경'),
+        content: Text(
+          '${reservation.carNumber} → ${selectedCar.carNumber} 차량 변경하시겠습니까?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('변경'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _reservationUpdating = true);
+    try {
+      final overlaps = await ref
+          .read(supabaseOpsRepositoryProvider)
+          .fetchReservationVehicleOverlaps(
+            reservationId: reservation.reservationId,
+            carNumber: selectedCar.carNumber,
+            startAt: reservation.startAt,
+            endAt: reservation.endAt,
+          );
+      if (overlaps.isNotEmpty) {
+        final first = overlaps.first;
+        if (!mounted) return;
+        _showSnack(
+          '차량변경 실패: ${selectedCar.carNumber} 예약시간 중복(${first['reservation_id'] ?? ''})',
+          backgroundColor: Colors.red.shade700,
+        );
+        return;
+      }
+
+      if (externalLink?.isActiveBinding == true) {
+        final scheduleId = externalLink!.externalReservationId.trim();
+        if (scheduleId.isEmpty) {
+          if (!mounted) return;
+          _showSnack(
+            'IMS schedule_id가 없어 차량변경을 중단했습니다.',
+            backgroundColor: Colors.red.shade700,
+          );
+          return;
+        }
+
+        final buildResult = buildImsReservationPayload(reservation);
+        final targetPayload = ImsReservationPayload(
+          rentalAt: buildResult.payload.rentalAt,
+          returnAt: buildResult.payload.returnAt,
+          carNumber: selectedCar.carNumber,
+          totalFee: buildResult.payload.totalFee,
+          customerName: buildResult.payload.customerName,
+          customerPhone: buildResult.payload.customerPhone,
+          address: buildResult.payload.address,
+          useDelivery: buildResult.payload.useDelivery,
+          memo: buildResult.payload.memo,
+          reservationId: buildResult.payload.reservationId,
+        );
+
+        try {
+          final appEnv = ref.read(appEnvProvider);
+          final client = ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl);
+          final imsResult = await client.changeReservationCar(
+            payload: targetPayload,
+            scheduleId: scheduleId,
+          );
+          if (!imsResult.hasLinkedExternalId) {
+            throw ImsReservationClientException(
+              imsResult.message.isEmpty ? imsResult.code : imsResult.message,
+            );
+          }
+          await ref
+              .read(supabaseOpsRepositoryProvider)
+              .upsertExternalReservationLink(
+                reservationId: reservation.reservationId,
+                externalReservationId: imsResult.externalReservationId,
+                externalDetailId: externalLink.externalDetailId,
+                externalStatus: 'linked',
+                linkKey: imsResult.linkKey.trim().isEmpty
+                    ? externalLink.linkKey
+                    : imsResult.linkKey.trim(),
+                lastPayloadJson: targetPayload.toJson(),
+                lastResultJson: imsResult.resultJson,
+                errorText: null,
+              );
+        } catch (error) {
+          if (!mounted) return;
+          final decision = await showDialog<_ImsChangeFailureDecision>(
+            context: context,
+            builder: (context) => _ImsChangeFailureDialog(message: '$error'),
+          );
+          if (decision != _ImsChangeFailureDecision.unlinkAndChange) {
+            return;
+          }
+          await ref
+              .read(supabaseOpsRepositoryProvider)
+              .markExternalReservationLinkUnlinked(
+                reservationId: reservation.reservationId,
+              );
+        }
+      }
+
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .changeReservationVehicle(
+            reservationId: reservation.reservationId,
+            carNumber: selectedCar.carNumber,
+            carName: selectedCar.carName,
+          );
+      ref.invalidate(allReservationsProvider);
+      ref.invalidate(allStatusBoardRecordsProvider);
+      if (!mounted) return;
+      _showSnack(
+        '차량을 ${selectedCar.carNumber}로 변경했습니다.',
+        backgroundColor: Colors.green.shade700,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('차량변경 실패($error)', backgroundColor: Colors.red.shade700);
     } finally {
       if (mounted) setState(() => _reservationUpdating = false);
     }
@@ -404,6 +566,14 @@ class _ReservationDetailBodyState
                             ? null
                             : () => _editReservation(reservation),
                       ),
+                      _DetailActionButton(
+                        label: '차량변경',
+                        icon: Icons.directions_car_filled_outlined,
+                        loading: _reservationUpdating,
+                        onPressed: _reservationUpdating
+                            ? null
+                            : () => _changeVehicle(reservation, externalLink),
+                      ),
                       if (hasPhone)
                         _DetailActionButton(
                           label: '전화',
@@ -586,6 +756,135 @@ class _ReservationDetailBodyState
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, stack) =>
           Center(child: Text('예약 정보를 불러오지 못했습니다.\n$error')),
+    );
+  }
+}
+
+enum _ImsChangeFailureDecision { unlinkAndChange, cancel }
+
+class _ImsChangeFailureDialog extends StatelessWidget {
+  const _ImsChangeFailureDialog({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('IMS 차량변경 실패'),
+      content: Text('IMS 변경에 실패했습니다.\n\n$message\n\n연동을 끊고 원장만 변경할까요?'),
+      actions: [
+        TextButton(
+          onPressed: () =>
+              Navigator.of(context).pop(_ImsChangeFailureDecision.cancel),
+          child: const Text('변경취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(_ImsChangeFailureDecision.unlinkAndChange),
+          child: const Text('연동 끊고 원장만 변경'),
+        ),
+      ],
+    );
+  }
+}
+
+class _VehicleChangeDialog extends StatefulWidget {
+  const _VehicleChangeDialog({
+    required this.cars,
+    required this.currentCarNumber,
+  });
+
+  final List<StatusBoardRecord> cars;
+  final String currentCarNumber;
+
+  @override
+  State<_VehicleChangeDialog> createState() => _VehicleChangeDialogState();
+}
+
+class _VehicleChangeDialogState extends State<_VehicleChangeDialog> {
+  late final TextEditingController _searchController;
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedCurrent = widget.currentCarNumber.trim();
+    final query = _query.trim().toLowerCase();
+    final cars = widget.cars.where((car) {
+      if (car.carNumber.trim() == normalizedCurrent) return false;
+      if (query.isEmpty) return true;
+      return car.carNumber.toLowerCase().contains(query) ||
+          car.carName.toLowerCase().contains(query) ||
+          car.parkingLocation.toLowerCase().contains(query);
+    }).toList();
+
+    return AlertDialog(
+      title: const Text('차량변경'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _searchController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '차량검색',
+                hintText: '차량번호/차종/주차지',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (value) => setState(() => _query = value),
+            ),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: cars.isEmpty
+                  ? const Center(child: Text('선택 가능한 차량이 없습니다.'))
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: cars.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final car = cars[index];
+                        return ListTile(
+                          leading: const Icon(Icons.directions_car_outlined),
+                          title: Text(
+                            car.carNumber,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          subtitle: Text(
+                            [car.carName, car.parkingLocation]
+                                .where((value) => value.trim().isNotEmpty)
+                                .join(' · '),
+                          ),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => Navigator.of(context).pop(car),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+      ],
     );
   }
 }

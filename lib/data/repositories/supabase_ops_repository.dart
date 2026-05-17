@@ -140,6 +140,74 @@ class SupabaseOpsRepository {
     return reservationId;
   }
 
+  Future<void> changeReservationVehicle({
+    required String reservationId,
+    required String carNumber,
+    required String carName,
+  }) async {
+    final normalizedReservationId = reservationId.trim();
+    if (normalizedReservationId.isEmpty) return;
+
+    final normalizedCarNumber = carNumber.trim();
+    final normalizedCarName = carName.trim();
+    final now = DateTime.now().toIso8601String();
+
+    await _client
+        .from('rc00_ops_reservations')
+        .update({
+          'car_number': normalizedCarNumber,
+          'car_name': normalizedCarName,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId);
+
+    await _client
+        .from('rc00_ops_schedules')
+        .update({
+          'car_number': normalizedCarNumber,
+          'car_name': normalizedCarName,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId)
+        .inFilter('schedule_type', ['배차', '반납']);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchReservationVehicleOverlaps({
+    required String reservationId,
+    required String carNumber,
+    required DateTime startAt,
+    required DateTime endAt,
+  }) async {
+    final normalizedReservationId = reservationId.trim();
+    final normalizedCarNumber = carNumber.trim();
+    if (normalizedCarNumber.isEmpty) return const [];
+
+    final rows = await _client
+        .from('rc00_ops_reservations')
+        .select(
+          'reservation_id, reservation_number, customer_name, start_at, end_at',
+        )
+        .eq('car_number', normalizedCarNumber);
+
+    final overlaps = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final otherReservationId = (row['reservation_id'] as String? ?? '')
+          .trim();
+      if (otherReservationId.isEmpty ||
+          otherReservationId == normalizedReservationId) {
+        continue;
+      }
+      final otherStartAt = _parseDateTime(row['start_at']);
+      final otherEndAt = _parseDateTime(row['end_at']);
+      if (otherStartAt == null || otherEndAt == null) continue;
+      if (startAt.isBefore(otherEndAt) && endAt.isAfter(otherStartAt)) {
+        overlaps.add(row);
+      }
+    }
+
+    return overlaps;
+  }
+
   Future<void> updateReservationAndLinkedSchedules({
     required String reservationId,
     required String reservationNumber,
@@ -385,6 +453,27 @@ class SupabaseOpsRepository {
           'interior_wash': 'FALSE',
           'parking_location': '수푸레',
         })
+        .eq('id', carRowId);
+  }
+
+  Future<void> markCarUnderRepair({
+    required String carRowId,
+    required String factoryName,
+  }) async {
+    await _client
+        .from('rc00_ops_cars')
+        .update({
+          'status': '수리중',
+          'status_action': '수리중',
+          'parking_location': factoryName.trim(),
+        })
+        .eq('id', carRowId);
+  }
+
+  Future<void> completeCarRepair({required String carRowId}) async {
+    await _client
+        .from('rc00_ops_cars')
+        .update({'status': '대기중', 'status_action': '수리완료'})
         .eq('id', carRowId);
   }
 
@@ -845,7 +934,7 @@ class SupabaseOpsRepository {
   StatusBoardRecord _toCarRecord(Map<String, dynamic> row) {
     final status = (row['status'] as String? ?? '').trim();
     final tab = switch (status) {
-      '대기' || '대기중' => StatusBoardTab.idle,
+      '대기' || '대기중' || '수리중' => StatusBoardTab.idle,
       '보험' => StatusBoardTab.insurance,
       '일반' => StatusBoardTab.general,
       '장기' => StatusBoardTab.longTerm,
@@ -887,6 +976,7 @@ class SupabaseOpsRepository {
         (row['parking_location'] as String? ?? '').trim(),
       ], separator: ' / '),
       primaryBadges: _boardBadges(
+        status: status,
         carWash: carWash,
         interiorWash: interiorWash,
         noteText: noteText,
@@ -989,12 +1079,14 @@ class SupabaseOpsRepository {
   }
 
   List<String> _boardBadges({
+    required String status,
     required String carWash,
     required String interiorWash,
     required String noteText,
     required String statusAction,
   }) {
     final badges = <String>[];
+    if (status.trim() == '수리중') badges.add('수리중');
     if (_isTruthy(carWash)) badges.add('세차');
     if (_isTruthy(interiorWash)) badges.add('실내세차');
     if (statusAction.isNotEmpty) badges.add(statusAction);
