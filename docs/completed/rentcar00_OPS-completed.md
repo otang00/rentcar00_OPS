@@ -6,6 +6,40 @@
 ---
 
 
+## 2026-05-17 — b32 APK 빌드/업로드 완료
+### 사용자 표면
+- 수리중/배차 UX + 예약상세 차량변경 + IMS 차량변경 연동이 포함된 b32 APK를 실기기 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `31 → 32`로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 기준 커밋: `5b33dfc Add repair status and reservation vehicle change`
+- APK: `rentcar00_ops-app-release-arm64-b32-5b33dfc.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,708,566 bytes`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b32-5b33dfc.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 실기기 설치 후 앱 실행이 정상인지
+2. 수리중/수리완료 UI가 의도대로 동작하는지
+3. 배차 후 수정창 자동 오픈이 모바일에서 어색하지 않은지
+4. 예약상세 차량변경에서 OPS 중복검증이 정상인지
+5. IMS 연동 예약 차량변경 실패 분기가 정상인지
+
+### 남은 주의점
+- 실제 운영 IMS 예약 차량변경은 외부 상태 변경이므로 운영자가 대상 예약을 확인한 뒤 진행한다.
+
+---
+
 ## 2026-05-17 — 수리중/배차 UX + 예약상세 차량변경 완료
 ### 사용자 표면
 - 대기 차량을 `수리중`으로 전환해 대기탭에 남기되 배차불가 차량으로 어둡게 표시한다.
