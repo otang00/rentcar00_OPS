@@ -9,6 +9,42 @@
 
 
 
+
+## 2026-05-17 — b34 APK 빌드/업로드 완료
+### 사용자 표면
+- 일정상세 차량번호 확대, 예약상세 기능버튼 UI 정리, 관리자 메뉴 뼈대가 포함된 b34 APK를 실기기 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `33 → 34`로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 기준 커밋: `5aa4e7c Add admin shell and action button UI`
+- APK: `rentcar00_ops-app-release-arm64-b34-5aa4e7c.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,774,994 bytes`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b34-5aa4e7c.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 실기기 설치 후 앱 실행이 정상인지
+2. 일정상세 차량번호가 날짜보다 잘 보이는지
+3. 예약상세 기능 버튼이 `상태 처리 / 관리 / 연락`으로 분리되어 보이는지
+4. admin 계정에서 좌상단 `빵빵카` 클릭 시 관리자 홈으로 진입하는지
+5. staff 계정에서 관리자 접근 차단 안내가 뜨는지
+
+### 남은 주의점
+- 관리자 홈의 개별 기능은 아직 placeholder다.
+- 직원관리 MVP는 RLS/서버 Auth 생성 경로 결정 후 진행해야 한다.
+
+---
+
 ## 2026-05-17 — 기능 버튼 UI + 관리자 메뉴 뼈대 완료
 ### 사용자 표면
 - 일정상세에서 날짜 밑 차량번호가 더 크게 보여 빠르게 식별할 수 있다.
