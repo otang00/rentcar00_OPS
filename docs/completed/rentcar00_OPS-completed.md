@@ -7,6 +7,41 @@
 
 
 
+
+## 2026-05-17 — b33 APK 빌드/업로드 완료
+### 사용자 표면
+- 예약상세 배차/반납 완료 버튼과 IMS 반납 연동이 포함된 b33 APK를 실기기 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `32 → 33`으로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 기준 커밋: `b563520 Add reservation lifecycle IMS return`
+- APK: `rentcar00_ops-app-release-arm64-b33-b563520.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,774,178 bytes`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b33-b563520.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 실기기 설치 후 앱 실행이 정상인지
+2. 예약상세 `배차완료`/`반납완료` 버튼 노출이 상태와 맞는지
+3. 반납완료 후 OPS 차량/예약/일정 상태가 정상 갱신되는지
+4. IMS active binding 예약 반납 시 IMS 성공/실패 안내가 정상인지
+
+### 남은 주의점
+- 실예약 IMS 반납완료 테스트는 수행하지 않았다.
+- IMS 반납은 외부 상태 변경이므로 운영 예약은 대상 확인 후 진행한다.
+
+---
+
 ## 2026-05-17 — 예약상세 배차/반납 완료 + IMS 반납 연동
 ### 사용자 표면
 - 예약상세에서 상태에 따라 `배차완료` 또는 `반납완료` 버튼을 바로 사용할 수 있다.
