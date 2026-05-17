@@ -135,3 +135,4 @@
   - `git diff --check`
 - 운영 IMS 재호출/추가 실반납 테스트는 아직 수행하지 않았다.
 - IMS 가져오기 1차 구현 완료. IMS 조회는 read-only로 확인했고 상태 변경은 하지 않았다.
+- b35 APK 빌드/업로드 완료: `rentcar00_ops-app-release-arm64-b35-39191a4.apk`.

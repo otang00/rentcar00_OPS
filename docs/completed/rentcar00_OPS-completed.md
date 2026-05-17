@@ -6,6 +6,38 @@
 ---
 
 
+## 2026-05-17 — b35 APK 빌드/업로드 완료
+### 사용자 표면
+- IMS 반납완료 성공 API 수정과 `IMS 가져오기` 예약생성이 포함된 b35 APK를 실기기 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `34 → 35`로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 기준 커밋: `39191a4 Add IMS import and return integration`
+- APK: `rentcar00_ops-app-release-arm64-b35-39191a4.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,840,562 bytes`
+
+### 검증
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `git diff --check` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b35-39191a4.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 실기기에서 `IMS 가져오기` 조회/선택 UI가 모바일 화면에 맞게 보이는지
+2. IMS 가져오기 후 OPS 예약 생성과 external link 저장이 정상인지
+3. IMS 연결 반납완료 입력창에서 유류량/주행거리/유류비 입력 후 반납이 정상인지
+4. 기존 `IMS연동생성` 체크 후 새 IMS 생성 흐름이 기존처럼 동작하는지
+
+---
+
+
 ## 2026-05-17 — IMS 가져오기 예약생성 1차 구현
 ### 사용자 표면
 - 예약생성 화면 상단에서 `AI파서` 옆 `IMS 가져오기` 버튼을 사용할 수 있다.
