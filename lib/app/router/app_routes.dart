@@ -8,4 +8,5 @@ class AppRoutes {
   static const scheduleDetail = '/schedule/:recordId';
   static const search = '/search';
   static const sync = '/sync';
+  static const admin = '/admin';
 }

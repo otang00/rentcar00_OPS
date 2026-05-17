@@ -2877,16 +2877,17 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
         ),
         const SizedBox(height: 8),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
             record.carNumber.isEmpty ? '차량번호 미확인' : record.carNumber,
-            style: textTheme.titleSmall?.copyWith(
+            style: textTheme.headlineSmall?.copyWith(
               color: colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.2,
             ),
           ),
         ),

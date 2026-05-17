@@ -8,6 +8,53 @@
 
 
 
+
+## 2026-05-17 — 기능 버튼 UI + 관리자 메뉴 뼈대 완료
+### 사용자 표면
+- 일정상세에서 날짜 밑 차량번호가 더 크게 보여 빠르게 식별할 수 있다.
+- 예약상세 기능 버튼이 `상태 처리 / 관리 / 연락` 영역으로 분리되어 상태 변경 버튼이 더 명확해졌다.
+- 좌상단 `빵빵카`를 누르면 관리자 권한 계정만 관리자 홈에 진입할 수 있다.
+
+### 실제 동작
+- 일정상세 차량번호 badge를 `headlineSmall`급으로 키우고 padding/radius를 보정했다.
+- 예약상세 `배차완료`/`반납완료`는 full-width lifecycle 버튼으로 분리했다.
+- `수정`, `차량변경`, `IMS추가/IMS등록됨`은 관리 영역에 묶었다.
+- `전화`, `문자`는 연락 영역에 묶었다.
+- 배차/반납 확인 다이얼로그는 실제 변경 내용과 IMS 동시 처리 여부를 bullet로 보여준다.
+- `AppRoutes.admin`과 `AdminHomePage`를 추가했다.
+- `StaffAccount.isAdmin` 기준으로 admin만 관리자 홈에 진입한다.
+- 관리자 홈의 직원관리/차량관리/작업로그/출근확인/앱푸시는 현재 placeholder다.
+
+### 핵심 파일
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/app/view/app_shell.dart`
+- `lib/app/router/app_routes.dart`
+- `lib/app/router/app_router.dart`
+- `lib/features/admin/presentation/admin_home_page.dart`
+- `lib/features/auth/domain/staff_account.dart`
+- `docs/current/rentcar00_OPS-current.md`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/ops_input_formatters_test.dart test/ims_reservation_payload_test.dart` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. 일정상세에서 차량번호가 날짜보다 살짝 크게 보이는지
+2. 예약상세 배차/반납 버튼이 관리/연락 버튼과 분리되어 보이는지
+3. 반납완료 확인창에서 IMS 동시 처리 여부가 보이는지
+4. admin 계정은 `빵빵카` 클릭 시 관리자 홈으로 들어가는지
+5. staff 계정은 관리자 접근 차단 안내가 보이는지
+
+### 남은 주의점
+- 관리자 홈의 개별 기능은 아직 placeholder다.
+- 직원관리 MVP는 RLS/서버 Auth 생성 경로 결정이 필요하다.
+- `rc00_ops_staff_accounts` 현재 RLS는 본인 row 조회만 허용하므로 직원 목록 기능 전 정책/서버 경로를 먼저 확정해야 한다.
+
+---
+
 ## 2026-05-17 — b33 APK 빌드/업로드 완료
 ### 사용자 표면
 - 예약상세 배차/반납 완료 버튼과 IMS 반납 연동이 포함된 b33 APK를 실기기 설치 테스트할 수 있다.

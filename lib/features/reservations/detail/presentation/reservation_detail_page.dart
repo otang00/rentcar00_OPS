@@ -293,14 +293,27 @@ class _ReservationDetailBodyState
 
     final isReturn = normalizedType == '반납';
     final imsActive = isReturn && externalLink?.isActiveBinding == true;
+    final dialogLines = isReturn
+        ? [
+            '연결된 반납 일정을 완료 처리합니다.',
+            '차량 상태를 대기중으로 전환합니다.',
+            if (imsActive) '연결된 IMS 예약도 반납완료를 시도합니다.',
+          ]
+        : ['연결된 배차 일정을 완료 처리합니다.', '차량 상태를 일반으로 전환합니다.'];
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(isReturn ? '반납완료' : '배차완료'),
-        content: Text(
-          isReturn
-              ? '연결된 반납 일정을 완료 처리하고 차량을 대기중으로 전환합니다.${imsActive ? '\n\nIMS 연결 예약도 확인합니다.' : ''}'
-              : '연결된 배차 일정을 완료 처리하고 차량을 일반 상태로 전환합니다.',
+        title: Text(isReturn ? '반납완료 처리할까요?' : '배차완료 처리할까요?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final line in dialogLines)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text('• $line'),
+              ),
+          ],
         ),
         actions: [
           TextButton(
@@ -691,10 +704,48 @@ class _ReservationDetailBodyState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (showPickupComplete) ...[
+                    _LifecycleActionButton(
+                      label: '배차완료',
+                      description: '연결 배차일정 완료 + 차량 일반 전환',
+                      icon: Icons.upload_rounded,
+                      loading: _lifecycleUpdating,
+                      onPressed: _lifecycleUpdating
+                          ? null
+                          : () => _completeReservationLifecycle(
+                              reservation: reservation,
+                              linkedSchedules: linkedSchedules,
+                              scheduleType: '배차',
+                              externalLink: externalLink,
+                            ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  if (showReturnComplete) ...[
+                    _LifecycleActionButton(
+                      label: '반납완료',
+                      description: hasActiveImsRegistration
+                          ? '연결 반납일정 완료 + 차량 대기중 전환 + IMS 반납 시도'
+                          : '연결 반납일정 완료 + 차량 대기중 전환',
+                      icon: Icons.assignment_turned_in_outlined,
+                      loading: _lifecycleUpdating,
+                      danger: hasActiveImsRegistration,
+                      onPressed: _lifecycleUpdating
+                          ? null
+                          : () => _completeReservationLifecycle(
+                              reservation: reservation,
+                              linkedSchedules: linkedSchedules,
+                              scheduleType: '반납',
+                              externalLink: externalLink,
+                            ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  const _ActionGroupLabel('관리'),
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 4,
+                    crossAxisCount: 3,
                     crossAxisSpacing: 6,
                     mainAxisSpacing: 6,
                     childAspectRatio: 1.05,
@@ -703,7 +754,6 @@ class _ReservationDetailBodyState
                         label: '수정',
                         icon: Icons.edit_outlined,
                         loading: _reservationUpdating,
-                        emphasis: true,
                         onPressed: _reservationUpdating
                             ? null
                             : () => _editReservation(reservation),
@@ -716,52 +766,6 @@ class _ReservationDetailBodyState
                             ? null
                             : () => _changeVehicle(reservation, externalLink),
                       ),
-                      if (showPickupComplete)
-                        _DetailActionButton(
-                          label: '배차완료',
-                          icon: Icons.upload_rounded,
-                          loading: _lifecycleUpdating,
-                          emphasis: true,
-                          onPressed: _lifecycleUpdating
-                              ? null
-                              : () => _completeReservationLifecycle(
-                                  reservation: reservation,
-                                  linkedSchedules: linkedSchedules,
-                                  scheduleType: '배차',
-                                  externalLink: externalLink,
-                                ),
-                        ),
-                      if (showReturnComplete)
-                        _DetailActionButton(
-                          label: '반납완료',
-                          icon: Icons.assignment_turned_in_outlined,
-                          loading: _lifecycleUpdating,
-                          emphasis: true,
-                          onPressed: _lifecycleUpdating
-                              ? null
-                              : () => _completeReservationLifecycle(
-                                  reservation: reservation,
-                                  linkedSchedules: linkedSchedules,
-                                  scheduleType: '반납',
-                                  externalLink: externalLink,
-                                ),
-                        ),
-                      if (hasPhone)
-                        _DetailActionButton(
-                          label: '전화',
-                          icon: Icons.call_outlined,
-                          onPressed: () => tryLaunchPhoneCall(
-                            context,
-                            reservation.customerPhone,
-                          ),
-                        ),
-                      if (hasPhone)
-                        _DetailActionButton(
-                          label: '문자',
-                          icon: Icons.sms_outlined,
-                          onPressed: () =>
-                              tryLaunchSms(context, reservation.customerPhone),
-                        ),
                       if (hasActiveImsRegistration)
                         const _DetailActionButton(
                           label: 'IMS등록됨',
@@ -772,7 +776,6 @@ class _ReservationDetailBodyState
                         _DetailActionButton(
                           label: 'IMS추가',
                           icon: Icons.cloud_upload_outlined,
-                          emphasis: true,
                           loading: _imsSubmitting,
                           onPressed: _imsSubmitting
                               ? null
@@ -780,6 +783,34 @@ class _ReservationDetailBodyState
                         ),
                     ],
                   ),
+                  if (hasPhone) ...[
+                    const SizedBox(height: 14),
+                    const _ActionGroupLabel('연락'),
+                    GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 6,
+                      mainAxisSpacing: 6,
+                      childAspectRatio: 1.55,
+                      children: [
+                        _DetailActionButton(
+                          label: '전화',
+                          icon: Icons.call_outlined,
+                          onPressed: () => tryLaunchPhoneCall(
+                            context,
+                            reservation.customerPhone,
+                          ),
+                        ),
+                        _DetailActionButton(
+                          label: '문자',
+                          icon: Icons.sms_outlined,
+                          onPressed: () =>
+                              tryLaunchSms(context, reservation.customerPhone),
+                        ),
+                      ],
+                    ),
+                  ],
                   if (actions.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     for (final action in actions)
@@ -1644,29 +1675,131 @@ class _ReservationEditTextField extends StatelessWidget {
   }
 }
 
+class _ActionGroupLabel extends StatelessWidget {
+  const _ActionGroupLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w900,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _LifecycleActionButton extends StatelessWidget {
+  const _LifecycleActionButton({
+    required this.label,
+    required this.description,
+    required this.icon,
+    required this.onPressed,
+    this.loading = false,
+    this.danger = false,
+  });
+
+  final String label;
+  final String description;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool loading;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final background = danger
+        ? colorScheme.tertiaryContainer
+        : colorScheme.primaryContainer;
+    final foreground = danger
+        ? colorScheme.onTertiaryContainer
+        : colorScheme.onPrimaryContainer;
+
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.tonal(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: background,
+          foregroundColor: foreground,
+          disabledBackgroundColor: colorScheme.surfaceContainerHighest,
+          disabledForegroundColor: colorScheme.onSurfaceVariant,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: foreground.withValues(alpha: 0.16)),
+          ),
+        ),
+        child: Row(
+          children: [
+            if (loading)
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: foreground,
+                ),
+              )
+            else
+              Icon(icon, size: 26),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: foreground,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    description,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: foreground.withValues(alpha: 0.82),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DetailActionButton extends StatelessWidget {
   const _DetailActionButton({
     required this.label,
     required this.icon,
     required this.onPressed,
-    this.emphasis = false,
     this.loading = false,
   });
 
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
-  final bool emphasis;
   final bool loading;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final foreground = emphasis ? colorScheme.onPrimary : colorScheme.primary;
-    final background = emphasis ? colorScheme.primary : const Color(0xFFEAF5FF);
-    final borderColor = emphasis
-        ? colorScheme.primary
-        : const Color(0xFFBBDEFB);
+    final foreground = colorScheme.primary;
+    const background = Color(0xFFEAF5FF);
+    const borderColor = Color(0xFFBBDEFB);
 
     return SizedBox.expand(
       child: FilledButton.tonal(

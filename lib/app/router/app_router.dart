@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
 import 'package:rentcar00_ops/app/view/app_shell.dart';
+import 'package:rentcar00_ops/features/admin/presentation/admin_home_page.dart';
 import 'package:rentcar00_ops/features/auth/presentation/login_page.dart';
 import 'package:rentcar00_ops/features/auth/presentation/staff_access_gate.dart';
 import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
@@ -74,6 +75,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.sync,
         builder: (context, state) => const StaffAccessGate(child: SyncPage()),
+      ),
+      GoRoute(
+        path: AppRoutes.admin,
+        builder: (context, state) =>
+            const StaffAccessGate(child: AdminHomePage()),
       ),
     ],
   );

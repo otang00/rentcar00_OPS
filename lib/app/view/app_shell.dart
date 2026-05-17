@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/domain/ops_layer.dart';
+import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
+import 'package:rentcar00_ops/app/router/app_routes.dart';
 import 'package:rentcar00_ops/features/reservations/list/presentation/reservation_tab_page.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
@@ -16,6 +19,18 @@ String _reservationLabel(ReservationTab tab, int? count) {
 String _boardLabel(StatusBoardTab tab, int? count) {
   if (count == null) return tab.label;
   return '${tab.label}\n$count';
+}
+
+void _openAdminMenu(BuildContext context, WidgetRef ref) {
+  final staff = ref.read(currentStaffAccountProvider).valueOrNull;
+  if (staff?.isAdmin == true) {
+    context.push(AppRoutes.admin);
+    return;
+  }
+
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(const SnackBar(content: Text('관리자만 접근할 수 있습니다.')));
 }
 
 class AppShell extends ConsumerWidget {
@@ -61,11 +76,20 @@ class AppShell extends ConsumerWidget {
         ],
         title: Row(
           children: [
-            Text(
-              '빵빵카',
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _openAdminMenu(context, ref),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+                child: Text(
+                  '빵빵카',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    decoration: TextDecoration.underline,
+                    decorationThickness: 1.5,
+                  ),
+                ),
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(

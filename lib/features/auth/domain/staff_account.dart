@@ -27,4 +27,6 @@ class StaffAccount {
   final String displayName;
   final String role;
   final bool isActive;
+
+  bool get isAdmin => role.trim().toLowerCase() == 'admin';
 }
