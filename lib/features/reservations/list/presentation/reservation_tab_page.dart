@@ -371,10 +371,30 @@ class _StatusIconChip extends StatelessWidget {
     '연장·이슈' => (icon: Icons.update_outlined, color: Colors.blue, text: '연장'),
     '예약취소' => (icon: Icons.block_outlined, color: Colors.red, text: '취소'),
     '반납 완료' => (icon: Icons.task_alt_outlined, color: Colors.green, text: '완료'),
-    '오늘배차' => (
+    '배차 지연' => (
+      icon: Icons.warning_amber_outlined,
+      color: Colors.red,
+      text: '배차지연',
+    ),
+    '오늘 배차' => (
       icon: Icons.local_shipping_outlined,
       color: Colors.blue,
-      text: '오늘',
+      text: '오늘배차',
+    ),
+    '배차 예정' => (
+      icon: Icons.event_available_outlined,
+      color: Colors.blue,
+      text: '배차예정',
+    ),
+    '반납 지연' => (
+      icon: Icons.assignment_late_outlined,
+      color: Colors.red,
+      text: '반납지연',
+    ),
+    '오늘 반납' => (
+      icon: Icons.assignment_return_outlined,
+      color: Colors.blue,
+      text: '오늘반납',
     ),
     '이상 없음' => (
       icon: Icons.check_circle_outline,

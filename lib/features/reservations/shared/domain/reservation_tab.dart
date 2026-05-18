@@ -10,9 +10,9 @@ enum ReservationTab {
   ),
   pickupToday(
     key: TabKeys.pickupToday,
-    label: '오늘배차',
+    label: '배차대기',
     icon: Icons.local_shipping_outlined,
-    emptyMessage: '오늘 출발 대상과 준비 경고가 여기에 표시됩니다.',
+    emptyMessage: '배차 완료 전 예약과 지연/예정 경고가 여기에 표시됩니다.',
   ),
   inUse(
     key: TabKeys.inUse,

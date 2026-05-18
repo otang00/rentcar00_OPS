@@ -320,7 +320,7 @@ List<String> _prioritizeBadges(List<String> badges) {
 
 bool _isCompletedBadge(String badge) {
   return switch (badge) {
-    '오늘배차' || '반납 완료' || '이상 없음' => true,
+    '반납 완료' || '이상 없음' => true,
     _ => false,
   };
 }
@@ -335,8 +335,9 @@ int _badgePriority(String badge) {
     '위치 미확인' ||
     '준비 미완료' ||
     '계약 미완료' => 1,
-    '반납 임박' || '연장·이슈' => 2,
-    '오늘배차' || '반납 완료' => 3,
+    '배차 지연' || '반납 지연' => 0,
+    '오늘 배차' || '오늘 반납' || '반납 임박' || '연장·이슈' => 2,
+    '배차 예정' || '반납 완료' => 3,
     _ => 4,
   };
 }

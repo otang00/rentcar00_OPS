@@ -69,7 +69,13 @@ class SupabaseOpsRepository {
         .single();
 
     final reservationRefId = insertedReservation['id'] as String;
-    final tabKey = _deriveReservationTabKey(startAt, endAt);
+    final tabKey = _deriveReservationTabKey(
+      startAt: startAt,
+      endAt: endAt,
+      reservationStatus: '예약중',
+      dispatchPending: true,
+      returnPending: true,
+    );
     final checkPayload = {
       'customer_name_verified': normalizedCustomerName.isEmpty
           ? 'pending'
@@ -303,6 +309,35 @@ class SupabaseOpsRepository {
         })
         .eq('reservation_id', normalizedReservationId)
         .eq('schedule_type', '반납');
+
+    final currentReservation = await _client
+        .from('rc00_ops_reservations')
+        .select('reservation_status')
+        .eq('reservation_id', normalizedReservationId)
+        .maybeSingle();
+    final schedules = await _client
+        .from('rc00_ops_schedules')
+        .select('schedule_type, schedule_done')
+        .eq('reservation_id', normalizedReservationId)
+        .inFilter('schedule_type', ['배차', '반납']);
+    final scheduleState = _scheduleStateFromRows(schedules);
+    final recalculatedTabKey = _deriveReservationTabKey(
+      startAt: startAt,
+      endAt: endAt,
+      reservationStatus:
+          (currentReservation?['reservation_status'] as String?) ?? '',
+      dispatchPending: scheduleState.dispatchPending,
+      returnPending: scheduleState.returnPending,
+    );
+
+    await _client
+        .from('rc00_ops_reservation_states')
+        .update({
+          'tab_key': recalculatedTabKey,
+          'last_action_at': now,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId);
   }
 
   Future<ExternalReservationLink?> fetchExternalReservationLink({
@@ -770,9 +805,22 @@ class SupabaseOpsRepository {
         .from('rc00_ops_reservation_states')
         .select();
 
+    final schedulesResponse = await _client
+        .from('rc00_ops_schedules')
+        .select('reservation_id, schedule_type, schedule_done, schedule_at')
+        .inFilter('schedule_type', ['배차', '반납']);
+
     final stateByReservationId = {
       for (final row in statesResponse) (row['reservation_id'] as String): row,
     };
+    final schedulesByReservationId = <String, List<Map<String, dynamic>>>{};
+    for (final row in schedulesResponse) {
+      final reservationId = (row['reservation_id'] as String? ?? '').trim();
+      if (reservationId.isEmpty) continue;
+      schedulesByReservationId
+          .putIfAbsent(reservationId, () => <Map<String, dynamic>>[])
+          .add(row);
+    }
 
     final records = <ReservationRecord>[];
 
@@ -783,8 +831,21 @@ class SupabaseOpsRepository {
         continue;
       }
 
-      final tabKey = state['tab_key'] as String? ?? TabKeys.pending;
+      final storedTabKey = state['tab_key'] as String? ?? TabKeys.pending;
       final reservationStatus = (row['reservation_status'] as String?) ?? '';
+      final startAt = _parseDateTime(row['start_at']) ?? DateTime(2000);
+      final endAt = _parseDateTime(row['end_at']) ?? DateTime(2000);
+      final scheduleState = _scheduleStateFromRows(
+        schedulesByReservationId[reservationId] ?? const [],
+      );
+      final tabKey = _deriveReservationTabKey(
+        startAt: startAt,
+        endAt: endAt,
+        reservationStatus: reservationStatus,
+        dispatchPending: scheduleState.dispatchPending,
+        returnPending: scheduleState.returnPending,
+        fallbackTabKey: storedTabKey,
+      );
       final checkPayload = _toStringMap(state['check_payload_json']);
       final warningLevel = state['warning_level'] as String?;
       final noteParts = <String>[
@@ -806,8 +867,8 @@ class SupabaseOpsRepository {
           carName: (row['car_name'] as String?) ?? '',
           tab: _tabFromKey(tabKey),
           statusKey: reservationStatus,
-          startAt: _parseDateTime(row['start_at']) ?? DateTime(2000),
-          endAt: _parseDateTime(row['end_at']) ?? DateTime(2000),
+          startAt: startAt,
+          endAt: endAt,
           locationSummary: (row['pickup_location'] as String?) ?? '',
           dropoffLocation: (row['dropoff_location'] as String?) ?? '',
           rawNoteText: (row['note_text'] as String?) ?? '',
@@ -817,6 +878,9 @@ class SupabaseOpsRepository {
             warningLevel: warningLevel,
             tabKey: tabKey,
             statusRaw: reservationStatus,
+            startAt: startAt,
+            endAt: endAt,
+            scheduleState: scheduleState,
           ),
           checkPayload: checkPayload,
           actionLogs: const [],
@@ -906,6 +970,9 @@ class SupabaseOpsRepository {
     required String? warningLevel,
     required String tabKey,
     required String statusRaw,
+    required DateTime startAt,
+    required DateTime endAt,
+    required _ReservationScheduleState scheduleState,
   }) {
     final badges = <String>[];
 
@@ -921,11 +988,30 @@ class SupabaseOpsRepository {
     if (warningLevel == 'warning' && badges.isEmpty) {
       badges.add('확인 필요');
     }
-    if (statusRaw == '반납완료') {
+    if (statusRaw.trim() == '완료') {
       badges.add('반납 완료');
     }
-    if (tabKey == TabKeys.pickupToday) {
-      badges.add('오늘배차');
+    final today = _todayFloor();
+    final startDay = _dayFloor(startAt);
+    final endDay = _dayFloor(endAt);
+    final normalizedStatus = statusRaw.trim();
+    if (scheduleState.dispatchPending &&
+        normalizedStatus != '배차중' &&
+        normalizedStatus != '완료') {
+      if (startDay.isBefore(today)) {
+        badges.add('배차 지연');
+      } else if (startDay == today) {
+        badges.add('오늘 배차');
+      } else {
+        badges.add('배차 예정');
+      }
+    }
+    if (scheduleState.returnPending && normalizedStatus == '배차중') {
+      if (endDay.isBefore(today)) {
+        badges.add('반납 지연');
+      } else if (endDay == today) {
+        badges.add('오늘 반납');
+      }
     }
 
     return badges;
@@ -1183,16 +1269,51 @@ class SupabaseOpsRepository {
     return value.toUtc().toIso8601String();
   }
 
-  String _deriveReservationTabKey(DateTime startAt, DateTime endAt) {
+  String _deriveReservationTabKey({
+    required DateTime startAt,
+    required DateTime endAt,
+    required String reservationStatus,
+    required bool dispatchPending,
+    required bool returnPending,
+    String fallbackTabKey = TabKeys.pending,
+  }) {
+    final normalizedStatus = reservationStatus.trim();
+    if (normalizedStatus == '완료') return TabKeys.completed;
+    if (normalizedStatus == '배차중') {
+      final today = _todayFloor();
+      final endDay = _dayFloor(endAt);
+      if (returnPending && !endDay.isAfter(today)) return TabKeys.returnDue;
+      return TabKeys.inUse;
+    }
+    if (dispatchPending) return TabKeys.pickupToday;
+    return fallbackTabKey;
+  }
+
+  _ReservationScheduleState _scheduleStateFromRows(
+    List<Map<String, dynamic>> rows,
+  ) {
+    var dispatchPending = false;
+    var returnPending = false;
+    for (final row in rows) {
+      final scheduleType = (row['schedule_type'] as String? ?? '').trim();
+      final done = _isTruthy(row['schedule_done']);
+      if (scheduleType == '배차' && !done) dispatchPending = true;
+      if (scheduleType == '반납' && !done) returnPending = true;
+    }
+    return _ReservationScheduleState(
+      dispatchPending: dispatchPending,
+      returnPending: returnPending,
+    );
+  }
+
+  DateTime _todayFloor() {
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final startDay = DateTime(startAt.year, startAt.month, startAt.day);
-    final endDay = DateTime(endAt.year, endAt.month, endAt.day);
-    if (endDay.isBefore(today)) return TabKeys.completed;
-    if (endDay == today) return TabKeys.returnDue;
-    if (startDay == today) return TabKeys.pickupToday;
-    if (startDay.isBefore(today)) return TabKeys.inUse;
-    return TabKeys.pending;
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  DateTime _dayFloor(DateTime value) {
+    final local = value.toLocal();
+    return DateTime(local.year, local.month, local.day);
   }
 
   String _generateId({required String prefix}) {
@@ -1225,4 +1346,14 @@ class SupabaseOpsRepository {
 
     return text.replaceAll(RegExp(r'[./]'), '-');
   }
+}
+
+class _ReservationScheduleState {
+  const _ReservationScheduleState({
+    required this.dispatchPending,
+    required this.returnPending,
+  });
+
+  final bool dispatchPending;
+  final bool returnPending;
 }

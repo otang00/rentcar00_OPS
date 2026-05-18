@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-05-18 — 예약원장 배차대기 상태 기준 정리
+### 사용자 표면
+- 예약원장 기존 `오늘배차` 탭 명칭을 `배차대기`로 변경했다.
+- 배차일이 지났더라도 배차 일정이 미완료이고 예약상태가 아직 `배차중/완료`가 아니면 `배차대기`에 남는다.
+- 카드 배지는 `배차 지연`, `오늘 배차`, `배차 예정`, `반납 지연`, `오늘 반납`으로 상태를 구분한다.
+
+### 실제 동작
+- 예약원장 목록 조회 시 `rc00_ops_schedules`의 배차/반납 `schedule_done`과 `reservations.reservation_status`를 함께 읽어 탭을 재계산한다.
+- 예약 수정 저장 후 배차/반납 일정 변경에 맞춰 `rc00_ops_reservation_states.tab_key`를 다시 계산해 갱신한다.
+- `배차중` 상태에서 반납 일정이 오늘이거나 지났고 반납 미완료이면 `반납일`, 그 외 배차중은 `배차중`, 완료 상태는 `완료`로 분류한다.
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/reservations/shared/domain/reservation_tab.dart`
+- `lib/features/reservations/list/presentation/reservation_tab_page.dart`
+- `lib/features/reservations/shared/providers/reservation_providers.dart`
+- `test/widget_test.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. 과거 미배차 예약이 많으면 `배차대기`가 예상보다 많이 보일 수 있다.
+2. 기존 DB의 `reservation_status` 또는 `schedule_done` 값이 틀리면 탭도 그 상태값 기준으로 표시된다.
+
+---
+
 
 ## 2026-05-17 — b35 APK 빌드/업로드 완료
 ### 사용자 표면
