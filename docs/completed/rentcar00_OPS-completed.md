@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-05-18 — b36 APK 빌드/업로드 완료
+### 사용자 표면
+- 예약원장 `배차대기` 상태 기준 정리가 포함된 b36 APK를 실기기 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `35 → 36`으로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 기준 커밋: `3c9ad1c Update reservation dispatch tab logic`
+- APK: `rentcar00_ops-app-release-arm64-b36-3c9ad1c.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,840,634 bytes`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `git diff --check` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b36-3c9ad1c.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 실기기에서 `배차대기` 탭에 과거 미배차/배차 예정/오늘 배차가 의도대로 보이는지 확인한다.
+2. 예약 수정 후 배차일/반납일 변경 시 탭 이동이 정상인지 확인한다.
+3. 기존 DB 상태값(`reservation_status`, `schedule_done`)이 잘못된 예약은 새 기준에서도 잘못 분류될 수 있다.
+
+---
+
 ## 2026-05-18 — 예약원장 배차대기 상태 기준 정리
 ### 사용자 표면
 - 예약원장 기존 `오늘배차` 탭 명칭을 `배차대기`로 변경했다.
