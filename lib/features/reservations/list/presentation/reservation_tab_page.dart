@@ -381,10 +381,10 @@ class _StatusIconChip extends StatelessWidget {
       color: Colors.blue,
       text: '오늘배차',
     ),
-    '배차 예정' => (
+    '배차 임박' => (
       icon: Icons.event_available_outlined,
-      color: Colors.blue,
-      text: '배차예정',
+      color: Colors.orange,
+      text: '배차임박',
     ),
     '반납 지연' => (
       icon: Icons.assignment_late_outlined,
