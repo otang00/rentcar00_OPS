@@ -751,6 +751,42 @@ class SupabaseOpsRepository {
         .eq('car_number', carNumber.trim());
   }
 
+  Future<void> cancelReservation({required String reservationId}) async {
+    final normalizedReservationId = reservationId.trim();
+    if (normalizedReservationId.isEmpty) return;
+
+    final now = DateTime.now().toIso8601String();
+    await _client
+        .from('rc00_ops_reservations')
+        .update({'reservation_status': '예약취소', 'updated_at': now})
+        .eq('reservation_id', normalizedReservationId);
+
+    await _client
+        .from('rc00_ops_reservation_states')
+        .update({
+          'tab_key': TabKeys.completed,
+          'memo_text': '예약취소 처리',
+          'last_action_at': now,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId);
+
+    await _client
+        .from('rc00_ops_schedules')
+        .update({
+          'schedule_done': true,
+          'detail_text': '예약취소 처리',
+          'payload_json': {
+            'status': '예약취소',
+            'cancelled_via': 'reservation_detail',
+            'cancelled_at': now,
+          },
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId)
+        .inFilter('schedule_type', ['배차', '반납']);
+  }
+
   Future<void> deleteSchedule({required String scheduleRowId}) async {
     await _client.from('rc00_ops_schedules').delete().eq('id', scheduleRowId);
   }
@@ -995,6 +1031,10 @@ class SupabaseOpsRepository {
     final startDay = _dayFloor(startAt);
     final endDay = _dayFloor(endAt);
     final normalizedStatus = statusRaw.trim();
+    if (normalizedStatus == '예약취소') {
+      badges.add('예약취소');
+      return badges;
+    }
     if (scheduleState.dispatchPending &&
         normalizedStatus != '배차중' &&
         normalizedStatus != '완료') {
@@ -1282,6 +1322,7 @@ class SupabaseOpsRepository {
     String fallbackTabKey = TabKeys.pending,
   }) {
     final normalizedStatus = reservationStatus.trim();
+    if (normalizedStatus == '예약취소') return TabKeys.completed;
     if (normalizedStatus == '완료') return TabKeys.completed;
     if (normalizedStatus == '배차중') {
       final today = _todayFloor();

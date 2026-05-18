@@ -5,6 +5,46 @@
 
 ---
 
+
+## 2026-05-18 — 예약취소 + IMS 삭제 + 예약생성 다이얼로그 정리
+### 사용자 표면
+- 예약상세에서 `예약취소`를 실행할 수 있다.
+- IMS 연결 예약은 취소 진행 중 잠금 진행창을 띄우고, IMS 예약 삭제 실패 시 확인 버튼이 있는 실패 안내창을 보여준다.
+- 예약생성 다이얼로그는 제목 `예약생성`을 단독 줄로 표시하고, 아래에 `AI파서` / `IMS 가져오기` 버튼 2개를 배치한다.
+
+### 실제 동작
+- 중간서버에 `POST /ims/delete-reservation`을 추가하고 IMS `POST /v2/company-car-schedules/delete`를 호출한다.
+- 앱 `ImsReservationClient.deleteReservation`을 추가했다.
+- OPS 취소 시 `rc00_ops_reservations.reservation_status = 예약취소`, `rc00_ops_reservation_states.tab_key = 완료`, 연결 배차/반납 일정 `schedule_done = true`로 처리한다.
+- IMS active link가 있으면 IMS 삭제 성공 후 OPS 취소를 진행하고, link 상태를 `deleted`로 갱신한다.
+- 예약취소 배지를 목록/상세 데이터에 반영했다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/README.md`
+- `lib/features/reservations/detail/data/ims_reservation_client.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+
+### 검증
+- `dart format ...` 실행
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `flutter analyze` 통과
+- `flutter test` 통과
+- build number를 `38 → 39`로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+- APK: b39 arm64 release APK
+- 업로드 확인 용량: `19,840,762 bytes`
+
+### 1차 장애 확인 포인트
+1. IMS 연결 예약 취소 시 실제 IMS 삭제가 성공한 뒤 OPS 예약이 `예약취소`로 바뀌는지 확인한다.
+2. IMS 삭제 실패 시 OPS 취소가 임의 진행되지 않고 실패 안내창 확인이 필요한지 확인한다.
+3. 연결 배차/반납 일정이 상태보드 처리 대상으로 남지 않는지 확인한다.
+4. 예약생성 다이얼로그 상단 버튼이 좁은 화면에서 잘리지 않는지 확인한다.
+
+---
 ## 2026-05-18 — b38 APK 빌드/업로드 완료
 ### 사용자 표면
 - `배차대기` 안에서 3일 이내 배차를 `D+3`, `D+2`, `D+1`, `오늘배차` 배지로 구분하는 b38 APK를 실기기 설치 테스트할 수 있다.

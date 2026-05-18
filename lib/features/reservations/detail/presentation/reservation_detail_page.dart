@@ -58,6 +58,7 @@ class _ReservationDetailBodyState
   bool _registrationUpdating = false;
   bool _reservationUpdating = false;
   bool _lifecycleUpdating = false;
+  bool _cancelUpdating = false;
 
   Future<void> _editReservation(ReservationRecord reservation) async {
     if (_reservationUpdating) return;
@@ -408,6 +409,96 @@ class _ReservationDetailBodyState
     }
   }
 
+  Future<void> _cancelReservation({
+    required ReservationRecord reservation,
+    required ExternalReservationLink? externalLink,
+  }) async {
+    if (_cancelUpdating) return;
+
+    final imsActive = externalLink?.isActiveBinding == true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('예약취소 처리할까요?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('• OPS 예약 상태를 예약취소로 바꿉니다.'),
+            const SizedBox(height: 6),
+            const Text('• 연결된 배차/반납 일정도 취소 처리합니다.'),
+            if (imsActive) ...[
+              const SizedBox(height: 6),
+              const Text('• 연결된 IMS 예약도 삭제합니다.'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            child: const Text('예약취소'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _cancelUpdating = true);
+    try {
+      if (imsActive) {
+        final scheduleId = externalLink!.externalReservationId.trim();
+        if (scheduleId.isEmpty) {
+          throw const ImsReservationClientException(
+            'IMS schedule_id가 없어 삭제할 수 없습니다.',
+          );
+        }
+        final appEnv = ref.read(appEnvProvider);
+        final imsResult = await _runWithProgress(
+          title: '예약취소 진행중',
+          lines: const ['IMS 예약을 삭제하고 있습니다.', '완료 전까지 다른 동작을 하지 마세요.'],
+          task: () => ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl)
+              .deleteReservation(
+                scheduleId: scheduleId,
+                reservationId: reservation.reservationId,
+              ),
+        );
+        if (!imsResult.isSuccess) {
+          throw ImsReservationClientException(
+            imsResult.message.isEmpty ? imsResult.code : imsResult.message,
+          );
+        }
+        await ref
+            .read(supabaseOpsRepositoryProvider)
+            .markExternalReservationLinkDeleted(
+              reservationId: reservation.reservationId,
+              lastResultJson: imsResult.resultJson,
+            );
+      }
+
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .cancelReservation(reservationId: reservation.reservationId);
+
+      ref.invalidate(allReservationsProvider);
+      ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(reservationDetailProvider(widget.reservationId));
+      ref.invalidate(externalReservationLinkProvider(widget.reservationId));
+
+      if (!mounted) return;
+      _showSnack('예약취소 처리했습니다.', backgroundColor: Colors.green.shade700);
+    } catch (error) {
+      if (!mounted) return;
+      await _showBlockingInfoDialog(title: '예약취소 실패', message: '$error');
+    } finally {
+      if (mounted) setState(() => _cancelUpdating = false);
+    }
+  }
+
   Future<void> _submitImsReservation() async {
     if (_imsSubmitting) return;
 
@@ -488,22 +579,35 @@ class _ReservationDetailBodyState
   }
 
   Future<T> _runWithImsProgress<T>(Future<T> Function() task) async {
+    return _runWithProgress(
+      title: 'IMS 등록 진행중',
+      lines: const ['IMS에 예약을 생성하고 등록 정보를 확인하는 중입니다.', '완료 전까지 다른 동작을 하지 마세요.'],
+      task: task,
+    );
+  }
+
+  Future<T> _runWithProgress<T>({
+    required String title,
+    required List<String> lines,
+    required Future<T> Function() task,
+  }) async {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) => PopScope(
         canPop: false,
         child: AlertDialog(
-          title: const Text('IMS 등록 진행중'),
+          title: Text(title),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              LinearProgressIndicator(),
-              SizedBox(height: 16),
-              Text('IMS에 예약을 생성하고 등록 정보를 확인하는 중입니다.'),
-              SizedBox(height: 6),
-              Text('완료 전까지 다른 동작을 하지 마세요.'),
+            children: [
+              const LinearProgressIndicator(),
+              const SizedBox(height: 16),
+              for (final line in lines) ...[
+                Text(line),
+                const SizedBox(height: 6),
+              ],
             ],
           ),
         ),
@@ -515,6 +619,26 @@ class _ReservationDetailBodyState
     } finally {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
     }
+  }
+
+  Future<void> _showBlockingInfoDialog({
+    required String title,
+    required String message,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _saveImsRegistrationResult({
@@ -675,6 +799,7 @@ class _ReservationDetailBodyState
             !isCompleted && !isDispatched && pickupPending;
         final showReturnComplete =
             !isCompleted && isDispatched && returnPending;
+        final isCancelled = reservation.statusKey.trim() == '예약취소';
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
@@ -797,6 +922,18 @@ class _ReservationDetailBodyState
                               ? null
                               : _submitImsReservation,
                         ),
+                      _DetailActionButton(
+                        label: '예약취소',
+                        icon: Icons.block_outlined,
+                        loading: _cancelUpdating,
+                        danger: true,
+                        onPressed: isCancelled || _cancelUpdating
+                            ? null
+                            : () => _cancelReservation(
+                                reservation: reservation,
+                                externalLink: externalLink,
+                              ),
+                      ),
                     ],
                   ),
                   if (hasPhone) ...[
@@ -1803,19 +1940,23 @@ class _DetailActionButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.loading = false,
+    this.danger = false,
   });
 
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
   final bool loading;
+  final bool danger;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final foreground = colorScheme.primary;
-    const background = Color(0xFFEAF5FF);
-    const borderColor = Color(0xFFBBDEFB);
+    final foreground = danger ? Colors.red.shade700 : colorScheme.primary;
+    final background = danger
+        ? const Color(0xFFFFEBEE)
+        : const Color(0xFFEAF5FF);
+    final borderColor = danger ? Colors.red.shade100 : const Color(0xFFBBDEFB);
 
     return SizedBox.expand(
       child: FilledButton.tonal(

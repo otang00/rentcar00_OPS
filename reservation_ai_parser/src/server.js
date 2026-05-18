@@ -83,6 +83,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, ok ? 200 : 422, { ok, payload, result });
     }
 
+    if (req.url === '/ims/delete-reservation') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeImsDeleteReservationPayload(body);
+      const result = await deleteImsReservationDirect(payload);
+      const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
+      return sendJson(res, ok ? 200 : 422, { ok, payload, result });
+    }
+
     if (req.url === '/ims/complete-reservation-return') {
       if (req.method !== 'POST') {
         return sendMethodNotAllowed(res, ['POST']);
@@ -212,6 +223,20 @@ function normalizeImsCompleteReturnPayload(body = {}) {
   }
   if (!Number.isFinite(payload.fuelCost)) {
     throw new Error('missing required ims fields: fuelCost');
+  }
+
+  return payload;
+}
+
+function normalizeImsDeleteReservationPayload(body = {}) {
+  const payload = {
+    scheduleId: String(body?.scheduleId || body?.externalReservationId || '').trim(),
+    reservationId: String(body?.reservationId || '').trim(),
+    dryRun: body?.dryRun === true,
+  };
+
+  if (!payload.scheduleId) {
+    throw new Error('missing required ims fields: scheduleId');
   }
 
   return payload;
@@ -453,6 +478,45 @@ async function changeImsReservationCarDirect(payload) {
     linkKey: buildLinkKey(payload),
     apiResult: json,
     targetCarId: stringifyNullable(car.id),
+  };
+}
+
+async function deleteImsReservationDirect(payload) {
+  if (payload.dryRun) {
+    return {
+      code: 'DRY_RUN',
+      message: 'dryRun=true; IMS direct delete skipped',
+      externalReservationId: payload.scheduleId,
+      externalStatus: 'deleted',
+      linkKey: payload.reservationId ? `OPS:${payload.reservationId}` : '',
+    };
+  }
+
+  const token = await fetchImsAccessToken();
+  const body = { ids: [payload.scheduleId] };
+  const response = await fetch('https://api.rencar.co.kr/v2/company-car-schedules/delete', {
+    method: 'POST',
+    headers: buildImsApiHeaders(token, { contentType: true }),
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    return {
+      code: 'ERROR',
+      message: resolveApiErrorMessage(json, response.status),
+      apiStatus: response.status,
+      apiResult: json,
+    };
+  }
+
+  return {
+    code: 'SUCCESS',
+    message: '',
+    externalStatus: 'deleted',
+    externalReservationId: payload.scheduleId,
+    linkKey: payload.reservationId ? `OPS:${payload.reservationId}` : '',
+    apiResult: json,
+    requestBody: body,
   };
 }
 

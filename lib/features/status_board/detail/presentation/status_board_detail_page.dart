@@ -1333,6 +1333,39 @@ class _CarSelectDialogState extends State<_CarSelectDialog> {
   }
 }
 
+class _ReservationDialogActionButton extends StatelessWidget {
+  const _ReservationDialogActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.loading = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonalIcon(
+      onPressed: onPressed,
+      icon: loading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+}
+
 class _ReservationCreateDialog extends StatefulWidget {
   const _ReservationCreateDialog({
     this.record,
@@ -1606,24 +1639,31 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Row(
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Expanded(child: Text('예약생성')),
-          TextButton.icon(
-            onPressed: _aiParsing ? null : _openAiParserInput,
-            icon: _aiParsing
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.auto_awesome_outlined),
-            label: const Text('AI파서'),
-          ),
-          TextButton.icon(
-            onPressed: _openImsImport,
-            icon: const Icon(Icons.cloud_download_outlined),
-            label: const Text('IMS 가져오기'),
+          const Text('예약생성'),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _ReservationDialogActionButton(
+                  label: 'AI파서',
+                  icon: Icons.auto_awesome_outlined,
+                  loading: _aiParsing,
+                  onPressed: _aiParsing ? null : _openAiParserInput,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ReservationDialogActionButton(
+                  label: 'IMS 가져오기',
+                  icon: Icons.cloud_download_outlined,
+                  onPressed: _openImsImport,
+                ),
+              ),
+            ],
           ),
         ],
       ),

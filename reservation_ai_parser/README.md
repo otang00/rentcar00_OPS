@@ -23,6 +23,7 @@ rentcar00_OPS 예약생성 화면에 연결할 앱 전용 AI파서 서비스.
 - `POST /parse-reservation`
 - `POST /ims/create-reservation`
 - `POST /ims/change-reservation-car`
+- `POST /ims/delete-reservation`
 - `POST /ims/complete-reservation-return`
 
 그 외 path/method 는 차단 방향으로 유지한다.
@@ -155,6 +156,35 @@ Response:
 - 실제 IMS 상태를 변경한다.
 - `scheduleId`는 IMS `company-car-schedules` id다.
 - `carNumber`는 대상 차량번호이며 서버가 available API로 IMS 내부 `company_car_id`를 조회한다.
+
+
+### POST /ims/delete-reservation
+IMS에 이미 생성된 예약을 삭제한다.
+
+Request:
+```json
+{
+  "scheduleId": "4189163",
+  "reservationId": "R-001"
+}
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "result": {
+    "code": "SUCCESS",
+    "externalStatus": "deleted",
+    "externalReservationId": "4189163"
+  }
+}
+```
+
+주의:
+- 실제 IMS 상태를 변경한다.
+- 예약취소 확인 흐름에서만 호출한다.
+- 내부 호출 대상은 `POST /v2/company-car-schedules/delete`이며 body는 `{ "ids": [scheduleId] }`다.
 
 
 ### POST /ims/complete-reservation-return

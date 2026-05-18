@@ -33,6 +33,21 @@ class ImsReservationClient {
     );
   }
 
+  Future<ImsReservationExecutionResult> deleteReservation({
+    required String scheduleId,
+    required String reservationId,
+  }) async {
+    return _postIms(
+      path: '/ims/delete-reservation',
+      body: {
+        'scheduleId': scheduleId.trim(),
+        'reservationId': reservationId.trim(),
+      },
+      timeoutMessage: 'IMS 예약삭제 응답 시간이 초과되었습니다.',
+      failureMessage: 'IMS 예약삭제 호출에 실패했습니다.',
+    );
+  }
+
   Future<ImsReservationExecutionResult> completeReservationReturn({
     required String contractId,
     required String reservationId,
