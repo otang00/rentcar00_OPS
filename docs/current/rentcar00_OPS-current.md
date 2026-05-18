@@ -12,7 +12,7 @@
 
 ## 현재 기준점
 - 최신 커밋: `07bb910 Add reservation cancellation IMS delete`
-- 최신 APK: `rentcar00_ops-app-release-arm64-b39-07bb910.apk`
+- 최신 APK: 앱 아이콘 변경 b40 APK
 - GDrive `rentcar00_OPS/apk/`에는 최신 APK 1개만 유지한다.
 - 최신 구현/검증 handoff는 `docs/completed/rentcar00_OPS-completed.md`의 다음 항목에 정리됨:
   - `2026-05-18 — 예약취소 + IMS 삭제 + 예약생성 다이얼로그 정리`
@@ -40,11 +40,12 @@
 7. 실제 운영 IMS 삭제/반납 테스트는 대상 예약 확인 후만 진행
 
 ## 다음 작업 우선순위
-1. b39 실기기 설치/화면 확인
-2. 예약취소 IMS 삭제 실제 테스트 예약 1건으로 검증
-3. IMS 실패 UX 전체 통일
-4. 직원관리 MVP 기준 확정
-5. 일정 취소 상태 컬럼 도입 여부 결정
+1. 새 앱 아이콘 적용 APK 빌드/실기기 아이콘 확인
+2. b39 실기기 설치/화면 확인
+3. 예약취소 IMS 삭제 실제 테스트 예약 1건으로 검증
+4. IMS 실패 UX 전체 통일
+5. 직원관리 MVP 기준 확정
+6. 일정 취소 상태 컬럼 도입 여부 결정
 
 ## 주의
 - IMS 삭제/반납 등 실제 외부 상태 변경은 운영 대상 확인 후 진행한다.

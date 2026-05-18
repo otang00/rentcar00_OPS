@@ -6,6 +6,33 @@
 ---
 
 
+## 2026-05-18 — 앱 아이콘 빵빵카 워드마크 반영
+### 사용자 표면
+- Android/macOS 앱 아이콘이 RENTCAR00.com의 `빵빵카(주)` 워드마크 기반 아이콘으로 바뀐다.
+
+### 실제 동작
+- `https://RENTCAR00.com/bbang-wordmark.png`를 기준 이미지로 저장했다.
+- 1024x1024 흰 배경 아이콘 소스를 만들고 Android mipmap 및 macOS AppIcon 크기별 PNG를 갱신했다.
+
+### 핵심 파일
+- `assets/branding/bbang-wordmark.png`
+- `assets/branding/app_icon_source.png`
+- `android/app/src/main/res/mipmap-*/ic_launcher.png`
+- `macos/Runner/Assets.xcassets/AppIcon.appiconset/*.png`
+
+### 검증
+- 아이콘 소스 이미지 확인: 중앙 배치/잘림 없음
+- `flutter analyze` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- build number를 `39 → 40`으로 올렸다.
+- GDrive `rentcar00_OPS/apk/` 업로드 대상이다.
+
+### 1차 장애 확인 포인트
+1. 실기기 설치 후 홈 화면 아이콘이 새 워드마크로 보이는지 확인한다.
+2. 작은 크기에서 글자가 너무 작으면 심볼형 아이콘을 별도로 제작한다.
+
+---
+
 ## 2026-05-18 — 예약취소 + IMS 삭제 + 예약생성 다이얼로그 정리
 ### 사용자 표면
 - 예약상세에서 `예약취소`를 실행할 수 있다.
