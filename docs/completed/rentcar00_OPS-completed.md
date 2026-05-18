@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-05-18 — b37 APK 빌드/업로드 완료
+### 사용자 표면
+- `배차대기`가 과도하게 넓어지던 문제를 고쳐, 배차일 기준 오늘부터 3일 이내 또는 지난 미배차만 표시하는 b37 APK를 실기기 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `36 → 37`로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 기준 커밋: `7714b65 Limit dispatch waiting tab window`
+- APK: `rentcar00_ops-app-release-arm64-b37-7714b65.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,840,634 bytes`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `git diff --check` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b37-7714b65.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 4일 이후 미래 배차 예약이 `예약중`으로 돌아갔는지 확인한다.
+2. 지난 미배차와 3일 이내 미배차가 `배차대기`에 남는지 확인한다.
+
+---
+
 ## 2026-05-18 — b36 APK 빌드/업로드 완료
 ### 사용자 표면
 - 예약원장 `배차대기` 상태 기준 정리가 포함된 b36 APK를 실기기 설치 테스트할 수 있다.
