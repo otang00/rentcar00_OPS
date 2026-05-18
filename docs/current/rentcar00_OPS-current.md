@@ -8,45 +8,37 @@
 ---
 
 ## 현재 active 작업
-**없음 — 다음 작업 대기**
+**직원관리 MVP 기준 확정**
 
 ## 현재 기준점
-- 최신 커밋: `07bb910 Add reservation cancellation IMS delete`
-- 최신 APK: 앱 아이콘 변경 b40 APK
+- 최신 커밋: `0dfad13 Remove macOS platform files`
+- 최신 APK: `rentcar00_ops-app-release-arm64-b40-d95f2bc.apk`
 - GDrive `rentcar00_OPS/apk/`에는 최신 APK 1개만 유지한다.
-- 최신 구현/검증 handoff는 `docs/completed/rentcar00_OPS-completed.md`의 다음 항목에 정리됨:
+- macOS platform 폴더는 삭제 완료했다.
+- 최신 완료 내역은 `docs/completed/rentcar00_OPS-completed.md`에 정리됨:
+  - `2026-05-18 — macOS platform 폴더 삭제`
+  - `2026-05-18 — 앱 아이콘 빵빵카 워드마크 반영`
+  - `2026-05-18 — GDrive APK 과거 버전 정리`
   - `2026-05-18 — 예약취소 + IMS 삭제 + 예약생성 다이얼로그 정리`
-  - `2026-05-18 — b38 APK 빌드/업로드 완료`
-  - `2026-05-17 — IMS 가져오기 예약생성 1차 구현`
-  - `2026-05-17 — IMS 반납완료 연동 수정`
 
-## 전체 기능 점검 요약 — 2026-05-18
-### 현재 돌아가는 축
-1. 로그인/직원 접근 차단
-2. 차량 현황판: 대기/보험/일반/장기/일정
-3. 예약원장: 예약중/배차대기/배차중/반납일/완료 분류
-4. 예약생성: 직접 입력, AI파서, IMS 가져오기, IMS 신규 생성
-5. 예약상세: 수정, 차량변경, 배차완료, 반납완료, IMS추가, IMS등록해제, 예약취소
-6. IMS 연동: 생성, 가져오기 링크 저장, 차량변경, 반납완료, 예약삭제
-7. APK 빌드/GDrive 배포 흐름
+## 직원관리 MVP에서 잠글 것
+1. 직원 계정 생성 방식
+   - 앱에서 직접 Auth user 생성할지
+   - 중간서버/관리자 API를 둘지
+   - Supabase Console 수동 생성 후 staff row만 앱에서 관리할지
+2. 직원 비활성 처리 기준
+   - Auth 삭제보다 `staff_accounts.is_active=false` 차단 우선
+3. 권한 범위
+   - admin / staff 최소 2단계로 시작
+4. 화면 범위
+   - 직원 목록
+   - 직원 상세
+   - 활성/비활성 전환
+   - 역할 변경
+5. 감사/로그
+   - 누가 언제 직원 상태를 바꿨는지 기록할지 결정
 
-### 부족하거나 다음에 봐야 할 것
-1. b39 실기기 설치 후 예약취소/IMS삭제/예약생성 상단 UI 확인
-2. IMS 실패 UX 통일: 차량변경/반납완료/예약생성 실패도 예약취소처럼 확인창 기준으로 정리 필요
-3. 예약취소 일정 처리 고도화: 현재는 `schedule_done=true`로 숨김 처리라, 장기적으로 `schedule_status/cancelled_at` 명시 컬럼 검토
-4. 관리자 홈은 아직 placeholder: 직원관리 MVP, 차량관리, 작업로그, 출근확인, 앱푸시 미구현
-5. 예약 액션 provider 일부는 아직 read-only/outbox 비활성 상태
-6. 오래된 IMS binding 중 `externalDetailId`가 비어 있는 케이스는 반납완료 실패 가능성 있음
-7. 실제 운영 IMS 삭제/반납 테스트는 대상 예약 확인 후만 진행
-
-## 다음 작업 우선순위
-1. 새 앱 아이콘 적용 APK 빌드/실기기 아이콘 확인
-2. b39 실기기 설치/화면 확인
-3. 예약취소 IMS 삭제 실제 테스트 예약 1건으로 검증
-4. IMS 실패 UX 전체 통일
-5. 직원관리 MVP 기준 확정
-6. 일정 취소 상태 컬럼 도입 여부 결정
-
-## 주의
-- IMS 삭제/반납 등 실제 외부 상태 변경은 운영 대상 확인 후 진행한다.
-- push/deploy는 아직 수행하지 않았다.
+## 다음 실행 전 확인
+- 직원관리 구현은 Auth/RLS와 연결되므로 계획 보고 후 승인받고 진행한다.
+- build/APK/GDrive 업로드는 별도 승인 전 실행하지 않는다.
+- macOS platform은 다시 생성하지 않는다.

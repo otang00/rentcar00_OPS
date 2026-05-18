@@ -6,26 +6,68 @@
 ---
 
 
+## 2026-05-18 — macOS platform 폴더 삭제
+### 사용자 표면
+- 이 프로젝트는 Android 운영 앱 기준으로 유지하고 macOS platform 산출물은 제거했다.
+
+### 실제 동작
+- `macos/` 폴더 전체를 git에서 삭제했다.
+- 앞으로 macOS 아이콘/빌드 산출물은 관리 대상에서 제외한다.
+
+### 핵심 파일
+- `macos/` 전체 삭제
+
+### 검증
+- `git status` clean 확인
+- 삭제 커밋: `0dfad13 Remove macOS platform files`
+
+### 1차 장애 확인 포인트
+1. Flutter 명령이 macOS target을 자동 생성하지 않도록 주의한다.
+2. 앱 아이콘 변경은 Android mipmap만 대상으로 한다.
+
+---
+
+## 2026-05-18 — GDrive APK 과거 버전 정리
+### 사용자 표면
+- GDrive `rentcar00_OPS/apk/`에는 최신 APK만 남긴다.
+
+### 실제 동작
+- 기존 b9~b39 과거 APK를 삭제했다.
+- 최신 APK 1개만 남겼다.
+
+### 남은 파일
+- `rentcar00_ops-app-release-arm64-b40-d95f2bc.apk`
+
+### 검증
+- `rclone lsf gdrive:rentcar00_OPS/apk/ --files-only`로 최신 APK 1개만 확인
+
+### 1차 장애 확인 포인트
+1. 과거 APK가 필요하면 git commit 기준으로 다시 빌드해야 한다.
+2. 다음 APK 업로드 시 과거 버전 삭제 여부를 별도 지시 기준으로 처리한다.
+
+---
+
 ## 2026-05-18 — 앱 아이콘 빵빵카 워드마크 반영
 ### 사용자 표면
-- Android/macOS 앱 아이콘이 RENTCAR00.com의 `빵빵카(주)` 워드마크 기반 아이콘으로 바뀐다.
+- Android 앱 아이콘이 RENTCAR00.com의 `빵빵카(주)` 워드마크 기반 아이콘으로 바뀐다.
 
 ### 실제 동작
 - `https://RENTCAR00.com/bbang-wordmark.png`를 기준 이미지로 저장했다.
-- 1024x1024 흰 배경 아이콘 소스를 만들고 Android mipmap 및 macOS AppIcon 크기별 PNG를 갱신했다.
+- 1024x1024 흰 배경 아이콘 소스를 만들고 Android mipmap 아이콘을 갱신했다.
+- 작업 중 macOS AppIcon도 잘못 갱신했으나, 후속 커밋에서 macOS platform 폴더를 삭제했다.
 
 ### 핵심 파일
 - `assets/branding/bbang-wordmark.png`
 - `assets/branding/app_icon_source.png`
 - `android/app/src/main/res/mipmap-*/ic_launcher.png`
-- `macos/Runner/Assets.xcassets/AppIcon.appiconset/*.png`
 
 ### 검증
 - 아이콘 소스 이미지 확인: 중앙 배치/잘림 없음
 - `flutter analyze` 통과
 - `flutter build apk --release --target-platform android-arm64` 성공
 - build number를 `39 → 40`으로 올렸다.
-- GDrive `rentcar00_OPS/apk/` 업로드 대상이다.
+- `flutter build apk --release --target-platform android-arm64`로 b40 APK를 만들었다.
+- GDrive에는 `rentcar00_ops-app-release-arm64-b40-d95f2bc.apk`를 업로드했다.
 
 ### 1차 장애 확인 포인트
 1. 실기기 설치 후 홈 화면 아이콘이 새 워드마크로 보이는지 확인한다.
