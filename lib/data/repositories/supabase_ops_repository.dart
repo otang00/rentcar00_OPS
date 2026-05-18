@@ -1002,8 +1002,12 @@ class SupabaseOpsRepository {
         badges.add('배차 지연');
       } else if (startDay == today) {
         badges.add('오늘 배차');
-      } else if (_isWithinDispatchWaitWindow(startAt)) {
-        badges.add('배차 임박');
+      } else if (_daysUntil(startAt) == 1) {
+        badges.add('배차일+1');
+      } else if (_daysUntil(startAt) == 2) {
+        badges.add('배차일+2');
+      } else if (_daysUntil(startAt) == 3) {
+        badges.add('배차일+3');
       }
     }
     if (scheduleState.returnPending && normalizedStatus == '배차중') {
@@ -1294,10 +1298,14 @@ class SupabaseOpsRepository {
   }
 
   bool _isWithinDispatchWaitWindow(DateTime startAt) {
+    final daysUntil = _daysUntil(startAt);
+    return daysUntil <= 3;
+  }
+
+  int _daysUntil(DateTime value) {
     final today = _todayFloor();
-    final startDay = _dayFloor(startAt);
-    final upperBound = today.add(const Duration(days: 3));
-    return !startDay.isAfter(upperBound);
+    final day = _dayFloor(value);
+    return day.difference(today).inDays;
   }
 
   _ReservationScheduleState _scheduleStateFromRows(
