@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-05-18 — b38 APK 빌드/업로드 완료
+### 사용자 표면
+- `배차대기` 안에서 3일 이내 배차를 `D+3`, `D+2`, `D+1`, `오늘배차` 배지로 구분하는 b38 APK를 실기기 설치 테스트할 수 있다.
+
+### 실제 동작
+- build number를 `37 → 38`로 올렸다.
+- arm64 release APK를 빌드했다.
+- gdrive `rentcar00_OPS/apk/`에 업로드했다.
+
+### 산출물
+- 기준 커밋: `f806113 Split dispatch waiting day badges`
+- APK: `rentcar00_ops-app-release-arm64-b38-f806113.apk`
+- 위치: `gdrive:rentcar00_OPS/apk/`
+- 업로드 확인 용량: `19,840,762 bytes`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `git diff --check` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- `rclone ls gdrive:rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b38-f806113.apk` 확인
+
+### 1차 장애 확인 포인트
+1. 3일 이내 배차 카드가 각각 `D+3`, `D+2`, `D+1`, `오늘배차`로 구분되는지 확인한다.
+2. 4일 이후 미래 배차 예약은 계속 `예약중`에 남는지 확인한다.
+
+---
+
 ## 2026-05-18 — b37 APK 빌드/업로드 완료
 ### 사용자 표면
 - `배차대기`가 과도하게 넓어지던 문제를 고쳐, 배차일 기준 오늘부터 3일 이내 또는 지난 미배차만 표시하는 b37 APK를 실기기 설치 테스트할 수 있다.
