@@ -580,37 +580,14 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       }
     }
 
-    final dispatchStartAt = DateTime.now();
-    final dispatchEndAt = _tryParseDateTime(record.endAt);
-
-    await _runAction(() async {
-      await ref
-          .read(supabaseOpsRepositoryProvider)
-          .updateCarInstantStatus(
-            carRowId: carRowId,
-            status: selectedStatus,
-            statusAction: _dispatchStatusAction(selectedStatus),
-            customerName: record.customerName,
-            customerPhone: record.customerPhone,
-            startAt: dispatchStartAt,
-            endAt: dispatchEndAt,
-            pickupLocation: '',
-            parkingLocation: '',
-            noteText: record.noteText,
-          );
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('배차 $selectedStatus 상태로 전환했습니다.')));
-    });
-
-    if (!mounted) return;
     await _editVehicleStatus(
       initialStatus: selectedStatus,
-      initialStartAt: dispatchStartAt,
-      initialEndAt: dispatchEndAt,
+      initialStartAt: DateTime.now(),
+      initialEndAt: _tryParseDateTime(record.endAt),
       initialPickupLocation: '',
       initialParkingLocation: '',
+      statusAction: _dispatchStatusAction(selectedStatus),
+      successMessage: '배차 $selectedStatus 상태로 전환했습니다.',
     );
   }
 
@@ -661,6 +638,8 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     DateTime? initialEndAt,
     String? initialPickupLocation,
     String? initialParkingLocation,
+    String statusAction = '상태 수정',
+    String successMessage = '차량 상태를 수정했습니다.',
   }) async {
     final form = await showDialog<_InstantStatusFormResult>(
       context: context,
@@ -672,7 +651,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         initialEndAt: initialEndAt,
         initialPickupLocation: initialPickupLocation,
         initialParkingLocation: initialParkingLocation,
-        statusAction: '상태 수정',
+        statusAction: statusAction,
         allowStatusSelection: true,
       ),
     );
@@ -702,7 +681,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('차량 상태를 수정했습니다.')));
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
     });
   }
 
@@ -1077,58 +1056,46 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         ),
         const SizedBox(height: 14),
         _SectionCard(
-          title: 'Related 일정',
+          title: '연관일정',
+          trailing: relatedSchedulesAsync.valueOrNull == null
+              ? null
+              : Text(
+                  '${relatedSchedulesAsync.valueOrNull!.length}건',
+                  style: textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
           child: relatedSchedulesAsync.when(
             data: (items) {
               if (items.isEmpty) {
                 return const Text('연결된 일정이 없습니다.');
               }
+              final sortedItems = [...items]
+                ..sort((a, b) {
+                  final aAt = a.sortAt;
+                  final bAt = b.sortAt;
+                  if (aAt == null && bAt == null) return 0;
+                  if (aAt == null) return 1;
+                  if (bAt == null) return -1;
+                  return aAt.compareTo(bAt);
+                });
               return Column(
                 children: [
-                  for (final item in items)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: item.reservationId.trim().isEmpty
-                            ? Colors.transparent
-                            : const Color(0xFFEAF5FF),
-                        borderRadius: BorderRadius.circular(12),
-                        border: item.reservationId.trim().isEmpty
-                            ? null
-                            : Border.all(color: const Color(0xFFBBD7F5)),
+                  for (var index = 0; index < sortedItems.length; index++)
+                    Padding(
+                      padding: EdgeInsets.only(
+                        bottom: index == sortedItems.length - 1 ? 0 : 7,
                       ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 2,
-                        ),
-                        dense: true,
-                        title: Text(
-                          item.scheduleType.isEmpty
-                              ? item.timeLabel
-                              : '${item.scheduleType} · ${item.timeLabel}',
-                          style: textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        subtitle: Text(
-                          item.locationSummary.isEmpty
-                              ? (item.detailText.isEmpty
-                                    ? '-'
-                                    : item.detailText)
-                              : item.locationSummary,
-                          style: textTheme.bodyMedium?.copyWith(height: 1.3),
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => context.push(
-                          '/schedule/${Uri.encodeComponent(item.recordId)}',
-                        ),
+                      child: _RelatedScheduleCompactCard(
+                        item: sortedItems[index],
+                        emphasize: index == 0,
                       ),
                     ),
                 ],
               );
             },
-            loading: () => const Center(child: CircularProgressIndicator()),
+            loading: () => const LinearProgressIndicator(),
             error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
           ),
         ),
@@ -1858,6 +1825,19 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                         ),
                       ),
                     ),
+                  CheckboxListTile(
+                    value: _imsChecked,
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text('IMS연동생성'),
+                    onChanged: (value) {
+                      setState(() {
+                        _imsChecked = value ?? false;
+                        if (_imsChecked) _importedIms = null;
+                      });
+                    },
+                  ),
                 ],
               ),
             ),
@@ -1865,22 +1845,6 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
         ),
       ),
       actions: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Checkbox(
-              value: _imsChecked,
-              tristate: false,
-              onChanged: (value) {
-                setState(() {
-                  _imsChecked = value ?? false;
-                  if (_imsChecked) _importedIms = null;
-                });
-              },
-            ),
-            const Text('IMS연동생성'),
-          ],
-        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('취소'),
@@ -2930,8 +2894,6 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
     super.dispose();
   }
 
-  bool get _requiresTripFields => !_isIdleStatus(_selectedStatus);
-
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -2990,7 +2952,6 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                 _DialogTextField(
                   controller: _customerNameController,
                   label: '이용자/고객명',
-                  validator: _requiresTripFields ? _requiredValidator : null,
                 ),
                 _DialogTextField(
                   controller: _customerPhoneController,
@@ -3006,7 +2967,6 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                   inputFormatters: [
                     OpsDateTimeInputFormatter(defaultYear: DateTime.now().year),
                   ],
-                  validator: _requiresTripFields ? _requiredValidator : null,
                 ),
                 _DialogTextField(
                   controller: _endAtController,
@@ -3016,7 +2976,6 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                   inputFormatters: [
                     OpsDateTimeInputFormatter(defaultYear: DateTime.now().year),
                   ],
-                  validator: _requiresTripFields ? _requiredValidator : null,
                 ),
                 _DialogTextField(
                   controller: _pickupLocationController,
@@ -3050,12 +3009,6 @@ class _InstantStatusDialogState extends State<_InstantStatusDialog> {
                 ? null
                 : _tryParseDateTime(startAtRaw);
             final endAt = endAtRaw.isEmpty ? null : _tryParseDateTime(endAtRaw);
-            if (_requiresTripFields && (startAt == null || endAt == null)) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('대여/반납 일시 형식을 확인해 주세요.')),
-              );
-              return;
-            }
             if (startAt != null) {
               _startAtController.text = _formatEditorDateTime(startAt);
             }
@@ -3832,6 +3785,145 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _RelatedScheduleCompactCard extends StatelessWidget {
+  const _RelatedScheduleCompactCard({
+    required this.item,
+    required this.emphasize,
+  });
+
+  final StatusBoardRecord item;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final type = item.scheduleType.trim().isEmpty
+        ? '일정'
+        : item.scheduleType.trim();
+    final isReturn = type == '반납';
+    final isDispatch = type == '배차';
+    final isDone = _isTruthy(item.scheduleDone);
+    final typeColor = isReturn
+        ? const Color(0xFFD96B00)
+        : isDispatch
+        ? const Color(0xFF1976D2)
+        : colorScheme.primary;
+    final typeBg = typeColor.withValues(alpha: emphasize ? 0.14 : 0.08);
+    final location = item.locationSummary.trim().isNotEmpty
+        ? item.locationSummary.trim()
+        : item.detailText.trim();
+    final customer = item.customerName.trim();
+    final reservation = item.reservationNumber.trim();
+    final metaParts = [
+      if (customer.isNotEmpty) customer,
+      if (reservation.isNotEmpty) reservation,
+      if (isDone) '완료',
+    ];
+
+    return Material(
+      color: typeBg,
+      borderRadius: BorderRadius.circular(13),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(13),
+        onTap: () =>
+            context.push('/schedule/${Uri.encodeComponent(item.recordId)}'),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 58),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+              color: typeColor.withValues(alpha: emphasize ? 0.42 : 0.22),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: typeColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  isReturn
+                      ? Icons.south_west_rounded
+                      : isDispatch
+                      ? Icons.north_east_rounded
+                      : Icons.event_note_outlined,
+                  color: Colors.white,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          type,
+                          style: textTheme.titleSmall?.copyWith(
+                            color: typeColor,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            item.timeLabel.isEmpty ? '-' : item.timeLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      location.isEmpty ? '-' : location,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (metaParts.isNotEmpty) ...[
+                      const SizedBox(height: 1),
+                      Text(
+                        metaParts.join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: typeColor.withValues(alpha: 0.75),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

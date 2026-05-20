@@ -8,15 +8,15 @@
 ---
 
 ## 현재 active 작업
-**b44 차량관리 1차 배포 완료 / 실기기 확인 대기**
+**b47 빌드/GDrive 업로드/커밋 완료 / 실기기 확인 대기**
 
 ## 현재 기준점
 - repository: `rentcar00_OPS`
 - branch: `main`
-- 현재 HEAD: `851f5fc Document completed work and staff MVP focus`
-- 앱 버전/build: `1.0.0+44`
-- 최신 APK 파일명 기준: `rentcar00_ops-app-release-arm64-b44-966d066.apk`
-- 작업트리에는 b44 차량관리 구현/문서 변경이 아직 uncommitted 상태로 남아 있다.
+- 현재 HEAD: `f742c57 Release b47 UI and icon updates`
+- 앱 버전/build: `1.0.0+47`
+- 최신 APK 파일명 기준: `rentcar00_ops-app-release-arm64-b47-2e26228.apk`
+- 작업트리는 b47 변경 커밋까지 완료된 상태다.
 - GDrive `rentcar00_OPS/apk/`에는 최신 APK 1개만 유지하는 운영 기준을 사용한다.
 - macOS platform 폴더는 삭제 완료했고 다시 생성하지 않는다.
 
@@ -60,17 +60,44 @@
 - 고급 영역에서 운행/시스템 컬럼과 `payload_json`을 수정할 수 있다.
 - 차량 삭제는 수정 화면 하단 위험 영역에서 확인 다이얼로그 후 실행한다.
 
-### 5. 홈페이지 예약 이벤트 수신부 코드 구현
+### 5. 홈페이지 예약 이벤트 수신/자동 원장 등록 구현
 - endpoint: `POST /api/integrations/rentcar00/reservation-events`
 - `reservation.created` 이벤트 수신 코드를 `reservation_ai_parser`에 구현했다.
 - HMAC 서명, timestamp, eventId, payload schema 검증을 넣었다.
 - 같은 eventId는 중복 성공으로 처리해 홈페이지 재시도에 안전하게 만들었다.
-- 정상 payload는 `rc00_ops_reservation_events`에 저장하는 구조다.
+- 정상 payload는 `rc00_ops_reservation_events`에 저장한 뒤 원장/상태/배차·반납 일정까지 자동 생성한다.
+- 앱은 `homepage_review=pending` 기준으로 `홈페이지 확인` 배지와 상단 `홈페이지 N` 표시를 보여준다.
+- 예약 상세에는 `홈페이지확인` 버튼을 추가해 확인 완료 처리한다.
 - 검증 기록:
-  - 정상 signature → 200 `{ ok: true, deduped: false }`
-  - 동일 eventId 재전송 → 200 `{ ok: true, deduped: true }`
-  - 잘못된 signature → 401 `invalid_signature`
-  - booking 누락 → 400 `invalid_payload`
+  - signed POST → 원장/상태/배차·반납 일정 생성 확인
+  - 테스트 row 정리 후 `cleanup_remaining=0`
+  - `node --check`, `npm --prefix reservation_ai_parser run check`, `flutter analyze`, `flutter test` 통과
+  - b45 APK 빌드 및 GDrive 업로드 완료
+
+### 6. 차량상세 상태수정/즉시배차 검증 완화
+- 차량상세의 상태수정은 원장 작성이 아니라 차량 인스턴스 스냅샷 수정 기준으로 정리했다.
+- 일반/장기 즉시배차는 먼저 DB 업데이트하지 않고 상태수정 다이얼로그 저장 시 한 번만 반영한다.
+- 상태수정 다이얼로그에서 고객명/대여일시/반납일시 필수 검증을 제거했다.
+- 빈 날짜는 `null` 저장, 파싱 가능한 날짜만 정규화해 저장한다.
+- 검증 기록: `flutter analyze`, `flutter test`, `git diff --check` 통과
+- b46 APK 빌드 및 GDrive 업로드 완료
+
+### 7. 예약생성 UI / IMS 계정 이슈 확인
+- 예약생성 다이얼로그 하단 `IMS연동생성 / 취소 / 생성`이 AlertDialog actions 영역에서 줄바꿈되는 문제가 확인됐다.
+- `IMS연동생성` 체크박스를 content 내부로 옮기고, actions에는 `취소 / 생성`만 남겼다.
+- 비슷한 `AlertDialog.actions` 내 체크박스/복합 Row 패턴을 검색했고, 동일한 직접 위험 패턴은 추가로 발견되지 않았다.
+- 검증 기록: `dart format`, `flutter analyze`, `flutter test` 통과
+- 주의: 이 UI 수정은 b46 GDrive 업로드 이후 반영됐으므로, 현재 GDrive b46 APK에는 아직 포함되지 않았다.
+- IMS 가져오기 계정 오류는 `reservation_ai_parser/.env`에 `IMS_ID`, `IMS_PW`/`IMS_PASSWORD`가 없는 상태가 직접 원인으로 확인됐다.
+
+### 8. 앱 아이콘 / 차량상세 연관일정 UI 개선
+- 앱 런처 아이콘은 기존 글씨체/디자인을 유지하되 `(주)`를 제거하고 `빵빵카`만 크게 보이게 정리했다.
+- Android `mipmap-*` 런처 아이콘을 `빵빵카` 단독 원본 기준으로 재생성했다.
+- AppBar 로고 변경은 오해로 판단해 되돌렸다.
+- 차량상세 `연관일정`은 가로 짝짓기 없이 시간순 세로 카드 리스트로 정리했다.
+- 일정 카드에는 `배차`/`반납` 색상과 `↗`/`↙` 방향 아이콘을 적용했다.
+- 첫 번째 일정은 가장 가까운 일정 기준으로 강조한다.
+- b47 APK 빌드 및 GDrive 업로드 완료: `rentcar00_ops-app-release-arm64-b47-2e26228.apk`
 
 ---
 
@@ -104,13 +131,10 @@
 - 차량 추가/수정/고급 컬럼 펼치기/삭제 흐름 실기기 확인.
 - 삭제는 과거 예약/일정 연결 리스크가 있으므로 실제 운영 차량 삭제 전 재확인.
 
-### D. 커밋 전 정리
-- 현재 작업트리 변경사항을 다시 확인한다.
-- 구현 변경과 문서 변경이 일치하는지 확인한다.
-- 필요한 검증을 재실행한다.
-- 완료된 내용은 `docs/completed/rentcar00_OPS-completed.md`에만 상세 누적한다.
-- current 문서에는 active 작업과 다음 실행 기준만 남긴다.
-- 커밋은 사장님 승인 범위 안에서만 진행한다.
+### D. b47 배포 후 확인
+- b47 APK 설치 후 예약생성 다이얼로그 하단 버튼/키보드 가시성을 확인한다.
+- 앱 런처 아이콘이 홈 화면/앱 서랍에서 `빵빵카`로 잘 읽히는지 확인한다.
+- 차량상세 `연관일정` 세로 카드의 시간순/색상/높이를 실기기에서 확인한다.
 
 ---
 

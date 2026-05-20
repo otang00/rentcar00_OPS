@@ -44,6 +44,9 @@ class AppShell extends ConsumerWidget {
 
     final reservationCounts = ref.watch(tabCountsProvider).valueOrNull;
     final boardCounts = ref.watch(statusBoardCountsProvider).valueOrNull;
+    final homepagePending = ref
+        .watch(homepagePendingReservationsProvider)
+        .valueOrNull;
     final selectedIndex = layer == OpsLayer.reservations
         ? ReservationTab.values.indexOf(reservationTab)
         : StatusBoardTab.values.indexOf(statusBoardTab);
@@ -67,6 +70,23 @@ class AppShell extends ConsumerWidget {
       appBar: AppBar(
         titleSpacing: 10,
         actions: [
+          if (homepagePending != null && homepagePending.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: TextButton.icon(
+                onPressed: () {
+                  ref.read(selectedOpsLayerProvider.notifier).state =
+                      OpsLayer.reservations;
+                  ref.read(selectedReservationTabProvider.notifier).state =
+                      homepagePending.first.tab;
+                  context.push(
+                    '/reservation/${homepagePending.first.reservationId}',
+                  );
+                },
+                icon: const Icon(Icons.language_outlined, size: 18),
+                label: Text('홈페이지 ${homepagePending.length}'),
+              ),
+            ),
           IconButton(
             tooltip: '예약추가',
             icon: const Icon(Icons.add),

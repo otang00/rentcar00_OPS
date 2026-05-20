@@ -62,6 +62,22 @@ final tabCountsProvider = Provider<AsyncValue<Map<ReservationTab, int>>>((ref) {
   });
 });
 
+final homepagePendingReservationsProvider =
+    Provider<AsyncValue<List<ReservationRecord>>>((ref) {
+      final reservationsAsync = ref.watch(allReservationsProvider);
+      return reservationsAsync.whenData(
+        (reservations) => reservations
+            .where((item) => item.checkPayload['homepage_review'] == 'pending')
+            .toList(),
+      );
+    });
+
+final homepagePendingCountProvider = Provider<AsyncValue<int>>((ref) {
+  return ref
+      .watch(homepagePendingReservationsProvider)
+      .whenData((items) => items.length);
+});
+
 final reservationDetailProvider =
     Provider.family<AsyncValue<ReservationRecord?>, String>((
       ref,
@@ -327,7 +343,7 @@ bool _isCompletedBadge(String badge) {
 
 int _badgePriority(String badge) {
   return switch (badge) {
-    '확인 필요' || '특이사항' || '반납완료 직전 미처리' => 0,
+    '홈페이지 확인' || '확인 필요' || '특이사항' || '반납완료 직전 미처리' => 0,
     '신분증 미확보' ||
     '주소 미확보' ||
     '고객명 미확인' ||

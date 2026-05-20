@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>rentcar00 OPS UI 시안 - 세로형 연관일정</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin:0; background:#f4f6fb; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:#101828; }
+    .wrap { max-width:430px; min-height:100vh; margin:0 auto; background:#f8fafc; padding-bottom:28px; }
+    .appbar { display:flex; align-items:center; gap:8px; height:58px; padding:8px 10px; background:white; border-bottom:1px solid #edf1f7; }
+    .brand { display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:12px; background:#175cd3; color:white; font-size:18px; font-weight:950; letter-spacing:-.8px; white-space:nowrap; }
+    .brand .icon { font-size:20px; line-height:1; }
+    .seg { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px; border-radius:999px; background:#eef2f7; font-size:13px; font-weight:850; }
+    .seg span { text-align:center; padding:7px 4px; border-radius:999px; color:#475467; }
+    .seg .on { background:white; color:#111827; box-shadow:0 2px 8px rgba(0,0,0,.08); }
+    .add { font-size:26px; color:#344054; }
+    .content { padding:14px; }
+    .car-head { display:grid; grid-template-columns:1fr auto; gap:10px; align-items:end; margin-bottom:12px; }
+    .car-no { font-size:30px; line-height:1; font-weight:950; letter-spacing:-1px; }
+    .car-name { margin-top:5px; color:#667085; font-size:17px; font-weight:800; }
+    .status { padding:7px 10px; border-radius:999px; background:#eaf8ef; color:#168a4a; font-size:13px; font-weight:900; white-space:nowrap; }
+    .actions { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin:12px 0; }
+    .action { min-height:56px; border-radius:14px; background:white; border:1px solid #e5eaf3; display:grid; place-items:center; gap:2px; font-size:12px; font-weight:850; box-shadow:0 2px 10px rgba(16,24,40,.04); }
+    .action strong { font-size:20px; line-height:1; }
+    .action.primary { background:#e9f3ff; border-color:#bcd9fb; color:#175cd3; }
+    .section { background:white; border:1px solid #e6edf7; border-radius:18px; padding:12px; box-shadow:0 8px 24px rgba(16,24,40,.10); margin-top:12px; }
+    .section-title { display:flex; justify-content:space-between; align-items:center; margin-bottom:9px; font-size:16px; font-weight:950; letter-spacing:-.3px; }
+    .count { color:#667085; font-size:12px; font-weight:850; }
+    .card { display:grid; grid-template-columns:36px 1fr auto; align-items:center; gap:10px; min-height:58px; padding:8px 10px; border-radius:13px; border:1px solid; margin-bottom:7px; }
+    .card:last-child { margin-bottom:0; }
+    .card.dispatch { background:#e8f2ff; border-color:#9fc8f8; }
+    .card.return { background:#fff1df; border-color:#ffc078; }
+    .card.etc { background:#f2f4f7; border-color:#d0d5dd; }
+    .icon { width:36px; height:36px; border-radius:12px; display:grid; place-items:center; color:white; font-size:21px; font-weight:950; }
+    .dispatch .icon { background:#1976d2; }
+    .return .icon { background:#d96b00; }
+    .etc .icon { background:#667085; }
+    .main { min-width:0; }
+    .line1 { display:flex; gap:6px; min-width:0; align-items:baseline; }
+    .type { font-size:15px; font-weight:950; white-space:nowrap; }
+    .dispatch .type { color:#1976d2; }
+    .return .type { color:#d96b00; }
+    .time { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; font-weight:850; }
+    .place { margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#475467; font-size:13px; font-weight:750; }
+    .meta { margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#667085; font-size:12px; font-weight:750; }
+    .chev { font-size:22px; color:#98a2b3; }
+    .note { margin-top:13px; padding:11px 12px; border-radius:14px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; font-size:13px; line-height:1.45; font-weight:750; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="appbar">
+      <div class="brand"><span class="icon">🚗</span><span>빵빵카</span></div>
+      <div class="seg"><span>예약</span><span class="on">현황판</span></div>
+      <div class="add">＋</div>
+    </div>
+    <section class="content">
+      <div class="car-head">
+        <div><div class="car-no">123허4567</div><div class="car-name">쏘나타 DN8 LPG</div></div>
+        <div class="status">현황판 · 대기중</div>
+      </div>
+      <div class="actions">
+        <div class="action primary"><strong>＋</strong><span>예약</span></div>
+        <div class="action"><strong>✎</strong><span>수정</span></div>
+        <div class="action primary"><strong>↗</strong><span>배차</span></div>
+        <div class="action"><strong>🫧</strong><span>세차</span></div>
+      </div>
+      <section class="section">
+        <div class="section-title"><span>연관일정</span><span class="count">3건</span></div>
+        <article class="card dispatch">
+          <div class="icon">↗</div>
+          <div class="main"><div class="line1"><span class="type">배차</span><span class="time">오늘 10:30</span></div><div class="place">제주공항 1층 5번 게이트</div><div class="meta">홍길동 · R-10291</div></div>
+          <div class="chev">›</div>
+        </article>
+        <article class="card return">
+          <div class="icon">↙</div>
+          <div class="main"><div class="line1"><span class="type">반납</span><span class="time">오늘 18:00</span></div><div class="place">본사 주차장 A구역</div><div class="meta">홍길동 · 완료 전</div></div>
+          <div class="chev">›</div>
+        </article>
+        <article class="card dispatch">
+          <div class="icon">↗</div>
+          <div class="main"><div class="line1"><span class="type">배차</span><span class="time">내일 09:00</span></div><div class="place">호텔 로비</div><div class="meta">김철수 · R-10292</div></div>
+          <div class="chev">›</div>
+        </article>
+      </section>
+      <div class="note">최종 방향: 배차/반납을 가로로 짝짓지 않고, 시간순 세로 카드로 쌓습니다. 가장 가까운 일정이 위에 오고 색상/화살표로 배반차를 즉시 구분합니다.</div>
+    </section>
+  </main>
+</body>
+</html>

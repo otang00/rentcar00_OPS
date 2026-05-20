@@ -867,6 +867,30 @@ class SupabaseOpsRepository {
         .eq('id', carRowId);
   }
 
+  Future<void> markHomepageReservationReviewed({
+    required String reservationId,
+  }) async {
+    final stateRow = await _client
+        .from('rc00_ops_reservation_states')
+        .select('check_payload_json')
+        .eq('reservation_id', reservationId)
+        .maybeSingle();
+
+    final checkPayload = _toStringMap(stateRow?['check_payload_json']);
+    checkPayload['homepage_review'] = 'done';
+    final hasPending = checkPayload.values.any((value) => value == 'pending');
+
+    await _client
+        .from('rc00_ops_reservation_states')
+        .update({
+          'check_payload_json': checkPayload,
+          'needs_attention': hasPending,
+          'warning_level': hasPending ? 'warning' : null,
+          'last_action_at': DateTime.now().toIso8601String(),
+        })
+        .eq('reservation_id', reservationId);
+  }
+
   Future<List<ReservationRecord>> fetchReservations() async {
     final reservationsResponse = await _client
         .from('rc00_ops_reservations')
@@ -1048,6 +1072,9 @@ class SupabaseOpsRepository {
   }) {
     final badges = <String>[];
 
+    if (checkPayload['homepage_review'] == 'pending') {
+      badges.add('홈페이지 확인');
+    }
     if (checkPayload['customer_name_verified'] != 'done') {
       badges.add('고객명 미확인');
     }

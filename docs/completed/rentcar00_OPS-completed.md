@@ -5,6 +5,155 @@
 
 ---
 
+## 2026-05-20 — 앱 아이콘 / 차량상세 연관일정 UI 개선
+### 사용자 표면
+- 앱 런처 아이콘은 기존 글씨체/디자인을 유지하되 `(주)`를 제거하고 `빵빵카`만 크게 보여 더 잘 읽히게 했다.
+- 차량상세 `연관일정`은 배차/반납을 가로로 억지 매칭하지 않고, 시간순 세로 카드로 보여준다.
+- 배차는 파란색 `↗`, 반납은 주황색 `↙` 방향 아이콘으로 구분한다.
+- 카드 높이를 줄여 한 화면에서 더 많은 일정을 볼 수 있게 했다.
+- 앱 build number는 `1.0.0+47`이다.
+- b47 APK를 GDrive 최신 배포물로 업로드했다.
+
+### 실제 동작
+- `assets/branding/app_icon_source.png`의 기존 글자 로고에서 `(주)`를 제거하고 `빵빵카`만 크롭/확대해 여백을 줄였다.
+- Android `mipmap-mdpi`~`mipmap-xxxhdpi`의 `ic_launcher.png`를 `빵빵카` 단독 원본 기준으로 재생성했다.
+- AppBar 로고 변경은 오해로 판단해 되돌렸다.
+- 차량상세 연관일정은 `sortAt` 기준 시간순 정렬 후 세로 리스트로 렌더링한다.
+- 첫 번째 일정은 가장 가까운 일정으로 보고 시각 강조한다.
+- 각 카드는 일정 상세로 이동하는 기존 동작을 유지한다.
+
+### 핵심 파일
+- `assets/branding/app_icon_source.png`
+- `android/app/src/main/res/mipmap-mdpi/ic_launcher.png`
+- `android/app/src/main/res/mipmap-hdpi/ic_launcher.png`
+- `android/app/src/main/res/mipmap-xhdpi/ic_launcher.png`
+- `android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png`
+- `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png`
+- `lib/app/view/app_shell.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `docs/current/rentcar00_OPS-current.md`
+- `docs/completed/rentcar00_OPS-completed.md`
+
+### 검증
+- `dart format lib/app/view/app_shell.dart lib/features/status_board/detail/presentation/status_board_detail_page.dart` 통과
+- `flutter analyze` 통과
+- `flutter test` 통과
+- 앱 아이콘 이미지 육안 확인: 기존 스타일 유지, `(주)` 제거, `빵빵카` 단독 확대 확인
+- `flutter build apk --release --target-platform android-arm64` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b47-2e26228.apk` 1개만 존재
+- 로컬 확인: `build/releases/rentcar00_ops-app-release-arm64-b47-2e26228.apk`
+
+### 1차 장애 확인 포인트
+1. 이 수정은 b47 APK 빌드/GDrive 업로드 대상으로 포함했다.
+2. 실기기 설치 후 홈 화면/앱 서랍에서 아이콘 가독성을 확인해야 한다.
+3. 연관일정이 많은 차량에서 시간순/강조 기준이 운영 감각과 맞는지 확인해야 한다.
+
+---
+
+## 2026-05-20 — 예약생성 다이얼로그 하단 버튼 줄바꿈 개선
+### 사용자 표면
+- 예약생성 다이얼로그에서 키보드가 올라와도 하단 액션이 `취소 / 생성` 중심으로 남도록 정리했다.
+- `IMS연동생성` 체크는 하단 버튼 영역이 아니라 입력 본문 하단에서 선택한다.
+
+### 실제 동작
+- `IMS연동생성` 체크박스를 `AlertDialog.actions`에서 `content` 내부 `CheckboxListTile`로 옮겼다.
+- actions에는 `취소`, `생성` 버튼만 남겼다.
+- `AlertDialog.actions` 안에 체크박스/복합 Row가 들어간 유사 패턴을 추가 검색했고, 동일한 직접 위험 패턴은 더 발견되지 않았다.
+
+### 핵심 파일
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `docs/current/rentcar00_OPS-current.md`
+- `docs/completed/rentcar00_OPS-completed.md`
+
+### 검증
+- `dart format lib/features/status_board/detail/presentation/status_board_detail_page.dart` 통과
+- `flutter analyze` 통과
+- `flutter test` 통과
+
+### 1차 장애 확인 포인트
+1. 이 수정은 b46 GDrive 업로드 이후 적용됐으므로, 현재 GDrive b46 APK에는 아직 포함되지 않았다.
+2. 실기기에서 키보드 표시 상태로 예약생성 다이얼로그 하단 가시성을 확인해야 한다.
+3. IMS 계정 누락은 별도 secret 주입 작업이 필요하다.
+
+---
+
+## 2026-05-20 — 차량상세 상태수정/즉시배차 검증 완화 b46 빌드
+### 사용자 표면
+- 차량상세 상태수정/즉시배차 검증 완화 변경을 포함한 Android arm64 release APK를 만들었다.
+- GDrive `rentcar00_OPS/apk/`에는 최신 APK 1개만 남겼다.
+
+### 실제 동작
+- 앱 build number는 `1.0.0+46`이다.
+- APK 파일명은 `rentcar00_ops-app-release-arm64-b46-2e26228.apk`이다.
+
+### 핵심 파일
+- `pubspec.yaml`
+- `docs/current/rentcar00_OPS-current.md`
+- `docs/completed/rentcar00_OPS-completed.md`
+
+### 검증
+- `flutter build apk --release --target-platform android-arm64` 통과
+- `git diff --check` 통과
+- 로컬 확인: `build/releases/rentcar00_ops-app-release-arm64-b46-2e26228.apk`
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b46-2e26228.apk` 1개만 존재
+
+### 1차 장애 확인 포인트
+1. 현재 작업트리는 아직 uncommitted 상태다.
+2. 실기기 설치 후 예약생성 다이얼로그 키보드 표시 상태를 확인해야 한다.
+3. IMS 가져오기는 `reservation_ai_parser/.env`의 IMS 계정 주입 전까지 계정 누락 오류가 난다.
+
+---
+
+## 2026-05-20 — 홈페이지 예약 자동 원장 등록 + 앱 확인 표시
+### 사용자 표면
+- 홈페이지 예약 확정 이벤트가 들어오면 OPS 원장에 자동 등록된다.
+- 별도 수신함/큰 다이얼로그/FCM 없이, 기존 예약 목록과 상세 화면 안에서 가볍게 확인한다.
+- 미확인 홈페이지 예약은 목록 카드에 `홈페이지 확인` 배지가 붙는다.
+- 앱 상단에 `홈페이지 N` 버튼이 표시되고 첫 미확인 예약 상세로 이동한다.
+- 예약 상세에는 `홈페이지확인` 버튼이 표시되며 확인 완료 처리할 수 있다.
+- 앱 build number는 `1.0.0+45`다.
+- b45 APK를 GDrive 최신 배포물로 업로드했다.
+
+### 실제 동작
+- parser endpoint는 `reservationInput`을 우선 매핑하고, 없으면 기존 `booking` payload로 fallback한다.
+- 수신 이벤트는 `rc00_ops_reservation_events`에 저장한다.
+- 신규 이벤트는 `rc00_ops_reservations`, `rc00_ops_reservation_states`, `rc00_ops_schedules` 배차/반납 2건을 생성한다.
+- 생성 예약은 `reservation_status=예약중`, `referral_source=홈페이지`, `check_payload_json.homepage_review=pending`, `needs_attention=true` 기준이다.
+- event row는 성공 시 `status=imported`, 실패 시 `status=failed`와 error message를 남긴다.
+- 앱 확인 완료는 `homepage_review=done`으로 바꾸고 남은 pending 여부에 따라 `needs_attention`을 갱신한다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `lib/app/view/app_shell.dart`
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/reservations/shared/providers/reservation_providers.dart`
+- `docs/current/rentcar00_OPS-current.md`
+- `docs/completed/rentcar00_OPS-completed.md`
+
+### 검증
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b45-2e26228.apk` 1개만 존재
+- 로컬 확인: `build/releases/rentcar00_ops-app-release-arm64-b45-2e26228.apk` 1개만 존재
+- 로컬 parser 포트 `43111` signed POST 통합 검증 통과:
+  - 응답 `{ "ok": true, "deduped": false, "imported": true }`
+  - 원장 1건 생성 확인
+  - 상태 `homepage_review=pending`, `needs_attention=true` 확인
+  - 배차/반납 일정 각 1건 생성 확인
+  - 테스트 row 삭제 후 `cleanup_remaining=0` 확인
+
+### 1차 장애 확인 포인트
+1. 운영 parser에는 코드 반영 후 launchd restart가 필요하다.
+2. 홈페이지 `reservationInput` 실제 필드명이 바뀌면 매핑 보정이 필요하다.
+3. FCM/앱 종료 상태 푸시는 이번 범위에서 제외했다.
+4. 별도 수신함을 만들지 않았으므로 기존 예약 목록/상세에서 확인하는 운영 기준이다.
+
+---
+
 ## 2026-05-20 — 관리자 차량관리 1차 구현
 ### 사용자 표면
 - 관리자 홈의 `차량관리` 카드가 실제 차량관리 화면으로 연결된다.

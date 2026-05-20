@@ -199,17 +199,26 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
   const payload = normalizeReservationCreatedEventPayload({ body, eventId, eventType });
 
   const existing = await findStoredReservationEvent(eventId);
-  if (existing) return { ok: true, deduped: true };
+  if (existing?.status === 'imported') return { ok: true, deduped: true, imported: true };
 
-  try {
-    await storeReservationEvent(payload);
-  } catch (error) {
-    if (isSupabaseDuplicateError(error)) return { ok: true, deduped: true };
-    throw error;
+  if (!existing) {
+    try {
+      await storeReservationEvent(payload);
+    } catch (error) {
+      if (!isSupabaseDuplicateError(error)) throw error;
+    }
   }
 
-  return { ok: true, deduped: false };
+  try {
+    const importResult = await importReservationCreatedEvent(payload);
+    await markReservationEventImported(payload.eventId, importResult);
+    return { ok: true, deduped: Boolean(existing), imported: true, reservationId: importResult.reservationId };
+  } catch (error) {
+    await markReservationEventFailed(payload.eventId, error);
+    throw error;
+  }
 }
+
 
 function ensureReservationEventReceiverConfigured() {
   const missing = [];
@@ -285,14 +294,14 @@ function normalizeReservationCreatedEventPayload({ body, eventId, eventType }) {
 async function findStoredReservationEvent(eventId) {
   const url = new URL('/rest/v1/rc00_ops_reservation_events', normalizeSupabaseBaseUrl(config.supabaseUrl));
   url.searchParams.set('event_id', `eq.${eventId}`);
-  url.searchParams.set('select', 'event_id');
+  url.searchParams.set('select', 'event_id,status');
   url.searchParams.set('limit', '1');
   const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
   const json = await readJsonResponse(response);
   if (!response.ok) {
     throw new ApiError(502, 'event_store_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase event lookup failed'));
   }
-  return Array.isArray(json) && json.length > 0;
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
 }
 
 async function storeReservationEvent(payload) {
@@ -310,7 +319,6 @@ async function storeReservationEvent(payload) {
       booking_order_id: payload.bookingOrderId || null,
       reservation_code: payload.reservationCode || null,
       payload_json: payload.payload,
-      processed_at: new Date().toISOString(),
       status: payload.status,
     }),
   });
@@ -321,6 +329,220 @@ async function storeReservationEvent(payload) {
     error.supabaseBody = json;
     throw error;
   }
+}
+
+async function importReservationCreatedEvent(payload) {
+  const mapped = mapHomepageReservationPayload(payload.payload);
+  if (!mapped.reservationId) {
+    throw new ApiError(400, 'invalid_payload', 'reservation id could not be derived');
+  }
+
+  const existingReservation = await findReservationByReservationId(mapped.reservationId);
+  if (existingReservation?.id) {
+    return { reservationId: mapped.reservationId, reservationRefId: existingReservation.id, reused: true };
+  }
+
+  const reservation = await insertSupabaseRow('rc00_ops_reservations', {
+    reservation_id: mapped.reservationId,
+    reservation_number: mapped.reservationNumber || null,
+    car_number: mapped.carNumber || null,
+    car_name: mapped.carName || null,
+    customer_name: mapped.customerName || null,
+    customer_phone: mapped.customerPhone || null,
+    customer_birth_date: mapped.customerBirthDate || null,
+    referral_source: '홈페이지',
+    payment_amount: mapped.paymentAmount || null,
+    start_at: mapped.startAt || null,
+    end_at: mapped.endAt || null,
+    pickup_location: mapped.pickupLocation || null,
+    dropoff_location: mapped.dropoffLocation || null,
+    reservation_status: '예약중',
+    note_text: mapped.noteText || null,
+    meta_json: mapped.metaJson,
+  }, 'id');
+  const reservationRefId = reservation?.id;
+  if (!reservationRefId) throw new ApiError(502, 'reservation_insert_failed', 'reservation insert did not return id');
+
+  const checkPayload = {
+    homepage_review: 'pending',
+    customer_name_verified: mapped.customerName ? 'done' : 'pending',
+    customer_phone_verified: mapped.customerPhone ? 'done' : 'pending',
+    pickup_location_verified: mapped.pickupLocation ? 'done' : 'pending',
+  };
+  await insertSupabaseRow('rc00_ops_reservation_states', {
+    reservation_id: mapped.reservationId,
+    reservation_ref_id: reservationRefId,
+    tab_key: deriveReservationTabKey(mapped.startAt, mapped.endAt),
+    needs_attention: true,
+    warning_level: 'warning',
+    check_payload_json: checkPayload,
+    memo_text: '홈페이지 예약 확인 필요',
+    last_action_at: new Date().toISOString(),
+  }, 'id');
+
+  await insertSupabaseRow('rc00_ops_schedules', [
+    buildHomepageScheduleRow({ mapped, type: '배차', at: mapped.startAt, location: mapped.pickupLocation }),
+    buildHomepageScheduleRow({ mapped, type: '반납', at: mapped.endAt, location: mapped.dropoffLocation || mapped.pickupLocation }),
+  ], 'id');
+
+  return { reservationId: mapped.reservationId, reservationRefId, reused: false };
+}
+
+function mapHomepageReservationPayload(body = {}) {
+  const booking = body?.booking && typeof body.booking === 'object' ? body.booking : {};
+  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
+  const links = body?.links && typeof body.links === 'object' ? body.links : {};
+  const bookingOrderId = firstText(input.bookingOrderId, booking.bookingOrderId);
+  const reservationNumber = firstText(input.reservationCode, input.reservationNumber, booking.reservationCode);
+  const seed = bookingOrderId || reservationNumber || firstText(body.eventId);
+  const reservationId = `WEB-${seed}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 120);
+  const startAt = normalizeIsoDate(firstText(input.pickupAt, input.startAt, input.rentalAt, booking.pickupAt));
+  const endAt = normalizeIsoDate(firstText(input.returnAt, input.endAt, booking.returnAt));
+  const pickupLocation = firstText(input.pickupLocation, input.deliveryAddress, input.deliveryAddressSummary, booking.deliveryAddressSummary);
+  const dropoffLocation = firstText(input.dropoffLocation, input.returnLocation, pickupLocation);
+  const customerPhone = normalizePhone(firstText(input.customerPhone, input.phone, booking.customerPhone));
+  const paymentAmount = normalizeAmountText(firstText(input.quotedTotalAmount, input.totalAmount, input.paymentAmount, booking.quotedTotalAmount));
+
+  return {
+    reservationId,
+    reservationNumber,
+    customerName: firstText(input.customerName, input.name, booking.customerName),
+    customerPhone,
+    customerBirthDate: firstText(input.customerBirth, input.customerBirthDate, input.birthDate, booking.customerBirth),
+    carNumber: firstText(input.carNumber, booking.carNumber),
+    carName: firstText(input.carName, booking.carName),
+    startAt,
+    endAt,
+    pickupLocation,
+    dropoffLocation,
+    paymentAmount,
+    noteText: firstText(input.memo, input.note, `홈페이지 예약 ${reservationNumber || bookingOrderId}`),
+    metaJson: {
+      source: 'homepage',
+      event_id: firstText(body.eventId),
+      booking_order_id: bookingOrderId || null,
+      reservation_code: reservationNumber || null,
+      admin_booking_url: firstText(links.adminBookingUrl) || null,
+      homepage_review: 'pending',
+      reservation_input: input,
+      booking,
+    },
+  };
+}
+
+function buildHomepageScheduleRow({ mapped, type, at, location }) {
+  return {
+    schedule_id: `${mapped.reservationId}-${type}`,
+    reservation_id: mapped.reservationId,
+    reservation_number: mapped.reservationNumber || null,
+    car_number: mapped.carNumber || null,
+    car_name: mapped.carName || null,
+    schedule_type: type,
+    schedule_at: at || null,
+    schedule_done: false,
+    location_text: location || null,
+    detail_text: '홈페이지 예약 자동 생성',
+    payload_json: { created_via: 'homepage_reservation_event', reservation_id: mapped.reservationId, status: type },
+  };
+}
+
+async function findReservationByReservationId(reservationId) {
+  const url = new URL('/rest/v1/rc00_ops_reservations', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('reservation_id', `eq.${reservationId}`);
+  url.searchParams.set('select', 'id,reservation_id');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'reservation_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase reservation lookup failed'));
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function insertSupabaseRow(table, body, select = '*') {
+  const url = new URL(`/rest/v1/${table}`, normalizeSupabaseBaseUrl(config.supabaseUrl));
+  if (select) url.searchParams.set('select', select);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, `${table}_insert_failed`, resolveApiErrorMessage(json, response.status, `Supabase ${table} insert failed`));
+  return Array.isArray(json) ? json[0] : json;
+}
+
+async function markReservationEventImported(eventId, importResult) {
+  await updateReservationEvent(eventId, {
+    status: 'imported',
+    processed_at: new Date().toISOString(),
+    error_message: null,
+    updated_at: new Date().toISOString(),
+    payload_json: undefined,
+  });
+}
+
+async function markReservationEventFailed(eventId, error) {
+  await updateReservationEvent(eventId, {
+    status: 'failed',
+    processed_at: new Date().toISOString(),
+    error_message: error?.message || 'homepage_reservation_import_failed',
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function updateReservationEvent(eventId, patch) {
+  const url = new URL('/rest/v1/rc00_ops_reservation_events', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('event_id', `eq.${eventId}`);
+  const body = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'event_store_update_failed', resolveApiErrorMessage(json, response.status, 'Supabase event update failed'));
+}
+
+function deriveReservationTabKey(startAt, endAt) {
+  const now = new Date();
+  const start = startAt ? new Date(startAt) : null;
+  const end = endAt ? new Date(endAt) : null;
+  if (end && end < now) return 'return_due';
+  if (start && start <= now) return 'pickup_today';
+  return 'pending';
+}
+
+function normalizeIsoDate(value) {
+  const text = firstText(value);
+  if (!text) return '';
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
+function normalizePhone(value) {
+  return firstText(value).replace(/[^0-9]/g, '');
+}
+
+function normalizeAmountText(value) {
+  const text = firstText(value);
+  if (!text) return '';
+  const num = Number(String(text).replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(num) ? String(Math.round(num)) : text;
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = stringifyNullable(value).trim();
+    if (text) return text;
+  }
+  return '';
 }
 
 function isSupabaseDuplicateError(error) {
