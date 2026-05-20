@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rentcar00_ops/features/admin/domain/admin_staff_account.dart';
 import 'package:rentcar00_ops/features/admin/shared/admin_staff_providers.dart';
 import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 class StaffManagementPage extends ConsumerWidget {
   const StaffManagementPage({super.key});
@@ -431,9 +432,7 @@ Future<void> _showPasswordDialog(
 
 String _formatDateTime(DateTime? value) {
   if (value == null) return '-';
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return opsFormatKstDateTime(value);
 }
 
 String _formatLocation(AdminStaffAccount staff) {

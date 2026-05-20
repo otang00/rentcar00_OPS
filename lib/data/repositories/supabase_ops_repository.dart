@@ -7,6 +7,7 @@ import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
 import 'package:rentcar00_ops/shared/constants/tab_keys.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseOpsRepository {
@@ -1048,10 +1049,7 @@ class SupabaseOpsRepository {
   }
 
   DateTime? _parseDateTime(dynamic value) {
-    if (value == null) return null;
-    if (value is DateTime) return value;
-    if (value is String && value.isNotEmpty) return DateTime.tryParse(value);
-    return null;
+    return opsParseKstDateTime(value);
   }
 
   ReservationTab _tabFromKey(String key) {
@@ -1293,50 +1291,7 @@ class SupabaseOpsRepository {
   }
 
   DateTime? _parseFlexibleDateTime(String value) {
-    if (value.isEmpty) return null;
-
-    var normalized = value.trim();
-    if (normalized.isEmpty) return null;
-
-    normalized = normalized.replaceAll('.', '-').replaceAll('/', '-');
-    normalized = normalized.replaceAll(RegExp(r'-+'), '-');
-    normalized = normalized.replaceAll(RegExp(r'\s+'), ' ');
-    normalized = normalized.replaceAll(RegExp(r'-$'), '');
-
-    final dateOnlyMatch = RegExp(
-      r'^(\d{4})-(\d{1,2})-(\d{1,2})$',
-    ).firstMatch(normalized);
-    if (dateOnlyMatch != null) {
-      final year = int.tryParse(dateOnlyMatch.group(1)!);
-      final month = int.tryParse(dateOnlyMatch.group(2)!);
-      final day = int.tryParse(dateOnlyMatch.group(3)!);
-      if (year != null && month != null && day != null) {
-        return DateTime(year, month, day);
-      }
-    }
-
-    final dateTimeMatch = RegExp(
-      r'^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$',
-    ).firstMatch(normalized);
-    if (dateTimeMatch != null) {
-      final year = int.tryParse(dateTimeMatch.group(1)!);
-      final month = int.tryParse(dateTimeMatch.group(2)!);
-      final day = int.tryParse(dateTimeMatch.group(3)!);
-      final hour = int.tryParse(dateTimeMatch.group(4)!);
-      final minute = int.tryParse(dateTimeMatch.group(5)!);
-      final second = int.tryParse(dateTimeMatch.group(6) ?? '0');
-      if (year != null &&
-          month != null &&
-          day != null &&
-          hour != null &&
-          minute != null &&
-          second != null) {
-        return DateTime(year, month, day, hour, minute, second);
-      }
-    }
-
-    return DateTime.tryParse(normalized.replaceFirst(' ', 'T')) ??
-        DateTime.tryParse(normalized);
+    return opsParseKstDateTime(value);
   }
 
   String _formatBoardPeriod(String startAt, String endAt) {
@@ -1347,11 +1302,9 @@ class SupabaseOpsRepository {
   }
 
   String _formatScheduleLabelFromDate(DateTime value) {
-    final local = value.toLocal();
+    final kst = opsAsKstWallTime(value);
     String two(int n) => n.toString().padLeft(2, '0');
-    const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-    final weekday = weekdays[local.weekday - 1];
-    return '${two(local.month)}/${two(local.day)}($weekday) ${two(local.hour)}:${two(local.minute)}';
+    return '${two(kst.month)}/${two(kst.day)}(${opsKoreanWeekday(kst)}) ${two(kst.hour)}:${two(kst.minute)}';
   }
 
   String _joinNonEmpty(List<String> values, {String separator = ' · '}) {
@@ -1361,19 +1314,16 @@ class SupabaseOpsRepository {
   String _displayValue(dynamic value) {
     if (value == null) return '';
     if (value is String) return value.trim();
-    if (value is DateTime) return value.toIso8601String();
+    if (value is DateTime) return opsFormatKstDateTime(value);
     return value.toString().trim();
   }
 
   String _formatDisplayDateTime(DateTime value) {
-    final local = value.toLocal();
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)} '
-        '${two(local.hour)}:${two(local.minute)}';
+    return opsFormatKstDateTime(value);
   }
 
   String _toDbTimestamp(DateTime value) {
-    return value.toUtc().toIso8601String();
+    return opsKstToDbTimestamp(value);
   }
 
   String _deriveReservationTabKey({
@@ -1430,13 +1380,11 @@ class SupabaseOpsRepository {
   }
 
   DateTime _todayFloor() {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
+    return opsKstToday();
   }
 
   DateTime _dayFloor(DateTime value) {
-    final local = value.toLocal();
-    return DateTime(local.year, local.month, local.day);
+    return opsKstDayFloor(value);
   }
 
   String _generateId({required String prefix}) {

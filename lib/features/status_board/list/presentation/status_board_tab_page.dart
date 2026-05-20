@@ -5,6 +5,7 @@ import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
 import 'package:rentcar00_ops/shared/utils/korean_holidays.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 class StatusBoardTabPage extends ConsumerWidget {
   const StatusBoardTabPage({super.key, required this.tab});
@@ -1056,61 +1057,36 @@ bool _isActive(String value) {
 }
 
 DateTime? _parseFlexibleDate(String value) {
-  if (value.isEmpty) return null;
-  var normalized = value.trim();
-  if (normalized.isEmpty) return null;
-  normalized = normalized.replaceAll('.', '-').replaceAll('/', '-');
-  normalized = normalized.replaceAll(RegExp(r'-+'), '-');
-  normalized = normalized.replaceAll(RegExp(r'\s+'), ' ');
-  normalized = normalized.replaceAll(RegExp(r'-$'), '');
-  if (normalized.length >= 10) {
-    return DateTime.tryParse(normalized.substring(0, 10));
-  }
-  return DateTime.tryParse(normalized);
+  final parsed = opsParseKstDateTime(value);
+  return parsed == null
+      ? null
+      : DateTime(parsed.year, parsed.month, parsed.day);
 }
 
 DateTime? _parseFlexibleDateTime(String value) {
-  if (value.isEmpty) return null;
-  final raw = value.trim();
-  if (raw.isEmpty) return null;
-
-  final isoCandidate = raw.replaceFirst(' ', 'T');
-  final isoParsed = DateTime.tryParse(isoCandidate);
-  if (isoParsed != null) return isoParsed;
-
-  return _parseFlexibleDate(raw);
+  return opsParseKstDateTime(value);
 }
 
 String _compactDateWithWeekdayFromDateTime(DateTime? value) {
   if (value == null) return '-';
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  final yy = (local.year % 100).toString().padLeft(2, '0');
-  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-  return '$yy.${two(local.month)}.${two(local.day)}(${weekdays[local.weekday - 1]})';
+  return opsFormatKstCompactDateWithWeekday(value);
 }
 
 String _timeOnlyFromDateTime(DateTime? value) {
   if (value == null) return '-';
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.hour)}:${two(local.minute)}';
+  return opsFormatKstTime(value);
 }
 
 String _scheduleTimeOnly(StatusBoardRecord item) {
   final parsed = item.sortAt ?? _parseFlexibleDate(item.startAt);
   if (parsed == null) return item.timeLabel;
-  final local = parsed.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.hour)}:${two(local.minute)}';
+  return opsFormatKstTime(parsed);
 }
 
 String _scheduleHeaderLabel(DateTime value) {
-  final local = value.toLocal();
+  final kst = opsAsKstWallTime(value);
   String two(int n) => n.toString().padLeft(2, '0');
-  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-  final weekday = weekdays[local.weekday - 1];
-  return '${local.year}.${two(local.month)}.${two(local.day)}($weekday)';
+  return '${kst.year}.${two(kst.month)}.${two(kst.day)}(${opsKoreanWeekday(kst)})';
 }
 
 Color? _scheduleHeaderColor(BuildContext context, DateTime? value) {
@@ -1119,16 +1095,11 @@ Color? _scheduleHeaderColor(BuildContext context, DateTime? value) {
 }
 
 String _formatScheduleEditorDateTime(DateTime value) {
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return opsFormatKstDateTime(value);
 }
 
 DateTime? _tryParseScheduleDateTime(String value) {
-  final raw = value.trim();
-  if (raw.isEmpty) return null;
-  return DateTime.tryParse(raw.replaceFirst(' ', 'T')) ??
-      DateTime.tryParse(raw);
+  return opsParseKstDateTime(value);
 }
 
 String? _scheduleDateTimeValidator(String? value) {

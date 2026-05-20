@@ -8,14 +8,14 @@
 ---
 
 ## 현재 active 작업
-**b47 빌드/GDrive 업로드/커밋 완료 / 실기기 확인 대기**
+**b48 KST 시간 처리 통일 APK 빌드/GDrive 업로드 완료 / 실기기 확인 대기**
 
 ## 현재 기준점
 - repository: `rentcar00_OPS`
 - branch: `main`
-- 현재 HEAD: `f742c57 Release b47 UI and icon updates`
-- 앱 버전/build: `1.0.0+47`
-- 최신 APK 파일명 기준: `rentcar00_ops-app-release-arm64-b47-2e26228.apk`
+- 현재 HEAD: `4ae2374 Release b47 UI and icon updates`
+- 앱 버전/build: `1.0.0+48`
+- 최신 APK 파일명 기준: `rentcar00_ops-app-release-arm64-b48-4ae2374.apk`
 - 작업트리는 b47 변경 커밋까지 완료된 상태다.
 - GDrive `rentcar00_OPS/apk/`에는 최신 APK 1개만 유지하는 운영 기준을 사용한다.
 - macOS platform 폴더는 삭제 완료했고 다시 생성하지 않는다.
@@ -99,11 +99,20 @@
 - 첫 번째 일정은 가장 가까운 일정 기준으로 강조한다.
 - b47 APK 빌드 및 GDrive 업로드 완료: `rentcar00_ops-app-release-arm64-b47-2e26228.apk`
 
+### 9. 앱 시간 처리 KST 통일
+- 예약/일정/현황판 시간 구조는 유지하고, 시간 parse/store/display 기준만 KST로 통일했다.
+- 공통 helper `lib/shared/utils/ops_kst_datetime.dart`를 추가했다.
+- 앱 입력/표시는 KST 벽시계 시간으로 고정하고, DB timestamptz 저장 시에만 UTC timestamp로 변환한다.
+- 직접 `toUtc()`, `toLocal()`, `DateTime.tryParse()`를 쓰던 예약판/현황판/상세/관리/IMS 시간 표시 경로를 공통 KST helper 기준으로 정리했다.
+- 검증 기록: `dart format`, `flutter analyze`, `flutter test`, `flutter build apk --release --target-platform android-arm64` 통과.
+- b48 APK 빌드 및 GDrive 업로드 완료: `rentcar00_ops-app-release-arm64-b48-4ae2374.apk`
+
 ---
 
 ## 앞으로 해야 할 것
 
 ### A. 실기기 확인
+- b48 APK 설치 후 예약판 배차대기 시간이 한국시간 기준으로 표시되는지 확인.
 - b43 APK 설치 후 앱 실행 확인.
 - 관리자 `rentcar00` 로그인 확인.
 - 관리자 > 직원관리 목록/수정/비밀번호 눈 아이콘 확인.

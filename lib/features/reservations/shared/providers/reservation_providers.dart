@@ -12,6 +12,7 @@ import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_ta
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/constants/action_keys.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 final selectedOpsLayerProvider = StateProvider<OpsLayer>(
   (ref) => OpsLayer.statusBoard,
@@ -361,9 +362,7 @@ int _badgePriority(String badge) {
 }
 
 String _formatDateTime(DateTime value) {
-  final local = value.toLocal();
+  final kst = opsAsKstWallTime(value);
   String two(int n) => n.toString().padLeft(2, '0');
-  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-  final weekday = weekdays[local.weekday - 1];
-  return '${two(local.month)}/${two(local.day)}($weekday) ${two(local.hour)}:${two(local.minute)}';
+  return '${two(kst.month)}/${two(kst.day)}(${opsKoreanWeekday(kst)}) ${two(kst.hour)}:${two(kst.minute)}';
 }

@@ -1,3 +1,5 @@
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
+
 class ExternalReservationLink {
   const ExternalReservationLink({
     required this.id,
@@ -64,6 +66,5 @@ Map<String, dynamic> _jsonMap(dynamic value) {
 }
 
 DateTime? _parseDateTime(dynamic value) {
-  if (value == null) return null;
-  return DateTime.tryParse(value.toString());
+  return opsParseKstDateTime(value);
 }

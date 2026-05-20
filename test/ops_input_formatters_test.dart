@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 void main() {
   test('formats phone numbers for display while keeping storage digits', () {
@@ -34,5 +35,18 @@ void main() {
       fallback: DateTime(2026, 5, 16, 14, 30),
     );
     expect(preserved, DateTime(2026, 5, 17, 14, 30));
+  });
+
+  test('normalizes UTC instants to KST wall-clock display', () {
+    final parsed = opsParseKstDateTime('2026-05-21T03:00:00Z');
+    expect(parsed, DateTime(2026, 5, 21, 12));
+    expect(opsFormatKstDateTime(parsed!), '2026-05-21 12:00');
+  });
+
+  test('stores KST wall-clock values as UTC timestamps', () {
+    expect(
+      opsKstToDbTimestamp(DateTime(2026, 5, 21, 12)),
+      '2026-05-21T03:00:00.000Z',
+    );
   });
 }

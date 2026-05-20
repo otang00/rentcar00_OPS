@@ -13,6 +13,7 @@ import 'package:rentcar00_ops/features/reservations/shared/providers/reservation
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
 import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 class ReservationDetailPage extends ConsumerWidget {
   const ReservationDetailPage({super.key, required this.reservationId});
@@ -2131,16 +2132,15 @@ class _DetailField extends StatelessWidget {
 }
 
 String _formatDateTime(DateTime value) {
-  final local = value.toLocal();
+  final kst = opsAsKstWallTime(value);
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.month)}/${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return '${two(kst.month)}/${two(kst.day)} ${two(kst.hour)}:${two(kst.minute)}';
 }
 
 String _formatLinkedScheduleDateTime(DateTime value) {
-  final local = value.toLocal();
+  final kst = opsAsKstWallTime(value);
   String two(int n) => n.toString().padLeft(2, '0');
-  const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-  return '${two(local.month)}/${two(local.day)}(${weekdays[local.weekday - 1]}) ${two(local.hour)}:${two(local.minute)}';
+  return '${two(kst.month)}/${two(kst.day)}(${opsKoreanWeekday(kst)}) ${two(kst.hour)}:${two(kst.minute)}';
 }
 
 String _formatEditorDateTime(DateTime value) {

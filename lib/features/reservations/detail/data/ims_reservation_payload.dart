@@ -1,4 +1,5 @@
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 const int kImsMemoMaxLength = 120;
 
@@ -155,9 +156,7 @@ String imsPayloadErrorLabel(String code) {
 }
 
 String _formatImsDateTime(DateTime value) {
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return opsFormatKstDateTime(value);
 }
 
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D+'), '');

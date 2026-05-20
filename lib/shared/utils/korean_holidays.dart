@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 const Set<String> koreanPublicHolidayDates2026 = {
   '2026-01-01', // 신정
@@ -29,21 +30,16 @@ bool isKoreanPublicHoliday(DateTime value) {
 }
 
 String opsLocalDateKey(DateTime value) {
-  return _dateKey(value.toLocal());
+  return opsKstDateKey(value);
 }
 
 Color opsDateColor(DateTime value) {
-  final local = value.toLocal();
-  if (isKoreanPublicHoliday(local) || local.weekday == DateTime.sunday) {
+  final kst = opsAsKstWallTime(value);
+  if (isKoreanPublicHoliday(kst) || kst.weekday == DateTime.sunday) {
     return const Color(0xFFD32F2F);
   }
-  if (local.weekday == DateTime.saturday) {
+  if (kst.weekday == DateTime.saturday) {
     return const Color(0xFF1565C0);
   }
   return const Color(0xFF111827);
-}
-
-String _dateKey(DateTime value) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${value.year}-${two(value.month)}-${two(value.day)}';
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 class ImsReservationClient {
   ImsReservationClient({required this.baseUrl, HttpClient? httpClient})
@@ -166,7 +167,7 @@ class ImsReservationClientException implements Exception {
 }
 
 String _formatImsReturnDoneAt(DateTime value) {
-  final local = value.toLocal();
+  final kst = opsAsKstWallTime(value);
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)}-${two(local.hour)}-${two(local.minute)}';
+  return '${kst.year}-${two(kst.month)}-${two(kst.day)}-${two(kst.hour)}-${two(kst.minute)}';
 }

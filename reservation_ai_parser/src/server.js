@@ -751,13 +751,25 @@ async function searchImsReservationsForImport(payload) {
   let matches = [];
 
   if (payload.carNumber) {
-    const candidates = await findImsReservationsBySearchApi({ token, payload });
+    const searchPayload = payload.endDate
+      ? payload
+      : {
+          ...payload,
+          endDate: addDaysToDateText(payload.rentalDate, 1),
+        };
+    const candidates = await findImsReservationsBySearchApi({ token, payload: searchPayload });
     for (const schedule of candidates) {
       const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id || schedule.schedule_id });
       if (!detail) continue;
       const matchesCar = !payload.carNumber || normalizeText(detail?.car?.car_identity || detail?.car_identity || schedule?.car_identity || schedule?.car) === normalizeText(payload.carNumber);
       const matchesDate = !payload.rentalDate || extractDate(detail?.start_at || schedule?.start_at || schedule?.start) === payload.rentalDate;
-      if (matchesCar && matchesDate) matches.push(detail);
+      if (matchesCar && matchesDate) {
+        const requestDetail = await fetchImsPartnerRentRequestDetail({
+          token,
+          requestId: schedule?.detail?.id,
+        });
+        matches.push(mergeImsScheduleForImport(detail, schedule, requestDetail));
+      }
     }
   }
 
@@ -1184,25 +1196,53 @@ async function fetchImsScheduleDetail({ token, scheduleId }) {
   return json?.schedule || json;
 }
 
+async function fetchImsPartnerRentRequestDetail({ token, requestId }) {
+  const id = stringifyNullable(requestId);
+  if (!id) return null;
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/rent-requests/${encodeURIComponent(id)}`,
+    { headers: buildImsApiHeaders(token) },
+  );
+  const json = await readJsonResponse(response);
+  if (!response.ok) return null;
+  return json?.data || json;
+}
+
+function mergeImsScheduleForImport(detail, listSchedule, requestDetail = null) {
+  const reservation = detail?.reservation || listSchedule?.reservation || listSchedule?.detail || null;
+  const detailInfo = detail?.detail || listSchedule?.detail || null;
+  return {
+    ...listSchedule,
+    ...detail,
+    reservation,
+    detail: detailInfo,
+    requestDetail,
+  };
+}
+
 function toImsReservationImportItem(schedule) {
-  const reservation = schedule?.reservation || {};
+  const reservation = schedule?.reservation || schedule?.detail || {};
+  const detail = schedule?.detail || schedule?.reservation || {};
+  const request = schedule?.requestDetail || {};
   return {
     scheduleId: stringifyNullable(schedule?.id || schedule?.schedule_id),
-    detailId: stringifyNullable(reservation?.id || schedule?.detail_id),
-    reservationNumber: stringifyNullable(reservation?.id || schedule?.id || schedule?.schedule_id),
+    detailId: stringifyNullable(reservation?.id || detail?.id || schedule?.detail_id),
+    reservationNumber: stringifyNullable(reservation?.id || detail?.id || schedule?.id || schedule?.schedule_id),
     status: stringifyNullable(schedule?.status),
-    detailStatus: stringifyNullable(reservation?.status),
-    reservationType: stringifyNullable(reservation?.rental_type),
-    carNumber: stringifyNullable(schedule?.car?.car_identity || schedule?.car_identity || schedule?.car_number),
-    carName: stringifyNullable(schedule?.car?.model || schedule?.car?.car_model || schedule?.car_name),
-    customerName: stringifyNullable(reservation?.customer_name || schedule?.customer_name),
-    customerPhone: digitsOnly(reservation?.customer_contact || schedule?.customer_contact),
-    rentalAt: normalizeImsDateTime(schedule?.start_at),
-    returnAt: normalizeImsDateTime(schedule?.end_at),
-    pickupLocation: stringifyNullable(reservation?.pickup_address),
-    dropoffLocation: stringifyNullable(reservation?.dropoff_address),
-    recommenderName: stringifyNullable(reservation?.recommender?.name || reservation?.recommender_name),
-    title: stringifyNullable(schedule?.memo || reservation?.reservation_memo),
+    detailStatus: stringifyNullable(reservation?.status || detail?.status || request?.state),
+    reservationType: stringifyNullable(reservation?.rental_type || detail?.rental_type || request?.period_type),
+    carNumber: stringifyNullable(schedule?.car?.car_identity || request?.response_car?.car_identity || schedule?.car_identity || schedule?.car_number),
+    carName: stringifyNullable(schedule?.car?.model || schedule?.car?.car_model || schedule?.car?.car_name || request?.response_car?.car_name || schedule?.car_name),
+    customerName: stringifyNullable(reservation?.customer_name || detail?.customer_name || request?.self_contract_name || request?.driver_name || schedule?.customer_name),
+    customerPhone: digitsOnly(reservation?.customer_contact || detail?.customer_contact || request?.self_contract_contact || request?.original_customer_contact || schedule?.customer_contact),
+    birthDate: stringifyNullable(reservation?.customer_birth_date || reservation?.customer_birth || detail?.customer_birth_date || detail?.customer_birth || request?.driver_date_of_birth),
+    price: stringifyNullable(reservation?.price || reservation?.total_price || reservation?.payment_amount || detail?.price || detail?.total_price || detail?.payment_amount || request?.paid_cost || request?.response_car?.price),
+    rentalAt: normalizeImsDateTime(schedule?.start_at || request?.pickup_at),
+    returnAt: normalizeImsDateTime(schedule?.end_at || request?.dropoff_at),
+    pickupLocation: stringifyNullable(reservation?.pickup_address || detail?.pickup_address || request?.pickup_address),
+    dropoffLocation: stringifyNullable(reservation?.dropoff_address || detail?.dropoff_address || request?.dropoff_address),
+    recommenderName: stringifyNullable(reservation?.recommender?.name || reservation?.recommender_name || detail?.recommender_name || request?.orderer),
+    title: stringifyNullable(schedule?.title || schedule?.memo || reservation?.reservation_memo),
   };
 }
 
@@ -1340,10 +1380,15 @@ function extractDate(value) {
 }
 
 function addDaysToDateText(value, days) {
-  const date = new Date(`${extractDate(value)}T00:00:00+09:00`);
-  if (Number.isNaN(date.getTime())) return extractDate(value);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
+  const text = extractDate(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return text;
+  const utc = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  utc.setUTCDate(utc.getUTCDate() + Number(days || 0));
+  const y = utc.getUTCFullYear();
+  const m = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(utc.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function normalizeImsDateTime(value) {

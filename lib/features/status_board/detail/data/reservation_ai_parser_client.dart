@@ -172,6 +172,8 @@ class ImsReservationImportCandidate {
     required this.carName,
     required this.customerName,
     required this.customerPhone,
+    required this.birthDate,
+    required this.price,
     required this.rentalAt,
     required this.returnAt,
     required this.pickupLocation,
@@ -190,6 +192,8 @@ class ImsReservationImportCandidate {
   final String carName;
   final String customerName;
   final String customerPhone;
+  final String birthDate;
+  final String price;
   final String rentalAt;
   final String returnAt;
   final String pickupLocation;
@@ -208,6 +212,8 @@ class ImsReservationImportCandidate {
     'carName': carName,
     'customerName': customerName,
     'customerPhone': customerPhone,
+    'birthDate': birthDate,
+    'price': price,
     'rentalAt': rentalAt,
     'returnAt': returnAt,
     'pickupLocation': pickupLocation,
@@ -229,6 +235,8 @@ class ImsReservationImportCandidate {
       carName: read('carName'),
       customerName: read('customerName'),
       customerPhone: read('customerPhone'),
+      birthDate: read('birthDate'),
+      price: read('price'),
       rentalAt: read('rentalAt'),
       returnAt: read('returnAt'),
       pickupLocation: read('pickupLocation'),

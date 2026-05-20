@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-05-20 — KST 시간 처리 통일
+### 사용자 표면
+- 예약판/현황판/상세/관리 화면의 시간 표시를 한국시간 기준으로 통일했다.
+- UTC로 저장된 DB timestamp가 화면에서 9시간 밀려 보일 수 있는 경로를 제거했다.
+- 앱 build number는 `1.0.0+48`이다.
+- b48 APK를 GDrive 최신 배포물로 업로드했다.
+
+### 실제 동작
+- 예약/일정/현황판 구조는 유지했다.
+- `lib/shared/utils/ops_kst_datetime.dart`를 추가해 KST parse, KST 표시, DB 저장용 UTC timestamp 변환을 한 곳으로 모았다.
+- 앱 입력/표시는 KST 벽시계 시간으로 처리한다.
+- DB 저장 시에만 KST 벽시계 시간을 UTC timestamp로 변환한다.
+- 앱 화면과 repository에 흩어져 있던 직접 `toUtc()`, `toLocal()`, `DateTime.tryParse()` 사용을 공통 KST helper 기준으로 정리했다.
+
+### 핵심 파일
+- `lib/shared/utils/ops_kst_datetime.dart`
+- `lib/shared/input/ops_input_formatters.dart`
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/reservations/shared/providers/reservation_providers.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `test/ops_input_formatters_test.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b48-4ae2374.apk` 1개만 존재
+- 로컬 확인: `build/releases/rentcar00_ops-app-release-arm64-b48-4ae2374.apk`
+
+### 1차 장애 확인 포인트
+- `2026-05-21T03:00:00Z`는 앱 표시에서 `2026-05-21 12:00`으로 복원되어야 한다.
+- 예약판 배차대기 시간은 DB 저장 형식과 무관하게 KST 기준으로 보여야 한다.
+
+---
+
 ## 2026-05-20 — 앱 아이콘 / 차량상세 연관일정 UI 개선
 ### 사용자 표면
 - 앱 런처 아이콘은 기존 글씨체/디자인을 유지하되 `(주)`를 제거하고 `빵빵카`만 크게 보여 더 잘 읽히게 했다.

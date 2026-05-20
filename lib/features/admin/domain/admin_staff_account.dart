@@ -1,3 +1,5 @@
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
+
 class AdminStaffAccount {
   const AdminStaffAccount({
     required this.id,
@@ -28,7 +30,7 @@ class AdminStaffAccount {
       role: (json['role'] as String?) ?? 'staff',
       isActive: (json['is_active'] as bool?) ?? false,
       phoneNumber: (json['phone_number'] as String?) ?? '',
-      lastActivityAt: DateTime.tryParse(
+      lastActivityAt: opsParseKstDateTime(
         (json['last_activity_at'] ?? json['last_login_at'] ?? '').toString(),
       ),
       lastLocationText: (json['last_location_text'] as String?) ?? '',

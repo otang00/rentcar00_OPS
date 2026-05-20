@@ -16,6 +16,7 @@ import 'package:rentcar00_ops/features/status_board/shared/presentation/schedule
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
 import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 const _parkingLocationOptions = [
   '수푸레B1',
@@ -1556,7 +1557,15 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
       _customerPhoneController.text = opsFormatPhoneInput(
         imported.customerPhone,
       );
+      if (imported.birthDate.trim().isNotEmpty) {
+        _customerBirthDateController.text = opsFormatBirthDateInput(
+          imported.birthDate,
+        );
+      }
       _referralSourceController.text = imported.recommenderName;
+      if (imported.price.trim().isNotEmpty) {
+        _paymentAmountController.text = imported.price;
+      }
       _startAtController.text = imported.rentalAt;
       _endAtController.text = imported.returnAt;
       _pickupLocationController.text = imported.pickupLocation;
@@ -1611,7 +1620,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
   String? _normalizeAiDateTime(String? value) {
     final text = value?.trim();
     if (text == null || text.isEmpty) return null;
-    final parsed = DateTime.tryParse(text.replaceFirst(' ', 'T'));
+    final parsed = _tryParseDateTime(text);
     if (parsed == null) return text;
     return _formatEditorDateTime(parsed);
   }
@@ -2005,7 +2014,8 @@ class _ImsReservationImportDialogState
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
-    final initial = DateTime.tryParse(_rentalDateController.text.trim()) ?? now;
+    final initial =
+        opsParseKstDateTime(_rentalDateController.text.trim()) ?? now;
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
@@ -2022,7 +2032,7 @@ class _ImsReservationImportDialogState
       setState(() => _message = '먼저 차량번호 4자리 검색으로 차량을 선택해 주세요.');
       return;
     }
-    final rentalDate = DateTime.tryParse(_rentalDateController.text.trim());
+    final rentalDate = opsParseKstDateTime(_rentalDateController.text.trim());
     if (rentalDate == null) {
       setState(() => _message = '배차일을 YYYY-MM-DD 형식으로 입력해 주세요.');
       return;
@@ -2213,7 +2223,8 @@ class _ImsInsuranceDispatchImportDialogState
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
-    final initial = DateTime.tryParse(_rentalDateController.text.trim()) ?? now;
+    final initial =
+        opsParseKstDateTime(_rentalDateController.text.trim()) ?? now;
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
@@ -2230,7 +2241,7 @@ class _ImsInsuranceDispatchImportDialogState
       setState(() => _message = '먼저 차량번호 4자리 검색으로 차량을 선택해 주세요.');
       return;
     }
-    final rentalDate = DateTime.tryParse(_rentalDateController.text.trim());
+    final rentalDate = opsParseKstDateTime(_rentalDateController.text.trim());
     if (rentalDate == null) {
       setState(() => _message = '대여일을 YYYY-MM-DD 형식으로 입력해 주세요.');
       return;
@@ -3341,7 +3352,7 @@ class _CarManagementInfoDialogState extends State<_CarManagementInfoDialog> {
     if (trimmed.isEmpty) return '날짜를 입력해주세요.';
     final pattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
     if (!pattern.hasMatch(trimmed)) return 'YYYY-MM-DD 형식으로 입력해주세요.';
-    final parsed = DateTime.tryParse(trimmed);
+    final parsed = opsParseKstDateTime(trimmed);
     if (parsed == null) return '올바른 날짜가 아닙니다.';
     final normalized =
         '${parsed.year.toString().padLeft(4, '0')}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}';

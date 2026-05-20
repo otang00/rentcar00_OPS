@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 class OpsPhoneInputFormatter extends TextInputFormatter {
   @override
@@ -52,13 +53,11 @@ class OpsDateTimeInputFormatter extends TextInputFormatter {
 }
 
 String opsYearPrefix([DateTime? value]) {
-  return '${(value ?? DateTime.now()).year}-';
+  return '${(value ?? opsKstNow()).year}-';
 }
 
 String opsFormatEditorDateTime(DateTime value) {
-  final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return opsFormatKstDateTime(value);
 }
 
 String opsFormatPhoneInput(String value) {
@@ -158,9 +157,7 @@ DateTime? opsTryParseEditorDateTime(
   }
   final digits = raw.replaceAll(RegExp(r'\D+'), '');
   if (digits.length != 8 && digits.length != 10 && digits.length != 12) {
-    final parsed = DateTime.tryParse(raw.replaceFirst(' ', 'T'));
-    if (parsed != null) return parsed;
-    return null;
+    return opsParseKstDateTime(raw);
   }
 
   final year = int.tryParse(digits.substring(0, 4));
