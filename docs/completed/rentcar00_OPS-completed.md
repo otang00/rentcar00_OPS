@@ -5,6 +5,174 @@
 
 ---
 
+## 2026-05-20 — b43 IMS 가져오기 차량선택/카드형 결과 UI 배포
+### 사용자 표면
+- 일반예약/보험배차 IMS 가져오기에서 이름 입력을 제거했다.
+- 차량번호는 직접 입력이 아니라 `뒤 4자리 검색 → OPS 차량 선택 → 전체 차량번호로 조회` 흐름으로 바뀐다.
+- 날짜 입력은 기존처럼 유지한다.
+- IMS 조회 결과는 리스트가 아니라 카드형으로 표시되고, 카드를 눌러 선택한다.
+- b43 APK를 GDrive 최신 배포물로 업로드했다.
+
+### 실제 동작
+- 앱은 선택된 OPS 차량의 전체 차량번호를 parser로 보낸다.
+- 일반예약 조회는 빠른 `GET /v2/company-car-schedules/reservations` 결과만 사용하고, 느린 전체 120페이지 fallback scan을 제거했다.
+- 보험배차 조회는 이름 필터를 제거하고 차량번호 + 날짜 기준으로 조회한다.
+- `ai.otang.reservation-ai-parser`를 재시작해 운영 parser에 새 검색 로직을 반영했다.
+- GDrive `rentcar00_OPS/apk/`에는 최신 b43 APK 1개만 남겼다.
+
+### 핵심 파일
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/README.md`
+- `pubspec.yaml`
+- `docs/current/rentcar00_OPS-current.md`
+- `docs/completed/rentcar00_OPS-completed.md`
+
+### 검증
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 성공
+- 운영 parser 재시작 후 health 정상 확인
+- 운영 parser 기준 `3779 / 2026-05-18` 조회 속도 확인:
+  - 일반예약 약 1.38초
+  - 보험배차 약 2.66초
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b43-851f5fc.apk` 1개만 존재
+- 로컬 확인: `build/releases/rentcar00_ops-app-release-arm64-b43-851f5fc.apk` 1개만 존재
+
+### 1차 장애 확인 포인트
+1. OPS 차량 목록에 차량번호가 없거나 잘못 저장된 차량은 4자리 검색 후보에 안 뜰 수 있다.
+2. 날짜는 IMS API 조회 범위에 계속 사용하므로, 실제 IMS 대여일과 앱 입력 날짜가 다르면 결과가 없을 수 있다.
+3. fallback scan을 제거했기 때문에 느린 전체 탐색은 하지 않는다. 빠른 조회에서 못 찾는 케이스는 별도 기준을 정해야 한다.
+
+---
+
+## 2026-05-20 — 홈페이지 예약 이벤트 수신부 코드 구현
+### 사용자 표면
+- 홈페이지가 예약 확정 후 `reservation.created` 이벤트를 OPS 서버로 보낼 수 있는 수신 endpoint 코드가 준비됐다.
+- 수신부는 HMAC 서명, timestamp, eventId, payload 기본 schema를 검증한다.
+- 같은 eventId는 중복 성공으로 처리해 홈페이지 재시도에 안전하게 응답한다.
+
+### 실제 동작
+- endpoint: `POST /api/integrations/rentcar00/reservation-events`
+- 서명 문자열은 `{timestamp}.{rawBody}`이고 `HMAC-SHA256` 결과를 `X-Rentcar00-Signature: sha256={hex}`로 검증한다.
+- 정상 수신 payload는 `rc00_ops_reservation_events`에 저장한다.
+- 중복 eventId는 `{ "ok": true, "deduped": true }`로 2xx 응답한다.
+- 운영 DB migration 적용, secret 주입, 서버 restart는 아직 별도 승인/반영 대상이다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/parser-core.js`
+- `reservation_ai_parser/README.md`
+- `supabase/migrations/20260520015500_add_reservation_event_inbox.sql`
+- `docs/current/rentcar00_OPS-current.md`
+
+### 검증
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- 로컬 mock Supabase 단독 검증 통과:
+  - 정상 signature → 200 `{ ok: true, deduped: false }`
+  - 동일 eventId 재전송 → 200 `{ ok: true, deduped: true }`
+  - 잘못된 signature → 401 `invalid_signature`
+  - booking 누락 → 400 `invalid_payload`
+
+### 1차 장애 확인 포인트
+1. `SUPABASE_SERVICE_ROLE_KEY`는 서버 전용 secret이므로 앱/문서/채팅에 노출하지 않는다.
+2. 운영 반영 전에는 Supabase migration 실제 적용과 서버 restart가 필요하다.
+3. 앱 알림/푸시는 아직 연결하지 않았고, 이번 범위는 수신 저장까지다.
+
+---
+
+## 2026-05-19 — IMS 생성 후 schedule id API lookup 구현
+### 사용자 표면
+- IMS 예약 생성 성공 후 OPS가 schedule id/detail id를 자동 확보해 IMS 등록 상태를 linked로 저장할 수 있다.
+- 외부예약번호가 비어 있으면 확보한 schedule id를 OPS 예약번호/일정 예약번호에 채운다.
+- 예약 생성 시 외부예약번호는 필수 입력값이 아니다.
+
+### 실제 동작
+- IMS 생성 API `POST /v2/company-car-schedules` 응답은 `{success:true}`만 반환하는 것을 독립 probe로 확인했다.
+- 서버는 생성 응답에서 id가 없으면 `GET /v2/company-car-schedules?page=N` 목록을 scan하고, 후보를 `GET /v2/company-car-schedules/{schedule_id}` 상세로 검증한다.
+- 매칭 기준은 차량번호, 시작/종료일시, 고객명, 전화번호, 배차지다.
+- linked 성공 시 `external_reservation_id=schedule id`, `external_detail_id=reservation/detail id`를 반환한다.
+- 기존 Playwright export fallback은 운영 코드에서 제거했다.
+- reservation parser LaunchAgent 경로를 현재 프로젝트로 정정했다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/app/router/app_router.dart`
+- `docs/current/rentcar00_OPS-current.md`
+
+### 검증
+- 독립 IMS probe: 생성 응답 `{success:true}` 확인
+- 4014 실제 생성 테스트 성공: schedule id `4196512`, detail id `204771` linked 확인
+- 테스트 예약 `4196222`, `4196241`, `4196501`, `4196512` 삭제 완료
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- `flutter test` 통과
+- build number를 `40 → 41`로 올렸다.
+- `flutter build apk --release --target-platform android-arm64`로 b41 APK를 만들었다.
+- GDrive에는 `rentcar00_ops-app-release-arm64-b41-851f5fc.apk`를 업로드했다.
+- GDrive 기존 b40 APK는 삭제하고 최신 b41 1개만 남겼다.
+
+### 1차 장애 확인 포인트
+1. 목록 scan은 page 기반이라 IMS 예약 수가 커지면 느려질 수 있다. 추후 더 정확한 API query parameter가 확인되면 교체한다.
+2. IMS가 memo를 상세 응답에 저장하지 않아 `OPS:{reservationId}` 매칭은 보조 기준으로 쓸 수 없다. 현재는 차량/시간/고객/전화/배차지 조합으로 매칭한다.
+3. 외부예약번호가 이미 있으면 IMS schedule id로 덮어쓰지 않는다.
+
+---
+
+## 2026-05-19 — 직원관리 MVP 1차 구현
+### 사용자 표면
+- 관리자 메뉴의 `직원관리` 카드가 실제 직원관리 화면으로 연결된다.
+- `rentcar00` admin 계정만 직원관리 화면을 볼 수 있다.
+- 직원 목록에서 아이디, 이름, 전화번호, 권한, 활성상태, 마지막 활동, 위치정보를 확인한다.
+- 비밀번호는 기본 가림 처리하고 눈 아이콘을 누르면 관리자 표시용 비밀번호를 볼 수 있다.
+- 관리자 화면에서 직원 이름, 전화번호, 권한, 활성/비활성 상태를 수정할 수 있다.
+
+### 실제 동작
+- `rc00_ops_staff_accounts`에 직원 연락처/활동/위치 컬럼을 추가하는 migration을 작성했다.
+- 관리자 표시용 비밀번호는 `rc00_ops_staff_passwords` 별도 테이블로 분리했다.
+- RLS는 admin 전체 조회/수정, staff 본인 조회 기준으로 확장했다.
+- 로그인 성공 시 `rc00_ops_mark_current_staff_activity()` RPC로 마지막 활동 시간을 갱신한다.
+- 표시용 비밀번호는 숫자 6자리 기준으로 저장한다.
+
+### 핵심 파일
+- `supabase/migrations/20260519114500_add_staff_management_fields.sql`
+- `lib/features/admin/presentation/admin_home_page.dart`
+- `lib/features/admin/presentation/staff_management_page.dart`
+- `lib/features/admin/data/admin_staff_repository.dart`
+- `lib/features/admin/domain/admin_staff_account.dart`
+- `lib/features/admin/shared/admin_staff_providers.dart`
+- `lib/app/router/app_routes.dart`
+- `lib/app/router/app_router.dart`
+- `lib/features/auth/data/staff_account_repository.dart`
+- `lib/features/auth/shared/auth_providers.dart`
+- `docs/current/rentcar00_OPS-current.md`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `supabase db push`로 운영 DB migration 적용 완료
+- 운영 DB 확인:
+  - `rentcar00`: admin / active
+  - `rentcar0079`: staff / active
+  - `test001`: staff / active
+  - staff 비밀번호 row 2건, 숫자 6자리 형식 확인
+- `rentcar0079`, `test001`은 Supabase Auth 실제 비밀번호와 관리자 표시용 비밀번호를 동기화했다.
+
+### 1차 장애 확인 포인트
+1. 실기기에서 `rentcar00` 로그인 후 관리자 > 직원관리 목록이 보이는지 확인한다.
+2. staff 계정에서 `/admin/staff` 접근 시 차단되는지 실기기에서 확인한다.
+3. 직원관리 화면에서 눈 아이콘으로 비밀번호가 표시되는지 확인한다.
+4. 관리자 표시용 비밀번호는 운영 편의 목적이므로 관리자 계정 보호가 중요하다.
+
+---
 
 ## 2026-05-18 — macOS platform 폴더 삭제
 ### 사용자 표면
@@ -1188,3 +1356,74 @@
 ## 2026-05-15 — 일정 예약 연결 표시 잠금
 - 일정 상세에서 실제 예약 원장에 존재하는 예약ID만 연결 표시하도록 정리.
 - 원장에 없는 orphan 참조는 예약 상세로 이동하지 않고 `연결된 예약 없음` 으로 표시.
+
+---
+
+## 2026-05-19 — IMS 보험배차 가져오기 UI/API 구현
+### 사용자 표면
+- 차량 상세에서 `배차 > 보험`을 선택하면 기존 즉시배차 입력폼 대신 `IMS 보험배차 가져오기` 창이 먼저 열린다.
+- IMS에 보험계약서가 없는 예외 상황을 위해 가져오기 창에 `직접입력` 버튼을 제공한다.
+- `직접입력`을 누르면 기존 수동 입력폼 흐름으로 진행한다.
+
+### 실제 동작
+- 중간서버에 `POST /ims/search-insurance-claims`를 추가했다.
+- 서버는 IMS `GET /v2/rencar-claims`를 `periodOption=using_car`, `startdate/enddate`, `option=rent_car_number` 기준으로 조회한다.
+- 앱 클라이언트에 `searchImsInsuranceClaims()`와 `ImsInsuranceClaimImportCandidate`를 추가했다.
+- 차량 상세 보험 배차 흐름은 IMS 보험 claim 선택 시 차량 상태를 `보험`, action을 `배차 보험`으로 반영한다.
+- customer, phone, delivered_at, expect_return_date, pickup/customer address, claim id를 차량 상태에 반영한다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/README.md`
+- `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `docs/current/rentcar00_OPS-current.md`
+
+### 검증
+- IMS live probe로 `GET /v2/rencar-claims?periodOption=using_car&startdate=2026-05-19&enddate=2026-05-19`가 1건을 반환하는 것을 확인했다.
+- 확인 예: 보험계약 id `3011022`, 차량 `125하1717`, 차종 `그랜저`, 고객 `강영욱`, 대여일시 `2026-05-19 13:04:00`.
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- build number를 `41 → 42`로 올렸다.
+- `flutter build apk --release --target-platform android-arm64`로 b42 APK를 만들었다.
+- GDrive에는 `rentcar00_ops-app-release-arm64-b42-851f5fc.apk`를 업로드했다.
+- GDrive 기존 b41 APK는 삭제하고 최신 b42 1개만 남겼다.
+
+### 1차 장애 확인 포인트
+1. 실기기에서 차량상세 `배차 > 보험` 선택 시 `IMS 보험배차 가져오기` 창이 먼저 뜨는지 확인한다.
+2. `직접입력` 버튼이 기존 수동 입력폼으로 이어지는지 확인한다.
+3. 보험 claim에 반납예정일이 없을 수 있으므로 endAt null 동작을 확인한다.
+4. IMS 보험계약서 날짜 필터는 camelCase가 아니라 소문자 `startdate/enddate`를 유지해야 한다.
+
+---
+
+## 2026-05-19 — b42 APK 배포 및 과거 APK 정리
+### 사용자 표면
+- 최신 APK만 GDrive와 로컬 release 보관 위치에 남겼다.
+- 사용자는 `rentcar00_OPS/apk/`에서 최신 b42 APK만 확인하면 된다.
+
+### 실제 동작
+- build number는 `1.0.0+42`다.
+- 최신 APK 파일명은 `rentcar00_ops-app-release-arm64-b42-851f5fc.apk`다.
+- GDrive `rentcar00_OPS/apk/`에는 최신 b42 APK 1개만 남겼다.
+- 로컬 `build/releases/`에도 최신 b42 APK 1개만 남겼다.
+- 로컬 `build/app/outputs/**` 아래 과거/중간 APK 산출물은 삭제했다.
+
+### 핵심 파일
+- `pubspec.yaml`
+- `docs/current/rentcar00_OPS-current.md`
+- `docs/completed/rentcar00_OPS-completed.md`
+
+### 검증
+- `rclone lsf gdrive:rentcar00_OPS/apk/` 결과 최신 b42 APK 1개 확인
+- `find build -type f -name '*.apk'` 결과 로컬 최신 b42 APK 1개 확인
+- 직전 빌드 검증:
+  - `flutter analyze` 통과
+  - `node --check reservation_ai_parser/src/server.js` 통과
+  - `npm --prefix reservation_ai_parser run check` 통과
+  - `flutter build apk --release --target-platform android-arm64` 통과
+
+### 1차 장애 확인 포인트
+1. 실기기 설치 시 파일명 `b42-851f5fc`인지 확인한다.
+2. 재빌드하면 Flutter/Gradle 기본 출력 경로에 `app-release.apk`가 다시 생길 수 있다. 배포용 보관은 `build/releases/` 기준으로 본다.

@@ -1,17 +1,11 @@
-import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { buildConfig, loadEnvFile, parseReservationInput, validateConfig } from './parser-core.js';
 
-const execFileAsync = promisify(execFile);
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 await loadEnvFile(path.resolve(__dirname, '../.env'));
-await loadEnvFile(path.resolve(__dirname, '../../../../tools/playwright/.env'));
 
 const config = buildConfig(process.env);
 
@@ -21,7 +15,11 @@ if (process.argv.includes('--check')) {
     openAiModel: config.openAiModel,
     host: config.host,
     port: config.port,
-    timeoutMs: config.timeoutMs
+    timeoutMs: config.timeoutMs,
+    hasOpsReservationEventSecret: Boolean(config.opsReservationEventSecret),
+    hasSupabaseUrl: Boolean(config.supabaseUrl),
+    hasSupabaseServiceRoleKey: Boolean(config.supabaseServiceRoleKey),
+    reservationEventTimestampToleranceMs: config.reservationEventTimestampToleranceMs
   }, null, 2));
   process.exit(0);
 }
@@ -35,6 +33,15 @@ const server = http.createServer(async (req, res) => {
         return sendMethodNotAllowed(res, ['GET']);
       }
       return sendJson(res, 200, { ok: true, service: 'reservation_ai_parser' });
+    }
+
+    if (req.url === '/api/integrations/rentcar00/reservation-events') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const rawBody = await readRawBody(req);
+      const result = await receiveRentcar00ReservationEvent({ req, rawBody });
+      return sendJson(res, 200, result);
     }
 
     if (req.url === '/parse-reservation') {
@@ -69,6 +76,16 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const payload = normalizeImsReservationSearchPayload(body);
       const result = await searchImsReservationsForImport(payload);
+      return sendJson(res, 200, { ok: true, payload, result });
+    }
+
+    if (req.url === '/ims/search-insurance-claims') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeImsInsuranceClaimSearchPayload(body);
+      const result = await searchImsInsuranceClaimsForDispatch(payload);
       return sendJson(res, 200, { ok: true, payload, result });
     }
 
@@ -142,6 +159,201 @@ function readJsonBody(req) {
   });
 }
 
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (Buffer.byteLength(data, 'utf8') > 5 * 1024 * 1024) {
+        reject(new Error('payload_too_large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+async function receiveRentcar00ReservationEvent({ req, rawBody }) {
+  ensureReservationEventReceiverConfigured();
+
+  const eventType = getHeader(req, 'x-rentcar00-event-type');
+  const eventId = getHeader(req, 'x-rentcar00-event-id');
+  const timestamp = getHeader(req, 'x-rentcar00-timestamp');
+  const signature = getHeader(req, 'x-rentcar00-signature');
+
+  if (eventType !== 'reservation.created') {
+    throw new ApiError(400, 'invalid_event_type', 'X-Rentcar00-Event-Type must be reservation.created');
+  }
+  if (!eventId) throw new ApiError(400, 'missing_event_id', 'X-Rentcar00-Event-Id is required');
+  validateReservationEventTimestamp(timestamp);
+  verifyReservationEventSignature({ timestamp, rawBody, signature });
+
+  let body;
+  try {
+    body = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    throw new ApiError(400, 'invalid_json', 'request body must be valid JSON');
+  }
+  const payload = normalizeReservationCreatedEventPayload({ body, eventId, eventType });
+
+  const existing = await findStoredReservationEvent(eventId);
+  if (existing) return { ok: true, deduped: true };
+
+  try {
+    await storeReservationEvent(payload);
+  } catch (error) {
+    if (isSupabaseDuplicateError(error)) return { ok: true, deduped: true };
+    throw error;
+  }
+
+  return { ok: true, deduped: false };
+}
+
+function ensureReservationEventReceiverConfigured() {
+  const missing = [];
+  if (!config.opsReservationEventSecret) missing.push('OPS_APP_RESERVATION_EVENT_SECRET');
+  if (!config.supabaseUrl) missing.push('SUPABASE_URL');
+  if (!config.supabaseServiceRoleKey) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (missing.length > 0) {
+    throw new ApiError(503, 'receiver_not_configured', `missing env: ${missing.join(', ')}`);
+  }
+}
+
+function validateReservationEventTimestamp(timestamp) {
+  const value = Number(timestamp);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new ApiError(400, 'invalid_timestamp', 'X-Rentcar00-Timestamp must be unix milliseconds');
+  }
+  const tolerance = Number.isFinite(config.reservationEventTimestampToleranceMs)
+    ? config.reservationEventTimestampToleranceMs
+    : 5 * 60 * 1000;
+  if (Math.abs(Date.now() - value) > tolerance) {
+    throw new ApiError(400, 'timestamp_out_of_range', 'event timestamp is outside allowed tolerance');
+  }
+}
+
+function verifyReservationEventSignature({ timestamp, rawBody, signature }) {
+  const actual = String(signature || '').trim();
+  if (!actual.startsWith('sha256=')) {
+    throw new ApiError(401, 'invalid_signature', 'X-Rentcar00-Signature is required');
+  }
+  const actualHex = actual.slice('sha256='.length);
+  if (!/^[a-f0-9]{64}$/i.test(actualHex)) {
+    throw new ApiError(401, 'invalid_signature', 'invalid signature format');
+  }
+  const expectedHex = crypto
+    .createHmac('sha256', config.opsReservationEventSecret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest('hex');
+  const actualBuffer = Buffer.from(actualHex, 'hex');
+  const expectedBuffer = Buffer.from(expectedHex, 'hex');
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+    throw new ApiError(401, 'invalid_signature', 'signature verification failed');
+  }
+}
+
+function normalizeReservationCreatedEventPayload({ body, eventId, eventType }) {
+  const bodyEventId = stringifyNullable(body?.eventId).trim();
+  const bodyEventType = stringifyNullable(body?.eventType).trim();
+  if (bodyEventId && bodyEventId !== eventId) {
+    throw new ApiError(400, 'event_id_mismatch', 'header and body eventId do not match');
+  }
+  if (bodyEventType && bodyEventType !== eventType) {
+    throw new ApiError(400, 'event_type_mismatch', 'header and body eventType do not match');
+  }
+  const booking = body?.booking && typeof body.booking === 'object' ? body.booking : null;
+  if (!booking) throw new ApiError(400, 'invalid_payload', 'booking object is required');
+
+  const bookingOrderId = stringifyNullable(booking.bookingOrderId).trim();
+  const reservationCode = stringifyNullable(booking.reservationCode).trim();
+  if (!bookingOrderId && !reservationCode) {
+    throw new ApiError(400, 'invalid_payload', 'booking.bookingOrderId or booking.reservationCode is required');
+  }
+
+  return {
+    eventId,
+    eventType,
+    bookingOrderId,
+    reservationCode,
+    payload: body,
+    status: 'received',
+  };
+}
+
+async function findStoredReservationEvent(eventId) {
+  const url = new URL('/rest/v1/rc00_ops_reservation_events', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('event_id', `eq.${eventId}`);
+  url.searchParams.set('select', 'event_id');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'event_store_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase event lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0;
+}
+
+async function storeReservationEvent(payload) {
+  const url = new URL('/rest/v1/rc00_ops_reservation_events', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      event_id: payload.eventId,
+      event_type: payload.eventType,
+      booking_order_id: payload.bookingOrderId || null,
+      reservation_code: payload.reservationCode || null,
+      payload_json: payload.payload,
+      processed_at: new Date().toISOString(),
+      status: payload.status,
+    }),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    const error = new ApiError(502, 'event_store_insert_failed', resolveApiErrorMessage(json, response.status, 'Supabase event insert failed'));
+    error.supabaseStatus = response.status;
+    error.supabaseBody = json;
+    throw error;
+  }
+}
+
+function isSupabaseDuplicateError(error) {
+  const body = error?.supabaseBody || {};
+  return error?.supabaseStatus === 409 || body?.code === '23505';
+}
+
+function normalizeSupabaseBaseUrl(value) {
+  return String(value || '').replace(/\/+$/, '');
+}
+
+function buildSupabaseServiceHeaders() {
+  return {
+    apikey: config.supabaseServiceRoleKey,
+    Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
+    Accept: 'application/json',
+  };
+}
+
+function getHeader(req, name) {
+  const value = req.headers[name.toLowerCase()];
+  if (Array.isArray(value)) return String(value[0] || '').trim();
+  return String(value || '').trim();
+}
+
+class ApiError extends Error {
+  constructor(status, code, message) {
+    super(message || code);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function sendJson(res, statusCode, body) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
@@ -156,6 +368,7 @@ function sendMethodNotAllowed(res, methods) {
 }
 
 function resolveErrorStatus(error) {
+  if (error?.status) return error.status;
   if (error?.message === 'invalid_json') return 400;
   if (error?.message === 'payload_too_large') return 413;
   if (error?.name === 'AbortError') return 504;
@@ -163,6 +376,7 @@ function resolveErrorStatus(error) {
 }
 
 function resolveErrorCode(error) {
+  if (error?.code) return error.code;
   if (error?.message === 'invalid_json') return 'invalid_json';
   if (error?.message === 'payload_too_large') return 'payload_too_large';
   if (error?.message?.startsWith('missing required ims fields')) return 'invalid_ims_payload';
@@ -190,6 +404,20 @@ function normalizeImsChangeCarPayload(body = {}) {
 }
 
 function normalizeImsReservationSearchPayload(body = {}) {
+  const payload = {
+    customerName: String(body?.customerName || '').trim(),
+    carNumber: String(body?.carNumber || '').trim(),
+    rentalDate: extractDate(body?.rentalDate || body?.startDate || body?.rentalAt || ''),
+    endDate: extractDate(body?.endDate || body?.returnDate || ''),
+  };
+
+  if (!payload.rentalDate) {
+    throw new Error('missing required ims fields: rentalDate');
+  }
+  return payload;
+}
+
+function normalizeImsInsuranceClaimSearchPayload(body = {}) {
   const payload = {
     customerName: String(body?.customerName || '').trim(),
     carNumber: String(body?.carNumber || '').trim(),
@@ -288,74 +516,70 @@ async function resolveImsReservationBindingAfterCreate({ payload, result }) {
     };
   }
 
-  const match = await findCreatedImsReservationForBinding(payload);
-  if (!match) {
-    return {
-      ...result,
-      externalStatus: 'failed',
-      linkKey: buildLinkKey(payload),
-      errorText: 'IMS id 확보 실패',
-    };
-  }
-
   return {
     ...result,
-    externalStatus: 'linked',
-    externalReservationId: stringifyNullable(match.schedule_id || match.id),
-    externalDetailId: stringifyNullable(match.detail_id || match?.reservation?.id),
+    externalStatus: 'failed',
     linkKey: buildLinkKey(payload),
-    matchedReservation: match,
+    errorText: 'IMS 생성 응답에 schedule_id가 없어 연결하지 못했습니다.',
   };
 }
 
 async function searchImsReservationsForImport(payload) {
-  const exportResult = await exportImsReservationsForDateRange({
-    startDate: payload.rentalDate,
-    endDate: payload.endDate || addDaysToDateText(payload.rentalDate, 3),
-    baseDate: payload.rentalDate,
-  });
-  if (!exportResult?.ok || !exportResult?.flatPath) {
-    return {
-      code: 'ERROR',
-      message: exportResult?.message || 'IMS 예약 조회 실패',
-      items: [],
-    };
+  const token = await fetchImsAccessToken();
+  let matches = [];
+
+  if (payload.carNumber) {
+    const candidates = await findImsReservationsBySearchApi({ token, payload });
+    for (const schedule of candidates) {
+      const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id || schedule.schedule_id });
+      if (!detail) continue;
+      const matchesCar = !payload.carNumber || normalizeText(detail?.car?.car_identity || detail?.car_identity || schedule?.car_identity || schedule?.car) === normalizeText(payload.carNumber);
+      const matchesDate = !payload.rentalDate || extractDate(detail?.start_at || schedule?.start_at || schedule?.start) === payload.rentalDate;
+      if (matchesCar && matchesDate) matches.push(detail);
+    }
   }
 
-  const raw = await fs.readFile(exportResult.flatPath, 'utf8');
-  const rows = JSON.parse(raw);
-  if (!Array.isArray(rows)) {
-    return { code: 'SUCCESS', items: [] };
-  }
+  return {
+    code: 'SUCCESS',
+    totalCount: matches.length,
+    items: matches.map((schedule) => toImsReservationImportItem(schedule)),
+  };
+}
 
-  const customerName = normalizeText(payload.customerName);
-  const carNumber = normalizeText(payload.carNumber);
-  const items = rows
-    .filter((row) => {
-      const matchesName = !customerName || normalizeText(row?.customer_name).includes(customerName);
-      const matchesCar = !carNumber || normalizeText(row?.car_number).includes(carNumber);
-      const matchesDate = extractDate(normalizeImsDateTime(row?.start_at)) === payload.rentalDate;
-      return matchesName && matchesCar && matchesDate;
-    })
-    .map((row) => ({
-      scheduleId: stringifyNullable(row?.schedule_id),
-      detailId: stringifyNullable(row?.detail_id),
-      reservationNumber: stringifyNullable(row?.detail_id || row?.schedule_id),
-      status: stringifyNullable(row?.status),
-      detailStatus: stringifyNullable(row?.detail_status),
-      reservationType: stringifyNullable(row?.reservation_type),
-      carNumber: stringifyNullable(row?.car_number),
-      carName: stringifyNullable(row?.car_name),
-      customerName: stringifyNullable(row?.customer_name),
-      customerPhone: digitsOnly(row?.customer_contact),
-      rentalAt: normalizeImsDateTime(row?.start_at),
-      returnAt: normalizeImsDateTime(row?.end_at),
-      pickupLocation: stringifyNullable(row?.pickup_address),
-      dropoffLocation: stringifyNullable(row?.dropoff_address),
-      recommenderName: stringifyNullable(row?.recommender_name),
-      title: stringifyNullable(row?.title),
-    }))
-    .filter((item) => item.scheduleId && item.detailId);
+async function searchImsInsuranceClaimsForDispatch(payload) {
+  const token = await fetchImsAccessToken();
+  const items = [];
+  const endDate = payload.endDate || payload.rentalDate;
+  let totalPage = 1;
+
+  for (let page = 1; page <= totalPage; page += 1) {
+    const url = new URL('https://api.rencar.co.kr/v2/rencar-claims');
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('periodOption', 'using_car');
+    url.searchParams.set('startdate', payload.rentalDate);
+    url.searchParams.set('enddate', endDate);
+    if (payload.carNumber) {
+      url.searchParams.set('option', 'rent_car_number');
+      url.searchParams.set('value', payload.carNumber);
+    }
+
+    const response = await fetch(url, { headers: buildImsApiHeaders(token) });
+    const json = await readJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(resolveApiErrorMessage(json, response.status, 'IMS insurance claim lookup failed'));
+    }
+
+    const claimList = Array.isArray(json?.claimList) ? json.claimList : [];
+    const normalizedCar = normalizeText(payload.carNumber);
+    for (const claim of claimList) {
+      const matchesCar = !normalizedCar || normalizeText(claim?.rent_car_number) === normalizedCar;
+      const matchesDate = extractDate(claim?.delivered_at) === payload.rentalDate;
+      if (matchesCar && matchesDate) items.push(toImsInsuranceClaimImportItem(claim));
+    }
+
+    totalPage = Number(json?.totalPage || json?.total_page || 1);
+    if (claimList.length === 0 || page >= totalPage) break;
+  }
 
   return {
     code: 'SUCCESS',
@@ -363,6 +587,7 @@ async function searchImsReservationsForImport(payload) {
     items,
   };
 }
+
 
 async function createImsReservationDirect(payload) {
   if (payload.dryRun) {
@@ -397,19 +622,26 @@ async function createImsReservationDirect(payload) {
     };
   }
 
-  const scheduleId = findFirstNestedValue(json, [
+  let scheduleId = findFirstNestedValue(json, [
     'schedule_id',
     'scheduleId',
     'company_car_schedule_id',
     'companyCarScheduleId',
     'id',
   ]);
-  const detailId = findFirstNestedValue(json, [
+  let detailId = findFirstNestedValue(json, [
     'detail_id',
     'detailId',
     'reservation_id',
     'reservationId',
   ]);
+  let matchedSchedule = null;
+
+  if (!scheduleId) {
+    matchedSchedule = await findCreatedImsReservationByApi({ token, payload });
+    scheduleId = matchedSchedule?.id;
+    detailId = matchedSchedule?.reservation?.id;
+  }
 
   return {
     code: 'SUCCESS',
@@ -419,6 +651,7 @@ async function createImsReservationDirect(payload) {
     externalDetailId: stringifyNullable(detailId),
     linkKey: buildLinkKey(payload),
     apiResult: json,
+    matchedSchedule,
     requestBody: body,
   };
 }
@@ -569,7 +802,7 @@ async function completeImsReservationReturnDirect(payload) {
 
 async function fetchImsAccessToken() {
   const username = String(process.env.IMS_ID || '').trim();
-  const rawPassword = String(process.env.IMS_PW || '').trim();
+  const rawPassword = String(process.env.IMS_PW || process.env.IMS_PASSWORD || '').trim();
   if (!username || !rawPassword) {
     throw new Error('missing IMS_ID or IMS_PW');
   }
@@ -614,6 +847,165 @@ async function findAvailableImsCar({ token, payload }) {
   if (exactMatches.length === 1) return exactMatches[0];
   if (cars.length === 1) return cars[0];
   return null;
+}
+
+async function findCreatedImsReservationByApi({ token, payload }) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const fastMatches = [];
+    const candidates = await findImsReservationsBySearchApi({ token, payload });
+    for (const schedule of candidates) {
+      const sameCar = normalizeText(schedule?.car_identity || schedule?.car_number || schedule?.car) === normalizeText(payload.carNumber);
+      const sameStart = normalizeImsDateTime(schedule?.start_at || schedule?.start) === normalizeImsDateTime(payload.rentalAt);
+      const sameEnd = normalizeImsDateTime(schedule?.end_at || schedule?.end) === normalizeImsDateTime(payload.returnAt);
+      if (!sameCar || !sameStart || !sameEnd) continue;
+
+      const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id || schedule.schedule_id });
+      if (isCreatedImsReservationDetailMatch({ detail, schedule, payload })) fastMatches.push(detail);
+    }
+
+    if (fastMatches.length === 1) return fastMatches[0];
+    if (fastMatches.length > 1) {
+      return fastMatches.sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
+    }
+
+    const matches = await findImsReservationsByListApi({
+      token,
+      predicate: async (schedule) => {
+        const sameCar = normalizeText(schedule?.car_identity || schedule?.car_number) === normalizeText(payload.carNumber);
+        const sameStart = normalizeImsDateTime(schedule?.start_at) === normalizeImsDateTime(payload.rentalAt);
+        const sameEnd = normalizeImsDateTime(schedule?.end_at) === normalizeImsDateTime(payload.returnAt);
+        if (!sameCar || !sameStart || !sameEnd) return null;
+
+        const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id });
+        return isCreatedImsReservationDetailMatch({ detail, schedule, payload }) ? detail : null;
+      },
+    });
+
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) {
+      return matches.sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
+    }
+    await delay(1200 * attempt);
+  }
+  return null;
+}
+
+function isCreatedImsReservationDetailMatch({ detail, schedule, payload }) {
+  if (!detail) return false;
+  const reservation = detail?.reservation || {};
+  const detailCar = detail?.car?.car_identity || detail?.car_identity || schedule?.car_identity || schedule?.car;
+  const sameDetailCar = normalizeText(detailCar) === normalizeText(payload.carNumber);
+  const sameCustomer = normalizeText(reservation.customer_name) === normalizeText(payload.customerName);
+  const samePhone = digitsOnly(reservation.customer_contact) === digitsOnly(payload.customerPhone);
+  const sameAddress = !payload.address || normalizeText(reservation.pickup_address) === normalizeText(payload.address);
+  const sameWindow =
+    normalizeImsDateTime(detail?.start_at || schedule?.start_at || schedule?.start) === normalizeImsDateTime(payload.rentalAt) &&
+    normalizeImsDateTime(detail?.end_at || schedule?.end_at || schedule?.end) === normalizeImsDateTime(payload.returnAt);
+
+  return sameDetailCar && sameCustomer && samePhone && sameAddress && sameWindow;
+}
+
+async function findImsReservationsBySearchApi({ token, payload, page = 1 }) {
+  const startDate = extractDate(payload.rentalAt || payload.rentalDate || payload.startDate);
+  const endDate = extractDate(payload.returnAt || payload.endDate || payload.returnDate) || startDate;
+  const url = new URL('https://api.rencar.co.kr/v2/company-car-schedules/reservations');
+  url.searchParams.set('page', String(page));
+  url.searchParams.set('base_date', startDate);
+  url.searchParams.set('rental_type', 'all');
+  url.searchParams.set('status', 'all');
+  url.searchParams.set('date_option', 'start_at');
+  url.searchParams.set('start', startDate);
+  url.searchParams.set('end', endDate);
+  if (payload.carNumber) {
+    url.searchParams.set('option', 'car_identity');
+    url.searchParams.set('search', payload.carNumber);
+  }
+
+  const response = await fetch(url, { headers: buildImsApiHeaders(token) });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(resolveApiErrorMessage(json, response.status, 'IMS reservation search lookup failed'));
+  }
+  return Array.isArray(json?.schedules) ? json.schedules : [];
+}
+
+async function findImsReservationsByListApi({ token, predicate, maxPages = 120 }) {
+  const matches = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = new URL('https://api.rencar.co.kr/v2/company-car-schedules');
+    url.searchParams.set('page', String(page));
+    const response = await fetch(url, { headers: buildImsApiHeaders(token) });
+    const json = await readJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(resolveApiErrorMessage(json, response.status, 'IMS schedule list lookup failed'));
+    }
+
+    const schedules = Array.isArray(json?.schedules) ? json.schedules : [];
+    for (const schedule of schedules) {
+      const match = await predicate(schedule);
+      if (match) matches.push(match);
+    }
+
+    const totalPage = Number(json?.total_page || 0);
+    if (schedules.length === 0 || (totalPage > 0 && page >= totalPage)) break;
+  }
+  return matches;
+}
+
+async function fetchImsScheduleDetail({ token, scheduleId }) {
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/company-car-schedules/${encodeURIComponent(scheduleId)}`,
+    { headers: buildImsApiHeaders(token) },
+  );
+  const json = await readJsonResponse(response);
+  if (!response.ok) return null;
+  return json?.schedule || json;
+}
+
+function toImsReservationImportItem(schedule) {
+  const reservation = schedule?.reservation || {};
+  return {
+    scheduleId: stringifyNullable(schedule?.id || schedule?.schedule_id),
+    detailId: stringifyNullable(reservation?.id || schedule?.detail_id),
+    reservationNumber: stringifyNullable(reservation?.id || schedule?.id || schedule?.schedule_id),
+    status: stringifyNullable(schedule?.status),
+    detailStatus: stringifyNullable(reservation?.status),
+    reservationType: stringifyNullable(reservation?.rental_type),
+    carNumber: stringifyNullable(schedule?.car?.car_identity || schedule?.car_identity || schedule?.car_number),
+    carName: stringifyNullable(schedule?.car?.model || schedule?.car?.car_model || schedule?.car_name),
+    customerName: stringifyNullable(reservation?.customer_name || schedule?.customer_name),
+    customerPhone: digitsOnly(reservation?.customer_contact || schedule?.customer_contact),
+    rentalAt: normalizeImsDateTime(schedule?.start_at),
+    returnAt: normalizeImsDateTime(schedule?.end_at),
+    pickupLocation: stringifyNullable(reservation?.pickup_address),
+    dropoffLocation: stringifyNullable(reservation?.dropoff_address),
+    recommenderName: stringifyNullable(reservation?.recommender?.name || reservation?.recommender_name),
+    title: stringifyNullable(schedule?.memo || reservation?.reservation_memo),
+  };
+}
+
+function toImsInsuranceClaimImportItem(claim) {
+  return {
+    claimId: stringifyNullable(claim?.id),
+    status: stringifyNullable(claim?.claim_state),
+    carNumber: stringifyNullable(claim?.rent_car_number),
+    carName: stringifyNullable(claim?.car_model),
+    customerName: stringifyNullable(claim?.customer_name),
+    customerPhone: digitsOnly(claim?.customer_contact),
+    rentalAt: normalizeImsDateTime(claim?.delivered_at),
+    returnAt: normalizeImsDateTime(claim?.expect_return_date || claim?.return_date),
+    pickupLocation: stringifyNullable(claim?.customer_address),
+    insuranceCompany: stringifyNullable(claim?.claim_user_company),
+    claimUserName: stringifyNullable(claim?.claim_user_name),
+    title: [
+      stringifyNullable(claim?.business_name),
+      stringifyNullable(claim?.claim_state),
+    ].filter((value) => value.trim()).join(' | '),
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildImsCreateScheduleBody({ payload, carId }) {
@@ -711,72 +1103,6 @@ function findFirstNestedValue(value, keys) {
   return null;
 }
 
-async function findCreatedImsReservationForBinding(payload) {
-  const exportResult = await exportImsReservationsForBindingLookup(payload);
-  if (!exportResult?.ok || !exportResult?.flatPath) return null;
-
-  const raw = await fs.readFile(exportResult.flatPath, 'utf8');
-  const rows = JSON.parse(raw);
-  if (!Array.isArray(rows)) return null;
-
-  const matches = rows.filter((row) => isSameReservationForBinding(row, payload));
-  if (matches.length !== 1) return null;
-  return matches[0];
-}
-
-async function exportImsReservationsForBindingLookup(payload) {
-  return exportImsReservationsForDateRange({
-    startDate: extractDate(payload.rentalAt),
-    endDate: extractDate(payload.returnAt),
-    baseDate: extractDate(payload.rentalAt),
-  });
-}
-
-async function exportImsReservationsForDateRange({ startDate, endDate, baseDate }) {
-  const scriptPath = await findFirstExistingPath([
-    path.resolve(__dirname, '../../../../tools/playwright/scripts/ims-reservations-export.js'),
-    path.resolve(process.cwd(), '../../tools/playwright/scripts/ims-reservations-export.js'),
-    path.resolve(process.cwd(), '../tools/playwright/scripts/ims-reservations-export.js'),
-  ]);
-
-  const outputDir = path.join(
-    process.cwd(),
-    '.ims-create-lookup',
-    `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  );
-
-  const result = await execFileAsync(
-    'node',
-    [scriptPath, outputDir, startDate, endDate, baseDate || startDate],
-    {
-      cwd: process.cwd(),
-      env: process.env,
-      timeout: 1000 * 60 * 3,
-      maxBuffer: 1024 * 1024,
-    },
-  );
-
-  const lines = `${result.stdout || ''}\n${result.stderr || ''}`
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const lastJsonLine = [...lines]
-    .reverse()
-    .find((line) => line.startsWith('{') && line.endsWith('}'));
-  if (!lastJsonLine) return { ok: false, message: 'missing ims export result' };
-  return JSON.parse(lastJsonLine);
-}
-
-function isSameReservationForBinding(row, payload) {
-  return normalizeText(row?.car_number) === normalizeText(payload.carNumber) &&
-    normalizeText(row?.customer_name) === normalizeText(payload.customerName) &&
-    digitsOnly(row?.customer_contact) === digitsOnly(payload.customerPhone) &&
-    normalizeImsDateTime(row?.start_at) === normalizeImsDateTime(payload.rentalAt) &&
-    normalizeImsDateTime(row?.end_at) === normalizeImsDateTime(payload.returnAt) &&
-    normalizeText(row?.pickup_address) === normalizeText(payload.address);
-}
-
 function appendMemoPart(memo, part) {
   const cleanMemo = String(memo || '').trim();
   if (!cleanMemo) return part;
@@ -816,58 +1142,4 @@ function digitsOnly(value) {
 function stringifyNullable(value) {
   if (value === null || value === undefined) return '';
   return String(value);
-}
-
-async function runImsReservationScript(payload) {
-  const scriptPath = await findFirstExistingPath([
-    path.resolve(__dirname, '../../../../tools/playwright/scripts/ims-reservation-draft.js'),
-    path.resolve(process.cwd(), '../../tools/playwright/scripts/ims-reservation-draft.js'),
-    path.resolve(process.cwd(), '../tools/playwright/scripts/ims-reservation-draft.js'),
-  ]);
-
-  let stdout = '';
-  let stderr = '';
-  try {
-    const result = await execFileAsync('node', [scriptPath, JSON.stringify(payload)], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        IMS_SAVE: process.env.IMS_SAVE || 'false',
-      },
-      timeout: 1000 * 60 * 2,
-      maxBuffer: 1024 * 1024,
-    });
-    stdout = result.stdout || '';
-    stderr = result.stderr || '';
-  } catch (error) {
-    stdout = error.stdout || '';
-    stderr = error.stderr || '';
-  }
-
-  const lines = `${stdout}\n${stderr}`
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const lastJsonLine = [...lines]
-    .reverse()
-    .find((line) => line.startsWith('{') && line.endsWith('}'));
-  if (!lastJsonLine) {
-    return { code: 'ERROR', message: stdout || stderr || 'missing ims result' };
-  }
-
-  return JSON.parse(lastJsonLine);
-}
-
-async function findFirstExistingPath(paths) {
-  for (const candidate of paths) {
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {
-      // try next path
-    }
-  }
-
-  throw new Error(`IMS script not found: ${paths.join(' | ')}`);
 }

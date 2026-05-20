@@ -77,6 +77,7 @@ class AuthController {
         throw const StaffAccountInactiveException();
       }
 
+      await _staffRepository.markCurrentStaffActivity();
       _ref.invalidate(currentStaffAccountProvider);
       return staffAccount;
     } on AuthException catch (_) {

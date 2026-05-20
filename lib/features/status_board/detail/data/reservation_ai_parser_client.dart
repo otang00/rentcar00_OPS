@@ -67,32 +67,75 @@ class ReservationAiParserClient {
   }
 
   Future<List<ImsReservationImportCandidate>> searchImsReservations({
-    required String customerName,
     required String carNumber,
     required DateTime rentalDate,
+  }) async {
+    final json = await _postJson(
+      path: '/ims/search-reservations',
+      payload: {
+        'carNumber': carNumber.trim(),
+        'rentalDate': _formatDate(rentalDate),
+      },
+      timeoutMessage: 'IMS 예약 조회 시간이 초과되었습니다.',
+      failureMessage: 'IMS 예약 조회에 실패했습니다.',
+    );
+
+    final result =
+        (json['result'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return ((result['items'] as List?) ?? const [])
+        .map(
+          (item) => ImsReservationImportCandidate.fromJson(
+            (item as Map).cast<String, dynamic>(),
+          ),
+        )
+        .toList();
+  }
+
+  Future<List<ImsInsuranceClaimImportCandidate>> searchImsInsuranceClaims({
+    required String carNumber,
+    required DateTime rentalDate,
+  }) async {
+    final json = await _postJson(
+      path: '/ims/search-insurance-claims',
+      payload: {
+        'carNumber': carNumber.trim(),
+        'rentalDate': _formatDate(rentalDate),
+      },
+      timeoutMessage: 'IMS 보험배차 조회 시간이 초과되었습니다.',
+      failureMessage: 'IMS 보험배차 조회에 실패했습니다.',
+    );
+
+    final result =
+        (json['result'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return ((result['items'] as List?) ?? const [])
+        .map(
+          (item) => ImsInsuranceClaimImportCandidate.fromJson(
+            (item as Map).cast<String, dynamic>(),
+          ),
+        )
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> _postJson({
+    required String path,
+    required Map<String, dynamic> payload,
+    required String timeoutMessage,
+    required String failureMessage,
   }) async {
     if (baseUrl.trim().isEmpty) {
       throw const ReservationAiParserException('AI파서 주소가 설정되지 않았습니다.');
     }
 
-    final uri = Uri.parse(
-      '${baseUrl.replaceAll(RegExp(r'/+$'), '')}/ims/search-reservations',
-    );
+    final uri = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
-    request.write(
-      jsonEncode({
-        'customerName': customerName.trim(),
-        'carNumber': carNumber.trim(),
-        'rentalDate': _formatDate(rentalDate),
-      }),
-    );
+    request.write(jsonEncode(payload));
 
     final response = await request.close().timeout(
       const Duration(seconds: 180),
       onTimeout: () {
         request.abort();
-        throw const ReservationAiParserException('IMS 예약 조회 시간이 초과되었습니다.');
+        throw ReservationAiParserException(timeoutMessage);
       },
     );
     final body = await utf8.decoder.bind(response).join();
@@ -104,19 +147,11 @@ class ReservationAiParserClient {
       throw ReservationAiParserException(
         (json['message'] as String?)?.trim().isNotEmpty == true
             ? json['message'] as String
-            : 'IMS 예약 조회에 실패했습니다. (${response.statusCode})',
+            : '$failureMessage (${response.statusCode})',
       );
     }
 
-    final result =
-        (json['result'] as Map?)?.cast<String, dynamic>() ?? const {};
-    return ((result['items'] as List?) ?? const [])
-        .map(
-          (item) => ImsReservationImportCandidate.fromJson(
-            (item as Map).cast<String, dynamic>(),
-          ),
-        )
-        .toList();
+    return json;
   }
 }
 
@@ -199,6 +234,54 @@ class ImsReservationImportCandidate {
       pickupLocation: read('pickupLocation'),
       dropoffLocation: read('dropoffLocation'),
       recommenderName: read('recommenderName'),
+      title: read('title'),
+    );
+  }
+}
+
+class ImsInsuranceClaimImportCandidate {
+  const ImsInsuranceClaimImportCandidate({
+    required this.claimId,
+    required this.status,
+    required this.carNumber,
+    required this.carName,
+    required this.customerName,
+    required this.customerPhone,
+    required this.rentalAt,
+    required this.returnAt,
+    required this.pickupLocation,
+    required this.insuranceCompany,
+    required this.claimUserName,
+    required this.title,
+  });
+
+  final String claimId;
+  final String status;
+  final String carNumber;
+  final String carName;
+  final String customerName;
+  final String customerPhone;
+  final String rentalAt;
+  final String returnAt;
+  final String pickupLocation;
+  final String insuranceCompany;
+  final String claimUserName;
+  final String title;
+
+  factory ImsInsuranceClaimImportCandidate.fromJson(Map<String, dynamic> json) {
+    String read(String key) => json[key]?.toString().trim() ?? '';
+    return ImsInsuranceClaimImportCandidate(
+      claimId: read('claimId'),
+      status: read('status'),
+      carNumber: read('carNumber'),
+      carName: read('carName'),
+      customerName: read('customerName'),
+      customerPhone: read('customerPhone'),
+      rentalAt: read('rentalAt'),
+      returnAt: read('returnAt'),
+      pickupLocation: read('pickupLocation'),
+      insuranceCompany: read('insuranceCompany'),
+      claimUserName: read('claimUserName'),
       title: read('title'),
     );
   }

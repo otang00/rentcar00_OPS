@@ -340,6 +340,42 @@ class SupabaseOpsRepository {
         .eq('reservation_id', normalizedReservationId);
   }
 
+  Future<void> fillReservationNumberIfEmpty({
+    required String reservationId,
+    required String reservationNumber,
+  }) async {
+    final normalizedReservationId = reservationId.trim();
+    final normalizedReservationNumber = reservationNumber.trim();
+    if (normalizedReservationId.isEmpty ||
+        normalizedReservationNumber.isEmpty) {
+      return;
+    }
+
+    final row = await _client
+        .from('rc00_ops_reservations')
+        .select('reservation_number')
+        .eq('reservation_id', normalizedReservationId)
+        .maybeSingle();
+    final current = row?['reservation_number']?.toString().trim() ?? '';
+    if (current.isNotEmpty) return;
+
+    final now = DateTime.now().toIso8601String();
+    await _client
+        .from('rc00_ops_reservations')
+        .update({
+          'reservation_number': normalizedReservationNumber,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId);
+    await _client
+        .from('rc00_ops_schedules')
+        .update({
+          'reservation_number': normalizedReservationNumber,
+          'updated_at': now,
+        })
+        .eq('reservation_id', normalizedReservationId);
+  }
+
   Future<ExternalReservationLink?> fetchExternalReservationLink({
     required String reservationId,
   }) async {

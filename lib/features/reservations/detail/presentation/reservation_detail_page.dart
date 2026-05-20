@@ -667,6 +667,14 @@ class _ReservationDetailBodyState
           lastResultJson: result.resultJson,
           errorText: errorText,
         );
+    if (linked) {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .fillReservationNumberIfEmpty(
+            reservationId: widget.reservationId,
+            reservationNumber: result.externalReservationId,
+          );
+    }
   }
 
   Future<void> _saveImsRegistrationFailure({

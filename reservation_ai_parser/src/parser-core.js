@@ -39,7 +39,11 @@ export function buildConfig(env = process.env) {
     openAiModel: String(env.OPENAI_MODEL || 'gpt-4.1-mini').trim(),
     host: String(env.AI_PARSER_HOST || '127.0.0.1').trim(),
     port: Number(env.AI_PARSER_PORT || 43110),
-    timeoutMs: Number(env.AI_PARSER_TIMEOUT_MS || 30000)
+    timeoutMs: Number(env.AI_PARSER_TIMEOUT_MS || 30000),
+    opsReservationEventSecret: String(env.OPS_APP_RESERVATION_EVENT_SECRET || '').trim(),
+    supabaseUrl: String(env.SUPABASE_URL || '').trim(),
+    supabaseServiceRoleKey: String(env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
+    reservationEventTimestampToleranceMs: Number(env.OPS_APP_RESERVATION_EVENT_TIMESTAMP_TOLERANCE_MS || 5 * 60 * 1000)
   };
 }
 

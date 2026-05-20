@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:rentcar00_ops/app/router/app_routes.dart';
 import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
 
 class AdminHomePage extends ConsumerWidget {
@@ -24,8 +26,9 @@ class AdminHomePage extends ConsumerWidget {
               SizedBox(height: 14),
               _AdminMenuCard(
                 title: '직원관리',
-                description: '직원 목록, 직원 추가, 권한/활성 상태 관리',
+                description: '직원 목록, 아이디/비밀번호, 권한/활성 상태 관리',
                 icon: Icons.groups_2_outlined,
+                route: AppRoutes.adminStaff,
               ),
               _AdminMenuCard(
                 title: '차량관리',
@@ -134,11 +137,13 @@ class _AdminMenuCard extends StatelessWidget {
     required this.title,
     required this.description,
     required this.icon,
+    this.route,
   });
 
   final String title;
   final String description;
   final IconData icon;
+  final String? route;
 
   @override
   Widget build(BuildContext context) {
@@ -164,6 +169,11 @@ class _AdminMenuCard extends StatelessWidget {
         ),
         trailing: const Icon(Icons.chevron_right_rounded),
         onTap: () {
+          final targetRoute = route;
+          if (targetRoute != null) {
+            context.push(targetRoute);
+            return;
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('$title 기능은 다음 phase에서 연결합니다.')),
           );

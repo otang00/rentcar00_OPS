@@ -140,6 +140,14 @@ Future<void> _saveImsRegistrationResult({
         lastResultJson: result.resultJson,
         errorText: errorText,
       );
+  if (linked) {
+    await ref
+        .read(supabaseOpsRepositoryProvider)
+        .fillReservationNumberIfEmpty(
+          reservationId: reservationId,
+          reservationNumber: result.externalReservationId,
+        );
+  }
 }
 
 Future<void> _saveImsRegistrationFailure({
@@ -421,6 +429,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       builder: (context) => _ReservationCreateDialog(
         record: record,
         aiParserBaseUrl: appEnv.aiParserBaseUrl,
+        availableCars: [record],
       ),
     );
     if (form == null) return;
@@ -538,12 +547,37 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       context: context,
       builder: (context) => const _DispatchTypeDialog(),
     );
-    if (selectedStatus == null) return;
+    if (selectedStatus == null || !mounted) return;
 
     final carRowId = _extractRawRowId(record.recordId, 'car');
     if (carRowId == null) {
       _showError('차량 row id 를 찾지 못했습니다.');
       return;
+    }
+
+    if (selectedStatus == '보험') {
+      final appEnv = ref.read(appEnvProvider);
+      final records = await ref.read(allStatusBoardRecordsProvider.future);
+      if (!mounted) return;
+      final cars = records.where((item) => !item.isScheduleEntry).toList()
+        ..sort((a, b) => a.carNumber.compareTo(b.carNumber));
+      final imported = await showDialog<_InsuranceDispatchImportResult>(
+        context: context,
+        builder: (context) => _ImsInsuranceDispatchImportDialog(
+          aiParserBaseUrl: appEnv.aiParserBaseUrl,
+          cars: cars,
+          initialCarNumber: record.carNumber,
+          initialRentalDate: DateTime.now(),
+        ),
+      );
+      if (imported == null) return;
+      if (!imported.directInput && imported.candidate != null) {
+        await _applyInsuranceDispatchImport(
+          carRowId: carRowId,
+          candidate: imported.candidate!,
+        );
+        return;
+      }
     }
 
     final dispatchStartAt = DateTime.now();
@@ -578,6 +612,47 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       initialPickupLocation: '',
       initialParkingLocation: '',
     );
+  }
+
+  Future<void> _applyInsuranceDispatchImport({
+    required String carRowId,
+    required ImsInsuranceClaimImportCandidate candidate,
+  }) async {
+    final startAt = _tryParseDateTime(candidate.rentalAt) ?? DateTime.now();
+    final endAt = candidate.returnAt.trim().isEmpty
+        ? null
+        : _tryParseDateTime(candidate.returnAt);
+    final noteText = [
+      'IMS 보험배차 가져오기',
+      if (candidate.title.trim().isNotEmpty) candidate.title.trim(),
+      'claim:${candidate.claimId}',
+      if (candidate.status.trim().isNotEmpty) 'state:${candidate.status}',
+    ].join(' | ');
+
+    await _runAction(() async {
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .updateCarInstantStatus(
+            carRowId: carRowId,
+            status: '보험',
+            statusAction: _dispatchStatusAction('보험'),
+            customerName: candidate.customerName,
+            customerPhone: opsFormatPhoneInput(candidate.customerPhone),
+            startAt: startAt,
+            endAt: endAt,
+            pickupLocation: candidate.pickupLocation,
+            parkingLocation: '',
+            noteText: noteText,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'IMS 보험배차를 가져왔습니다. (${candidate.carNumber}, ${candidate.customerName})',
+          ),
+        ),
+      );
+    });
   }
 
   Future<void> _editVehicleStatus({
@@ -1469,7 +1544,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
       context: context,
       builder: (context) => _ImsReservationImportDialog(
         aiParserBaseUrl: widget.aiParserBaseUrl,
-        initialCustomerName: _customerNameController.text.trim(),
+        cars: widget.availableCars,
         initialCarNumber: _selectedCar?.carNumber ?? '',
         initialRentalDate: rentalAt,
       ),
@@ -1690,7 +1765,6 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                   _DialogTextField(
                     controller: _reservationNumberController,
                     label: '외부예약번호',
-                    validator: _requiredValidator,
                   ),
                   _DialogTextField(
                     controller: _customerNameController,
@@ -1904,13 +1978,13 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
 class _ImsReservationImportDialog extends StatefulWidget {
   const _ImsReservationImportDialog({
     required this.aiParserBaseUrl,
-    required this.initialCustomerName,
+    required this.cars,
     required this.initialCarNumber,
     required this.initialRentalDate,
   });
 
   final String aiParserBaseUrl;
-  final String initialCustomerName;
+  final List<StatusBoardRecord> cars;
   final String initialCarNumber;
   final DateTime initialRentalDate;
 
@@ -1921,20 +1995,16 @@ class _ImsReservationImportDialog extends StatefulWidget {
 
 class _ImsReservationImportDialogState
     extends State<_ImsReservationImportDialog> {
-  late final TextEditingController _customerNameController;
-  late final TextEditingController _carNumberController;
   late final TextEditingController _rentalDateController;
+  StatusBoardRecord? _selectedCar;
   bool _searching = false;
   List<ImsReservationImportCandidate> _items = const [];
-  String _message = '이름/차량번호/배차일로 IMS 예약을 조회합니다.';
+  String _message = '차량 선택 후 배차일로 IMS 예약을 조회합니다.';
 
   @override
   void initState() {
     super.initState();
-    _customerNameController = TextEditingController(
-      text: widget.initialCustomerName,
-    );
-    _carNumberController = TextEditingController(text: widget.initialCarNumber);
+    _selectedCar = _findInitialCar();
     _rentalDateController = TextEditingController(
       text: _formatDateOnly(widget.initialRentalDate),
     );
@@ -1942,10 +2012,31 @@ class _ImsReservationImportDialogState
 
   @override
   void dispose() {
-    _customerNameController.dispose();
-    _carNumberController.dispose();
     _rentalDateController.dispose();
     super.dispose();
+  }
+
+  StatusBoardRecord? _findInitialCar() {
+    final target = widget.initialCarNumber.trim();
+    if (target.isEmpty) return null;
+    for (final car in widget.cars) {
+      if (car.carNumber.trim() == target) return car;
+    }
+    return null;
+  }
+
+  Future<void> _selectCar() async {
+    final selected = await showDialog<StatusBoardRecord>(
+      context: context,
+      builder: (context) =>
+          _CarSelectDialog(cars: widget.cars, initialCar: _selectedCar),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _selectedCar = selected;
+      _items = const [];
+      _message = '선택 차량: ${selected.carNumber}';
+    });
   }
 
   Future<void> _pickDate() async {
@@ -1962,6 +2053,11 @@ class _ImsReservationImportDialogState
   }
 
   Future<void> _search() async {
+    final car = _selectedCar;
+    if (car == null) {
+      setState(() => _message = '먼저 차량번호 4자리 검색으로 차량을 선택해 주세요.');
+      return;
+    }
     final rentalDate = DateTime.tryParse(_rentalDateController.text.trim());
     if (rentalDate == null) {
       setState(() => _message = '배차일을 YYYY-MM-DD 형식으로 입력해 주세요.');
@@ -1975,8 +2071,7 @@ class _ImsReservationImportDialogState
     try {
       final client = ReservationAiParserClient(baseUrl: widget.aiParserBaseUrl);
       final items = await client.searchImsReservations(
-        customerName: _customerNameController.text,
-        carNumber: _carNumberController.text,
+        carNumber: car.carNumber,
         rentalDate: rentalDate,
       );
       if (!mounted) return;
@@ -1997,30 +2092,15 @@ class _ImsReservationImportDialogState
 
   @override
   Widget build(BuildContext context) {
+    final selectedCar = _selectedCar;
     return AlertDialog(
       title: const Text('IMS 예약 가져오기'),
       content: SizedBox(
-        width: 460,
+        width: 500,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _customerNameController,
-                    decoration: const InputDecoration(labelText: '이름'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _carNumberController,
-                    decoration: const InputDecoration(labelText: '차량번호'),
-                  ),
-                ),
-              ],
-            ),
+            _SelectedCarField(selectedCar: selectedCar, onSelect: _selectCar),
             const SizedBox(height: 8),
             TextField(
               controller: _rentalDateController,
@@ -2052,31 +2132,18 @@ class _ImsReservationImportDialogState
             Align(alignment: Alignment.centerLeft, child: Text(_message)),
             const SizedBox(height: 8),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 320),
+              constraints: const BoxConstraints(maxHeight: 360),
               child: _items.isEmpty
                   ? const SizedBox.shrink()
                   : ListView.separated(
                       shrinkWrap: true,
                       itemCount: _items.length,
                       separatorBuilder: (context, index) =>
-                          const Divider(height: 1),
+                          const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final item = _items[index];
-                        return ListTile(
-                          title: Text(
-                            '${item.customerName} · ${item.carNumber}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            [
-                              item.rentalAt,
-                              if (item.returnAt.trim().isNotEmpty)
-                                '~ ${item.returnAt}',
-                              'IMS ${item.scheduleId}/${item.detailId}',
-                            ].join('\n'),
-                          ),
-                          isThreeLine: true,
+                        return _ImsReservationCandidateCard(
+                          item: item,
                           onTap: () => Navigator.of(context).pop(item),
                         );
                       },
@@ -2098,6 +2165,373 @@ class _ImsReservationImportDialogState
 String _formatDateOnly(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${value.year}-${two(value.month)}-${two(value.day)}';
+}
+
+class _InsuranceDispatchImportResult {
+  const _InsuranceDispatchImportResult._({
+    required this.directInput,
+    this.candidate,
+  });
+
+  const _InsuranceDispatchImportResult.direct() : this._(directInput: true);
+
+  const _InsuranceDispatchImportResult.imported(
+    ImsInsuranceClaimImportCandidate candidate,
+  ) : this._(directInput: false, candidate: candidate);
+
+  final bool directInput;
+  final ImsInsuranceClaimImportCandidate? candidate;
+}
+
+class _ImsInsuranceDispatchImportDialog extends StatefulWidget {
+  const _ImsInsuranceDispatchImportDialog({
+    required this.aiParserBaseUrl,
+    required this.cars,
+    required this.initialCarNumber,
+    required this.initialRentalDate,
+  });
+
+  final String aiParserBaseUrl;
+  final List<StatusBoardRecord> cars;
+  final String initialCarNumber;
+  final DateTime initialRentalDate;
+
+  @override
+  State<_ImsInsuranceDispatchImportDialog> createState() =>
+      _ImsInsuranceDispatchImportDialogState();
+}
+
+class _ImsInsuranceDispatchImportDialogState
+    extends State<_ImsInsuranceDispatchImportDialog> {
+  late final TextEditingController _rentalDateController;
+  StatusBoardRecord? _selectedCar;
+  bool _searching = false;
+  List<ImsInsuranceClaimImportCandidate> _items = const [];
+  String _message = '차량 선택 후 대여일로 IMS 보험배차를 조회합니다.';
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCar = _findInitialCar();
+    _rentalDateController = TextEditingController(
+      text: _formatDateOnly(widget.initialRentalDate),
+    );
+  }
+
+  @override
+  void dispose() {
+    _rentalDateController.dispose();
+    super.dispose();
+  }
+
+  StatusBoardRecord? _findInitialCar() {
+    final target = widget.initialCarNumber.trim();
+    if (target.isEmpty) return null;
+    for (final car in widget.cars) {
+      if (car.carNumber.trim() == target) return car;
+    }
+    return null;
+  }
+
+  Future<void> _selectCar() async {
+    final selected = await showDialog<StatusBoardRecord>(
+      context: context,
+      builder: (context) =>
+          _CarSelectDialog(cars: widget.cars, initialCar: _selectedCar),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _selectedCar = selected;
+      _items = const [];
+      _message = '선택 차량: ${selected.carNumber}';
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final initial = DateTime.tryParse(_rentalDateController.text.trim()) ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _rentalDateController.text = _formatDateOnly(picked));
+  }
+
+  Future<void> _search() async {
+    final car = _selectedCar;
+    if (car == null) {
+      setState(() => _message = '먼저 차량번호 4자리 검색으로 차량을 선택해 주세요.');
+      return;
+    }
+    final rentalDate = DateTime.tryParse(_rentalDateController.text.trim());
+    if (rentalDate == null) {
+      setState(() => _message = '대여일을 YYYY-MM-DD 형식으로 입력해 주세요.');
+      return;
+    }
+    setState(() {
+      _searching = true;
+      _message = 'IMS 보험배차 조회 중입니다.';
+      _items = const [];
+    });
+    try {
+      final client = ReservationAiParserClient(baseUrl: widget.aiParserBaseUrl);
+      final items = await client.searchImsInsuranceClaims(
+        carNumber: car.carNumber,
+        rentalDate: rentalDate,
+      );
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _message = items.isEmpty ? '조회 결과가 없습니다.' : '${items.length}건 조회됨';
+      });
+    } on ReservationAiParserException catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.message);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _message = 'IMS 보험배차 조회 실패($error)');
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedCar = _selectedCar;
+    return AlertDialog(
+      title: const Text('IMS 보험배차 가져오기'),
+      content: SizedBox(
+        width: 500,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SelectedCarField(selectedCar: selectedCar, onSelect: _selectCar),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _rentalDateController,
+              decoration: InputDecoration(
+                labelText: '대여일',
+                hintText: '2026-05-19',
+                suffixIcon: IconButton(
+                  onPressed: _pickDate,
+                  icon: const Icon(Icons.calendar_today_outlined),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _searching ? null : _search,
+                    icon: _searching
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.search_outlined),
+                    label: const Text('조회'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(
+                    context,
+                  ).pop(const _InsuranceDispatchImportResult.direct()),
+                  child: const Text('직접입력'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Align(alignment: Alignment.centerLeft, child: Text(_message)),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: _items.isEmpty
+                  ? const SizedBox.shrink()
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _items.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final item = _items[index];
+                        return _ImsInsuranceClaimCandidateCard(
+                          item: item,
+                          onTap: () => Navigator.of(
+                            context,
+                          ).pop(_InsuranceDispatchImportResult.imported(item)),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+      ],
+    );
+  }
+}
+
+class _SelectedCarField extends StatelessWidget {
+  const _SelectedCarField({required this.selectedCar, required this.onSelect});
+
+  final StatusBoardRecord? selectedCar;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final car = selectedCar;
+    return InkWell(
+      onTap: onSelect,
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: '차량번호',
+          helperText: '차량번호 뒤 4자리로 검색 후 선택',
+          suffixIcon: Icon(Icons.search_outlined),
+        ),
+        child: Text(
+          car == null ? '차량 선택' : _carDisplayLabel(car),
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            fontWeight: car == null ? FontWeight.w500 : FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ImsReservationCandidateCard extends StatelessWidget {
+  const _ImsReservationCandidateCard({required this.item, required this.onTap});
+
+  final ImsReservationImportCandidate item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.carNumber.isEmpty ? '차량번호 없음' : item.carNumber,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                item.customerName.isEmpty ? '고객명 없음' : item.customerName,
+                style: TextStyle(color: colorScheme.primary),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                [
+                  item.rentalAt,
+                  if (item.returnAt.trim().isNotEmpty) '~ ${item.returnAt}',
+                ].join(' '),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                [
+                  'IMS ${item.scheduleId}/${item.detailId}',
+                  if (item.status.trim().isNotEmpty) item.status,
+                  if (item.detailStatus.trim().isNotEmpty) item.detailStatus,
+                ].join(' · '),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ImsInsuranceClaimCandidateCard extends StatelessWidget {
+  const _ImsInsuranceClaimCandidateCard({
+    required this.item,
+    required this.onTap,
+  });
+
+  final ImsInsuranceClaimImportCandidate item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.carNumber.isEmpty ? '차량번호 없음' : item.carNumber,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                item.customerName.isEmpty ? '고객명 없음' : item.customerName,
+                style: TextStyle(color: colorScheme.primary),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                [
+                  item.rentalAt,
+                  if (item.returnAt.trim().isNotEmpty) '~ ${item.returnAt}',
+                ].join(' '),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                [
+                  if (item.insuranceCompany.trim().isNotEmpty)
+                    item.insuranceCompany,
+                  if (item.claimUserName.trim().isNotEmpty) item.claimUserName,
+                  '보험계약 ${item.claimId}',
+                  if (item.status.trim().isNotEmpty) item.status,
+                ].join(' · '),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _DispatchTypeDialog extends StatelessWidget {

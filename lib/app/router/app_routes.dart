@@ -9,4 +9,5 @@ class AppRoutes {
   static const search = '/search';
   static const sync = '/sync';
   static const admin = '/admin';
+  static const adminStaff = '/admin/staff';
 }

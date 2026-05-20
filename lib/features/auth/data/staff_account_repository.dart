@@ -6,6 +6,10 @@ class StaffAccountRepository {
 
   final SupabaseClient _client;
 
+  Future<void> markCurrentStaffActivity() async {
+    await _client.rpc<void>('rc00_ops_mark_current_staff_activity');
+  }
+
   Future<StaffAccount?> fetchByAuthUserId(String authUserId) async {
     final row = await _client
         .from('rc00_ops_staff_accounts')
