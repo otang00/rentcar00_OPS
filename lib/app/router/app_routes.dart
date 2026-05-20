@@ -10,4 +10,5 @@ class AppRoutes {
   static const sync = '/sync';
   static const admin = '/admin';
   static const adminStaff = '/admin/staff';
+  static const adminVehicles = '/admin/vehicles';
 }

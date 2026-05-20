@@ -4,6 +4,7 @@ import 'package:rentcar00_ops/app/router/app_routes.dart';
 import 'package:rentcar00_ops/app/view/app_shell.dart';
 import 'package:rentcar00_ops/features/admin/presentation/admin_home_page.dart';
 import 'package:rentcar00_ops/features/admin/presentation/staff_management_page.dart';
+import 'package:rentcar00_ops/features/admin/presentation/vehicle_management_page.dart';
 import 'package:rentcar00_ops/features/auth/presentation/login_page.dart';
 import 'package:rentcar00_ops/features/auth/presentation/staff_access_gate.dart';
 import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
@@ -86,6 +87,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.adminStaff,
         builder: (context, state) =>
             const StaffAccessGate(child: StaffManagementPage()),
+      ),
+      GoRoute(
+        path: AppRoutes.adminVehicles,
+        builder: (context, state) =>
+            const StaffAccessGate(child: VehicleManagementPage()),
       ),
     ],
   );

@@ -5,6 +5,52 @@
 
 ---
 
+## 2026-05-20 — 관리자 차량관리 1차 구현
+### 사용자 표면
+- 관리자 홈의 `차량관리` 카드가 실제 차량관리 화면으로 연결된다.
+- 관리자만 차량 목록에 접근할 수 있다.
+- 차량번호/차종/상태/주차위치로 차량을 검색하고 카드형 목록에서 선택한다.
+- 차량 추가가 가능하며 차량번호는 필수, 상태 기본값은 `대기중`이다.
+- 차량 수정은 기본 영역과 `고급 컬럼 보기`로 분리했다.
+- 삭제는 수정 화면 하단 위험 영역에서 확인 후 실행한다.
+- b44 APK를 GDrive 최신 배포물로 업로드했다.
+
+### 실제 동작
+- 대상 테이블은 `rc00_ops_cars`다.
+- 기본 영역은 차량번호, 차종/차명, 상태, 주차위치, 등록일, 검사일, 연식만료일, 메모다.
+- 고급 영역은 세차/실내세차, 운행일시 raw/timestamp, 고객명/연락처, 배차지, 상태 action, 차량번호 앞/중/뒤, `payload_json`, 마지막 동기화일, 생성일/수정일을 포함한다.
+- `payload_json`은 JSON 형식 검증 후 저장한다.
+- 추가/수정/삭제 후 차량 목록 provider를 invalidate해 목록을 갱신한다.
+- 앱 build number는 `1.0.0+44`다.
+- GDrive `rentcar00_OPS/apk/`에는 최신 b44 APK 1개만 남겼다.
+
+### 핵심 파일
+- `lib/features/admin/presentation/admin_home_page.dart`
+- `lib/features/admin/presentation/vehicle_management_page.dart`
+- `lib/app/router/app_routes.dart`
+- `lib/app/router/app_router.dart`
+- `docs/current/rentcar00_OPS-current.md`
+- `docs/current/vehicle-management-plan.html`
+- `docs/completed/rentcar00_OPS-completed.md`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `git diff --check` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b44-966d066.apk` 1개만 존재
+- 운영 DB 테스트 차량 추가/수정/삭제 검증 통과:
+  - insert count `1`
+  - update count `1`
+  - delete 후 remaining count `0`
+
+### 1차 장애 확인 포인트
+1. 차량 삭제는 과거 예약/일정의 차량번호 기반 연결을 끊을 수 있다.
+2. 고급 컬럼 값 형식이 틀리면 상태보드 표시가 깨질 수 있다.
+3. `payload_json`은 JSON으로만 저장되며 잘못된 형식은 저장 전에 차단한다.
+
+---
+
 ## 2026-05-20 — b43 IMS 가져오기 차량선택/카드형 결과 UI 배포
 ### 사용자 표면
 - 일반예약/보험배차 IMS 가져오기에서 이름 입력을 제거했다.

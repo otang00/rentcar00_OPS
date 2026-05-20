@@ -32,8 +32,9 @@ class AdminHomePage extends ConsumerWidget {
               ),
               _AdminMenuCard(
                 title: '차량관리',
-                description: '차량 추가, 정보 변경, 삭제/비활성 처리',
+                description: '차량 추가, 전체 컬럼 수정, 삭제 관리',
                 icon: Icons.directions_car_filled_outlined,
+                route: AppRoutes.adminVehicles,
               ),
               _AdminMenuCard(
                 title: '작업로그',

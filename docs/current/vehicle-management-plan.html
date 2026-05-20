@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>차량관리 기능 구현 계획</title>
+  <style>
+    :root{--bg:#f6f7fb;--card:#fff;--text:#172033;--sub:#667085;--pri:#2563eb;--line:#e5e7eb;--warn:#fff7ed;--warnLine:#fed7aa;--warnText:#9a3412}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.wrap{max-width:720px;margin:0 auto;padding:22px 14px 44px}h1{font-size:24px;margin:0 0 8px}p{line-height:1.55}.lead{color:var(--sub);margin:0 0 16px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 6px 18px rgba(15,23,42,.05)}h2{font-size:18px;margin:0 0 10px}.phase h3{font-size:16px;margin:0 0 8px;color:#1d4ed8}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.chip{border:1px solid var(--line);border-radius:999px;padding:7px 10px;background:#fff;font-size:13px}.list{margin:8px 0 0;padding-left:20px}.list li{margin:5px 0;line-height:1.45}.warn{background:var(--warn);border-color:var(--warnLine);color:var(--warnText)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f1f5f9;border-radius:8px;padding:2px 6px}.ok{display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:800}.small{font-size:13px;color:var(--sub)}@media(max-width:560px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>차량관리 기능 구현 계획</h1>
+    <p class="lead">관리자 홈에서 차량 추가, 삭제, 전체 컬럼 조회/수정이 가능하도록 만드는 1차 구현 계획입니다. 승인 전에는 구현하지 않습니다.</p>
+
+    <section class="card">
+      <h2>목적</h2>
+      <p>관리자 홈 &gt; 차량관리에서 <b>차량 추가 / 삭제 / 모든 컬럼 조회·수정</b>을 가능하게 합니다.</p>
+      <p>대상 테이블: <span class="mono">rc00_ops_cars</span></p>
+    </section>
+
+    <section class="card">
+      <h2>접근 가능 컬럼 기준</h2>
+      <div class="grid">
+        <div class="chip">car_number</div><div class="chip">car_name</div>
+        <div class="chip">status</div><div class="chip">status_action</div>
+        <div class="chip">car_wash</div><div class="chip">interior_wash</div>
+        <div class="chip">start_at / end_at</div><div class="chip">start_at_ts / end_at_ts</div>
+        <div class="chip">customer_name</div><div class="chip">customer_phone</div>
+        <div class="chip">pickup_location</div><div class="chip">parking_location</div>
+        <div class="chip">note_text</div><div class="chip">car_registered_at</div>
+        <div class="chip">car_inspection_at</div><div class="chip">car_age_expiry_at</div>
+        <div class="chip">car_number_front</div><div class="chip">car_number_middle</div>
+        <div class="chip">car_number_rear</div><div class="chip">payload_json</div>
+        </div>
+      <p class="small">실제 현재 스키마 기준 source/import 계열 컬럼은 제거된 상태입니다. 생성/수정일 등 시스템 성격 컬럼은 고급 영역과 경고를 붙입니다.</p>
+    </section>
+
+    <section class="card phase">
+      <h3>Phase 1. 실제 DB 스키마 확정</h3>
+      <ul class="list">
+        <li><span class="mono">rc00_ops_cars</span> 실제 컬럼, nullable, default, RLS 확인</li>
+        <li>앱에서 일반 영역 / 고급 영역으로 나눌 컬럼 분류</li>
+        <li>삭제 시 예약/일정 연결 영향 확인</li>
+      </ul>
+      <p><span class="ok">종료 조건</span> 앱 노출 컬럼과 위험 컬럼 분류 완료</p>
+    </section>
+
+    <section class="card phase">
+      <h3>Phase 2. 차량관리 목록 화면</h3>
+      <ul class="list">
+        <li>관리자 홈 차량관리 카드에 route 연결</li>
+        <li>차량 목록 카드형 표시</li>
+        <li>검색: 차량번호, 차종, 상태, 주차위치</li>
+        <li>관리자만 접근 가능</li>
+      </ul>
+      <p><span class="ok">종료 조건</span> 관리자 홈에서 차량관리 목록 진입 가능</p>
+    </section>
+
+    <section class="card phase">
+      <h3>Phase 3. 차량 추가</h3>
+      <ul class="list">
+        <li>새 차량 row 생성</li>
+        <li>필수값: 차량번호</li>
+        <li>차량번호 중복 방지</li>
+        <li>나머지 컬럼은 선택 입력</li>
+      </ul>
+      <p><span class="ok">종료 조건</span> 추가 후 목록 자동 갱신</p>
+    </section>
+
+    <section class="card phase">
+      <h3>Phase 4. 차량 수정</h3>
+      <ul class="list">
+        <li>운영 컬럼 전체 수정 가능</li>
+        <li>날짜/상태/세차/위치/고객/메모 수정</li>
+        <li><span class="mono">payload_json</span>은 JSON 입력 검증 후 저장</li>
+        <li>source/import 계열은 고급 영역에서 수정</li>
+      </ul>
+      <p><span class="ok">종료 조건</span> 저장 후 DB 반영 및 목록 갱신</p>
+    </section>
+
+    <section class="card phase">
+      <h3>Phase 5. 차량 삭제</h3>
+      <ul class="list">
+        <li>관리자만 삭제 가능</li>
+        <li>삭제 전 확인 다이얼로그</li>
+        <li>예약/일정 연결 가능성 경고 표시</li>
+        <li>요청 범위상 실제 delete 버튼 제공</li>
+      </ul>
+      <p><span class="ok">종료 조건</span> 삭제 후 목록에서 제거</p>
+    </section>
+
+    <section class="card phase">
+      <h3>Phase 6. 검증 / 문서 / 커밋</h3>
+      <ul class="list">
+        <li><span class="mono">flutter analyze</span></li>
+        <li><span class="mono">flutter test</span></li>
+        <li>current/completed 문서 업데이트</li>
+        <li>검증 통과 후 커밋</li>
+      </ul>
+    </section>
+
+    <section class="card warn">
+      <h2>주의 리스크</h2>
+      <ul class="list">
+        <li>차량 삭제는 과거 예약/일정 표시와 연결이 끊길 수 있습니다.</li>
+        <li>생성일/수정일/payload_json 같은 시스템 성격 컬럼 수정은 추적성을 깨뜨릴 수 있습니다.</li>
+        <li>그래서 모든 컬럼 접근은 제공하되, 위험 컬럼은 고급 영역과 경고로 분리합니다.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
