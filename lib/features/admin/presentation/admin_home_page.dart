@@ -40,6 +40,7 @@ class AdminHomePage extends ConsumerWidget {
                 title: '작업로그',
                 description: '누가 언제 어떤 작업을 했는지 확인',
                 icon: Icons.manage_search_outlined,
+                route: AppRoutes.adminActionLogs,
               ),
               _AdminMenuCard(
                 title: '출근확인',

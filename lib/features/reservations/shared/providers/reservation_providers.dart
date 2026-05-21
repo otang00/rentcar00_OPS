@@ -176,13 +176,18 @@ final reservationActionsProvider =
       });
     });
 
-final actionLogsProvider =
-    Provider.family<AsyncValue<List<ActionLogEntry>>, String>((
-      ref,
-      reservationId,
-    ) {
-      return const AsyncValue.data([]);
-    });
+final actionLogsProvider = FutureProvider.family<List<ActionLogEntry>, String>((
+  ref,
+  reservationId,
+) {
+  return ref
+      .watch(supabaseOpsRepositoryProvider)
+      .fetchActionLogs(reservationId: reservationId, limit: 50);
+});
+
+final allActionLogsProvider = FutureProvider<List<ActionLogEntry>>((ref) {
+  return ref.watch(supabaseOpsRepositoryProvider).fetchActionLogs(limit: 200);
+});
 
 final outboxPreviewProvider = Provider.family<AsyncValue<List<String>>, String>(
   (ref, reservationId) {

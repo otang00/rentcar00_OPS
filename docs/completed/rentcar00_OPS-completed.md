@@ -5,6 +5,43 @@
 
 ---
 
+## 2026-05-21 — 직원 액션 로그 1차
+### 사용자 표면
+- 직원들이 예약/차량/일정/직원관리에서 수행한 주요 변경 액션을 기록한다.
+- 관리자 메뉴의 `작업로그`에서 누가 언제 무엇을 했는지 최신순으로 확인한다.
+- 예약 상세의 `업무 로그`에서 해당 예약 관련 변경 이력을 확인한다.
+
+### 실제 동작
+- `rc00_ops_action_logs`를 예약 전용 구조에서 직원 감사 로그 구조로 확장했다.
+- 예약 생성/수정/차량변경/취소, 배차완료/반납완료, 차량 상태/주차/세차/수리/관리정보 변경, 일정 생성/수정/삭제, 직원 정보/비밀번호 변경을 로그로 남긴다.
+- 로그에는 현재 로그인 직원의 `login_id/display_name`, 액션명, 대상, 차량번호/예약번호, 메시지, 시간, 결과 상태를 저장한다.
+- 로그 저장 실패는 원 업무를 막지 않도록 처리했다.
+
+### 핵심 파일
+- `supabase/migrations/20260521105500_expand_action_logs_for_staff_audit.sql`
+- `lib/data/models/action_log_entry.dart`
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/admin/data/admin_staff_repository.dart`
+- `lib/features/admin/presentation/action_log_page.dart`
+- `lib/features/admin/presentation/admin_home_page.dart`
+- `lib/app/router/app_routes.dart`
+- `lib/app/router/app_router.dart`
+- `lib/features/reservations/shared/providers/reservation_providers.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+
+### 검증
+- `supabase db push`로 운영 DB migration 적용
+- REST insert/delete schema smoke test 통과
+- `flutter analyze` 통과
+- `flutter test` 통과
+
+### 1차 장애 확인 포인트
+1. 과거에 이미 끝난 작업은 retroactive 로그가 없고, 적용 이후 액션부터 기록된다.
+2. 로그 저장 실패는 운영 액션을 막지 않으므로, 로그 누락이 의심되면 `rc00_ops_action_logs`와 RLS/스키마를 먼저 확인한다.
+3. 1차는 최신순 전체 로그 중심이며, 직원/액션 필터는 다음 phase에서 확장 가능하다.
+
+---
+
 ## 2026-05-21 — OPS 1차 실전 투입 전 문서 정리
 ### 사용자 표면
 - OPS는 1차 실전 투입 가능한 상태로 정리했다.

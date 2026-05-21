@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+import 'package:rentcar00_ops/data/models/action_log_entry.dart';
 import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
@@ -16,6 +18,136 @@ class SupabaseOpsRepository {
   final SupabaseClient _client;
 
   SupabaseClient get client => _client;
+
+  Future<List<ActionLogEntry>> fetchActionLogs({
+    String? reservationId,
+    int limit = 100,
+  }) async {
+    final normalizedReservationId = reservationId?.trim() ?? '';
+    var query = _client.from('rc00_ops_action_logs').select();
+    if (normalizedReservationId.isNotEmpty) {
+      query = query.eq('reservation_id', normalizedReservationId);
+    }
+    final rows = await query.order('created_at', ascending: false).limit(limit);
+    return rows.map<ActionLogEntry>(ActionLogEntry.fromJson).toList();
+  }
+
+  Future<void> recordActionLog({
+    required String actionKey,
+    required String label,
+    String targetType = 'system',
+    String? targetRef,
+    String? reservationId,
+    String? reservationRefId,
+    String? reservationNumber,
+    String? carNumber,
+    String messageText = '',
+    String resultStatus = 'success',
+    Map<String, dynamic> metaJson = const {},
+  }) async {
+    try {
+      final normalizedReservationId = reservationId?.trim() ?? '';
+      var normalizedReservationRefId = reservationRefId?.trim() ?? '';
+      var normalizedReservationNumber = reservationNumber?.trim() ?? '';
+      var normalizedCarNumber = carNumber?.trim() ?? '';
+
+      if (normalizedReservationId.isNotEmpty &&
+          (normalizedReservationRefId.isEmpty ||
+              normalizedReservationNumber.isEmpty ||
+              normalizedCarNumber.isEmpty)) {
+        final row = await _client
+            .from('rc00_ops_reservations')
+            .select('id, reservation_number, car_number')
+            .eq('reservation_id', normalizedReservationId)
+            .maybeSingle();
+        normalizedReservationRefId = normalizedReservationRefId.isEmpty
+            ? (row?['id']?.toString() ?? '')
+            : normalizedReservationRefId;
+        normalizedReservationNumber = normalizedReservationNumber.isEmpty
+            ? (row?['reservation_number']?.toString().trim() ?? '')
+            : normalizedReservationNumber;
+        normalizedCarNumber = normalizedCarNumber.isEmpty
+            ? (row?['car_number']?.toString().trim() ?? '')
+            : normalizedCarNumber;
+      }
+
+      final normalizedTargetType = targetType.trim().isEmpty
+          ? 'system'
+          : targetType.trim();
+      final normalizedTargetRef = targetRef?.trim() ?? '';
+      if (normalizedCarNumber.isEmpty &&
+          normalizedTargetType == 'car' &&
+          normalizedTargetRef.isNotEmpty) {
+        final row = await _client
+            .from('rc00_ops_cars')
+            .select('car_number')
+            .eq('id', normalizedTargetRef)
+            .maybeSingle();
+        normalizedCarNumber = row?['car_number']?.toString().trim() ?? '';
+      }
+      if (normalizedCarNumber.isEmpty &&
+          normalizedTargetType == 'schedule' &&
+          normalizedTargetRef.isNotEmpty) {
+        final row = await _client
+            .from('rc00_ops_schedules')
+            .select('reservation_id, reservation_number, car_number')
+            .eq('id', normalizedTargetRef)
+            .maybeSingle();
+        normalizedCarNumber = row?['car_number']?.toString().trim() ?? '';
+        normalizedReservationNumber = normalizedReservationNumber.isEmpty
+            ? (row?['reservation_number']?.toString().trim() ?? '')
+            : normalizedReservationNumber;
+      }
+
+      final actor = await _currentActionActor();
+      await _client.from('rc00_ops_action_logs').insert({
+        'reservation_id': normalizedReservationId.isEmpty
+            ? null
+            : normalizedReservationId,
+        'reservation_ref_id': normalizedReservationRefId.isEmpty
+            ? null
+            : normalizedReservationRefId,
+        'reservation_number': normalizedReservationNumber.isEmpty
+            ? null
+            : normalizedReservationNumber,
+        'car_number': normalizedCarNumber.isEmpty ? null : normalizedCarNumber,
+        'target_type': normalizedTargetType,
+        'target_ref': normalizedTargetRef.isNotEmpty
+            ? normalizedTargetRef
+            : (normalizedReservationId.isNotEmpty
+                  ? normalizedReservationId
+                  : null),
+        'action_key': actionKey.trim(),
+        'action_label': label.trim(),
+        'actor_id': actor.id,
+        'actor_name': actor.name,
+        'message_text': messageText.trim(),
+        'result_status': resultStatus.trim().isEmpty
+            ? 'success'
+            : resultStatus.trim(),
+        'meta_json': metaJson,
+      });
+    } catch (error) {
+      debugPrint('action log failed: $error');
+    }
+  }
+
+  Future<_ActionActor> _currentActionActor() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return const _ActionActor(id: 'unknown', name: '미확인');
+
+    final row = await _client
+        .from('rc00_ops_staff_accounts')
+        .select('login_id, display_name')
+        .eq('auth_user_id', user.id)
+        .maybeSingle();
+    final loginId = row?['login_id']?.toString().trim() ?? user.id;
+    final displayName = row?['display_name']?.toString().trim() ?? '';
+    return _ActionActor(
+      id: loginId,
+      name: displayName.isEmpty ? loginId : displayName,
+    );
+  }
 
   Future<String> createReservationFromVehicle({
     required StatusBoardRecord car,
@@ -144,6 +276,18 @@ class SupabaseOpsRepository {
       },
     ]);
 
+    await recordActionLog(
+      actionKey: 'reservation.create',
+      label: '예약 생성',
+      targetType: 'reservation',
+      reservationId: reservationId,
+      reservationRefId: reservationRefId,
+      reservationNumber: normalizedReservationNumber,
+      carNumber: car.carNumber,
+      messageText: '예약원장과 배차/반납 일정을 생성',
+      metaJson: {'created_via': createdVia},
+    );
+
     return reservationId;
   }
 
@@ -177,6 +321,15 @@ class SupabaseOpsRepository {
         })
         .eq('reservation_id', normalizedReservationId)
         .inFilter('schedule_type', ['배차', '반납']);
+
+    await recordActionLog(
+      actionKey: 'reservation.vehicle_change',
+      label: '예약 차량변경',
+      targetType: 'reservation',
+      reservationId: normalizedReservationId,
+      carNumber: normalizedCarNumber,
+      messageText: '차량을 $normalizedCarNumber로 변경',
+    );
   }
 
   Future<List<Map<String, dynamic>>> fetchReservationVehicleOverlaps({
@@ -339,6 +492,17 @@ class SupabaseOpsRepository {
           'updated_at': now,
         })
         .eq('reservation_id', normalizedReservationId);
+
+    await recordActionLog(
+      actionKey: 'reservation.update',
+      label: '예약 정보수정',
+      targetType: 'reservation',
+      reservationId: normalizedReservationId,
+      reservationNumber: normalizedReservationNumber,
+      carNumber: null,
+      messageText: '예약 기본정보/일정을 수정',
+      metaJson: {'tab_key': recalculatedTabKey},
+    );
   }
 
   Future<void> fillReservationNumberIfEmpty({
@@ -513,6 +677,19 @@ class SupabaseOpsRepository {
           'note_text': noteText.trim(),
         })
         .eq('id', carRowId);
+
+    await recordActionLog(
+      actionKey: 'car.status_update',
+      label: '차량 상태수정',
+      targetType: 'car',
+      targetRef: carRowId,
+      messageText: '$status / $statusAction',
+      metaJson: {
+        'status': status,
+        'status_action': statusAction,
+        'customer_name': customerName.trim(),
+      },
+    );
   }
 
   Future<void> completeCarReturn({required String carRowId}) async {
@@ -526,6 +703,14 @@ class SupabaseOpsRepository {
           'parking_location': '수푸레',
         })
         .eq('id', carRowId);
+
+    await recordActionLog(
+      actionKey: 'car.return_complete',
+      label: '차량 반납완료',
+      targetType: 'car',
+      targetRef: carRowId,
+      messageText: '대기중 전환, 세차 상태 초기화',
+    );
   }
 
   Future<void> markCarUnderRepair({
@@ -540,6 +725,14 @@ class SupabaseOpsRepository {
           'parking_location': factoryName.trim(),
         })
         .eq('id', carRowId);
+
+    await recordActionLog(
+      actionKey: 'car.repair_start',
+      label: '차량 수리중',
+      targetType: 'car',
+      targetRef: carRowId,
+      messageText: factoryName.trim(),
+    );
   }
 
   Future<void> completeCarRepair({required String carRowId}) async {
@@ -547,6 +740,14 @@ class SupabaseOpsRepository {
         .from('rc00_ops_cars')
         .update({'status': '대기중', 'status_action': '수리완료'})
         .eq('id', carRowId);
+
+    await recordActionLog(
+      actionKey: 'car.repair_complete',
+      label: '차량 수리완료',
+      targetType: 'car',
+      targetRef: carRowId,
+      messageText: '대기중 전환',
+    );
   }
 
   Future<void> createScheduleOnly({
@@ -579,6 +780,16 @@ class SupabaseOpsRepository {
         'status': normalizedScheduleType,
       },
     });
+
+    await recordActionLog(
+      actionKey: 'schedule.create',
+      label: '일정 생성',
+      targetType: 'schedule',
+      carNumber: normalizedCarNumber,
+      messageText:
+          '$normalizedScheduleType / ${_formatDisplayDateTime(scheduleAt)}',
+      metaJson: {'location_text': normalizedLocationText},
+    );
   }
 
   Future<void> updateSchedule({
@@ -616,6 +827,17 @@ class SupabaseOpsRepository {
       scheduleAt: scheduleAt,
       locationText: locationText,
     );
+
+    await recordActionLog(
+      actionKey: 'schedule.update',
+      label: '일정 수정',
+      targetType: 'schedule',
+      targetRef: scheduleRowId,
+      reservationId: reservationId,
+      carNumber: carNumber,
+      messageText:
+          '$normalizedScheduleType / ${_formatDisplayDateTime(scheduleAt)}',
+    );
   }
 
   Future<void> updateLinkedScheduleTime({
@@ -644,6 +866,16 @@ class SupabaseOpsRepository {
       scheduleAt: scheduleAt,
       locationText: '',
       syncLocation: false,
+    );
+
+    await recordActionLog(
+      actionKey: 'schedule.time_update',
+      label: '일정 시간수정',
+      targetType: 'schedule',
+      targetRef: scheduleRowId,
+      reservationId: reservationId,
+      messageText:
+          '$normalizedScheduleType / ${_formatDisplayDateTime(scheduleAt)}',
     );
   }
 
@@ -683,6 +915,15 @@ class SupabaseOpsRepository {
       if (normalizedCarNumber.isNotEmpty) {
         await _resetCarAfterReturnByNumber(normalizedCarNumber);
       }
+      await recordActionLog(
+        actionKey: 'schedule.complete_return',
+        label: '반납완료',
+        targetType: 'reservation',
+        targetRef: scheduleRowId,
+        reservationId: normalizedReservationId,
+        carNumber: normalizedCarNumber,
+        messageText: '반납 일정 완료 + 차량 대기중 전환',
+      );
       return;
     }
 
@@ -725,6 +966,16 @@ class SupabaseOpsRepository {
         .from('rc00_ops_cars')
         .update(updatePayload)
         .eq('car_number', normalizedCarNumber);
+
+    await recordActionLog(
+      actionKey: 'schedule.complete_dispatch',
+      label: '배차완료',
+      targetType: 'reservation',
+      targetRef: scheduleRowId,
+      reservationId: normalizedReservationId,
+      carNumber: normalizedCarNumber,
+      messageText: '배차 일정 완료 + 차량 일반 전환',
+    );
   }
 
   Future<void> _syncReservationFromScheduleEdit({
@@ -822,10 +1073,25 @@ class SupabaseOpsRepository {
         })
         .eq('reservation_id', normalizedReservationId)
         .inFilter('schedule_type', ['배차', '반납']);
+
+    await recordActionLog(
+      actionKey: 'reservation.cancel',
+      label: '예약취소',
+      targetType: 'reservation',
+      reservationId: normalizedReservationId,
+      messageText: '예약취소 및 연결 일정 취소 처리',
+    );
   }
 
   Future<void> deleteSchedule({required String scheduleRowId}) async {
     await _client.from('rc00_ops_schedules').delete().eq('id', scheduleRowId);
+    await recordActionLog(
+      actionKey: 'schedule.delete',
+      label: '일정 삭제',
+      targetType: 'schedule',
+      targetRef: scheduleRowId,
+      messageText: '일정 row 삭제',
+    );
   }
 
   Future<void> updateParkingLocation({
@@ -839,6 +1105,14 @@ class SupabaseOpsRepository {
           'status_action': '주차',
         })
         .eq('id', carRowId);
+
+    await recordActionLog(
+      actionKey: 'car.parking_update',
+      label: '주차지 변경',
+      targetType: 'car',
+      targetRef: carRowId,
+      messageText: parkingLocation.trim(),
+    );
   }
 
   Future<void> updateCarManagementInfo({
@@ -853,6 +1127,14 @@ class SupabaseOpsRepository {
           'car_age_expiry_at': carAgeExpiryAt.trim(),
         })
         .eq('id', carRowId);
+
+    await recordActionLog(
+      actionKey: 'car.management_update',
+      label: '차량 관리정보 수정',
+      targetType: 'car',
+      targetRef: carRowId,
+      messageText: '검사/만기 정보 수정',
+    );
   }
 
   Future<void> setCarWashFlag({
@@ -866,6 +1148,14 @@ class SupabaseOpsRepository {
           interior ? 'interior_wash' : 'car_wash': active ? 'TRUE' : 'FALSE',
         })
         .eq('id', carRowId);
+
+    await recordActionLog(
+      actionKey: interior ? 'car.interior_wash_update' : 'car.wash_update',
+      label: interior ? '실내세차 체크' : '세차 체크',
+      targetType: 'car',
+      targetRef: carRowId,
+      messageText: active ? 'TRUE' : 'FALSE',
+    );
   }
 
   Future<void> markHomepageReservationReviewed({
@@ -890,6 +1180,14 @@ class SupabaseOpsRepository {
           'last_action_at': DateTime.now().toIso8601String(),
         })
         .eq('reservation_id', reservationId);
+
+    await recordActionLog(
+      actionKey: 'reservation.homepage_review',
+      label: '홈페이지 예약확인',
+      targetType: 'reservation',
+      reservationId: reservationId,
+      messageText: '홈페이지 예약 확인 완료',
+    );
   }
 
   Future<List<ReservationRecord>> fetchReservations() async {
@@ -1427,4 +1725,11 @@ class _ReservationScheduleState {
 
   final bool dispatchPending;
   final bool returnPending;
+}
+
+class _ActionActor {
+  const _ActionActor({required this.id, required this.name});
+
+  final String id;
+  final String name;
 }

@@ -71,6 +71,7 @@ class _ReservationDetailBodyState
             reservationId: reservation.reservationId,
           );
       ref.invalidate(allReservationsProvider);
+      ref.invalidate(actionLogsProvider(widget.reservationId));
       if (!mounted) return;
       _showSnack(
         '홈페이지 예약 확인 완료 처리했습니다.',
@@ -113,6 +114,7 @@ class _ReservationDetailBodyState
           );
       ref.invalidate(allReservationsProvider);
       ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(actionLogsProvider(widget.reservationId));
       ref.invalidate(
         externalReservationLinkProvider(reservation.reservationId),
       );
@@ -272,6 +274,7 @@ class _ReservationDetailBodyState
           );
       ref.invalidate(allReservationsProvider);
       ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(actionLogsProvider(widget.reservationId));
       if (!mounted) return;
       _showSnack(
         '차량을 ${selectedCar.carNumber}로 변경했습니다.',
@@ -413,6 +416,7 @@ class _ReservationDetailBodyState
       ref.invalidate(allReservationsProvider);
       ref.invalidate(allStatusBoardRecordsProvider);
       ref.invalidate(reservationDetailProvider(widget.reservationId));
+      ref.invalidate(actionLogsProvider(widget.reservationId));
       ref.invalidate(externalReservationLinkProvider(widget.reservationId));
 
       if (!mounted) return;
@@ -511,6 +515,7 @@ class _ReservationDetailBodyState
       ref.invalidate(allReservationsProvider);
       ref.invalidate(allStatusBoardRecordsProvider);
       ref.invalidate(reservationDetailProvider(widget.reservationId));
+      ref.invalidate(actionLogsProvider(widget.reservationId));
       ref.invalidate(externalReservationLinkProvider(widget.reservationId));
 
       if (!mounted) return;
@@ -1129,7 +1134,7 @@ class _ReservationDetailBodyState
                         contentPadding: EdgeInsets.zero,
                         title: Text(log.label),
                         subtitle: Text(
-                          '${_formatDateTime(log.executedAt)} · ${log.note}',
+                          '${_formatDateTime(log.executedAt)} · ${log.actorDisplayName} · ${log.note}',
                         ),
                       ),
                   ],

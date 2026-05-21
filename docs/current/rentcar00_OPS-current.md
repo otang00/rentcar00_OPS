@@ -8,12 +8,12 @@
 ---
 
 ## 현재 active 작업
-**OPS 1차 실전 투입 준비 완료 / 신규 개발 active 없음**
+**직원 액션 로그 기능 1차 구현 중**
 
 ## 현재 기준점
 - repository: `rentcar00_OPS`
 - branch: `main`
-- 현재 HEAD: `2aaa2a4 Document OPS go-live readiness`
+- 현재 HEAD: 이 문서 포함 최신 커밋 기준
 - 앱 버전/build: `1.0.0+48`
 - 최신 APK 파일명 기준: `rentcar00_ops-app-release-arm64-b48-4ae2374.apk`
 - GDrive `rentcar00_OPS/apk/`에는 최신 APK 1개만 유지한다.
@@ -63,6 +63,13 @@
 - 공통 helper: `lib/shared/utils/ops_kst_datetime.dart`
 - 검증: `flutter analyze`, `flutter test`, `flutter build apk --release --target-platform android-arm64` 통과.
 
+
+### 8. 직원 액션 로그 1차
+- DB `rc00_ops_action_logs`를 예약 전용에서 직원 감사 로그용으로 확장했다.
+- 예약/차량/일정/직원관리 주요 변경 액션은 현재 로그인 직원 기준으로 기록한다.
+- 관리자 > 작업로그에서 최신 작업 이력을 확인한다.
+- 예약 상세에서도 해당 예약의 업무 로그를 확인한다.
+
 ### 7. 운영 DB 정리
 - 차량번호 오기 `141호4780 → 142호4780`을 차량/예약/일정 연결 기준으로 정리했다.
 - 신규 차량 2대 추가 완료:
@@ -80,6 +87,7 @@
 - staff 계정에서 관리자 화면 접근 차단 확인.
 
 ### 예약/차량 운영
+- 작업로그 화면에서 직원별 주요 변경 이력이 보이는지 확인.
 - 예약판 배차대기 시간이 한국시간 기준으로 표시되는지 확인.
 - 일반예약 생성/수정/취소 흐름 확인.
 - 차량상세 상태수정, 즉시배차, 연관일정 표시 확인.
