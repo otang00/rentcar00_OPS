@@ -16,6 +16,7 @@ import 'package:rentcar00_ops/features/status_board/shared/presentation/schedule
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
 import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
+import 'package:rentcar00_ops/shared/utils/map_launcher.dart';
 import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 const _parkingLocationOptions = [
@@ -1128,8 +1129,16 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                 _FieldBlock(label: '고객번호', value: record.customerPhone),
                 _FieldBlock(label: '대여일', value: record.startAt),
                 _FieldBlock(label: '반납일', value: record.endAt),
-                _FieldBlock(label: '배차지', value: record.pickupLocation),
-                _FieldBlock(label: '주차지', value: record.parkingLocation),
+                _FieldBlock(
+                  label: '배차지',
+                  value: record.pickupLocation,
+                  mapSearchValue: record.pickupLocation,
+                ),
+                _FieldBlock(
+                  label: '주차지',
+                  value: record.parkingLocation,
+                  mapSearchValue: record.parkingLocation,
+                ),
               ],
             ),
           ),
@@ -3793,7 +3802,11 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                   emphasize: true,
                 ),
                 _FieldBlock(label: '차종', value: record.carName),
-                _FieldBlock(label: '위치', value: record.locationSummary),
+                _FieldBlock(
+                  label: '위치',
+                  value: record.locationSummary,
+                  mapSearchValue: record.locationSummary,
+                ),
                 _FieldBlock(
                   label: '상세정보',
                   value: record.detailText,
@@ -4022,43 +4035,71 @@ class _FieldBlock extends StatelessWidget {
     required this.value,
     this.emphasize = false,
     this.multiline = false,
+    this.mapSearchValue,
   });
 
   final String label;
   final String value;
   final bool emphasize;
   final bool multiline;
+  final String? mapSearchValue;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final display = value.isEmpty ? '-' : value;
+    final searchValue = mapSearchValue?.trim() ?? '';
+    final mappable = hasMappableAddress(searchValue);
+    final textStyle = (emphasize ? textTheme.titleMedium : textTheme.bodyLarge)
+        ?.copyWith(
+          color: mappable ? colorScheme.primary : null,
+          decoration: mappable ? TextDecoration.underline : null,
+          fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+          height: 1.3,
+        );
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: textTheme.labelMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+      child: InkWell(
+        onTap: mappable
+            ? () => tryLaunchNaverMapSearch(context, searchValue)
+            : null,
+        borderRadius: BorderRadius.circular(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: textTheme.labelMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            display,
-            maxLines: multiline ? null : 2,
-            overflow: multiline ? null : TextOverflow.ellipsis,
-            style: (emphasize ? textTheme.titleMedium : textTheme.bodyLarge)
-                ?.copyWith(
-                  fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
-                  height: 1.3,
+            const SizedBox(height: 5),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    display,
+                    maxLines: multiline ? null : 2,
+                    overflow: multiline ? null : TextOverflow.ellipsis,
+                    style: textStyle,
+                  ),
                 ),
-          ),
-        ],
+                if (mappable) ...[
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.map_outlined,
+                    size: 18,
+                    color: colorScheme.primary,
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

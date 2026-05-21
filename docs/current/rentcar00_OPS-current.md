@@ -73,6 +73,7 @@
 - 핵심 구독 대상은 `rc00_ops_reservations`, `rc00_ops_reservation_states`, `rc00_ops_schedules`, `rc00_ops_cars`다.
 - 로그 테이블 realtime은 메인 화면 과다 갱신 방지를 위해 이번 phase에서 제외했다.
 - 앱 복귀 시 핵심 provider를 1회 갱신한다.
+- 예약상세/차량상세/일정상세의 주소값은 네이버지도 검색 링크로 열 수 있다.
 
 ### 8. 직원 액션 로그 1차
 - DB `rc00_ops_action_logs`를 예약 전용에서 직원 감사 로그용으로 확장했다.

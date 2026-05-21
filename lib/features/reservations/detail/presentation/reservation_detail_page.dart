@@ -13,6 +13,7 @@ import 'package:rentcar00_ops/features/reservations/shared/providers/reservation
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
 import 'package:rentcar00_ops/shared/utils/contact_launcher.dart';
+import 'package:rentcar00_ops/shared/utils/map_launcher.dart';
 import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 class ReservationDetailPage extends ConsumerWidget {
@@ -1126,10 +1127,12 @@ class _ReservationDetailBodyState
                     _DetailField(
                       label: '배차지',
                       value: reservation.locationSummary,
+                      mapSearchValue: reservation.locationSummary,
                     ),
                     _DetailField(
                       label: '반납지',
                       value: reservation.dropoffLocation,
+                      mapSearchValue: reservation.dropoffLocation,
                     ),
                   ],
                 ),
@@ -2126,41 +2129,69 @@ class _DetailField extends StatelessWidget {
     required this.label,
     required this.value,
     this.emphasize = false,
+    this.mapSearchValue,
   });
 
   final String label;
   final String value;
   final bool emphasize;
+  final String? mapSearchValue;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
+    final searchValue = mapSearchValue?.trim() ?? '';
+    final mappable = hasMappableAddress(searchValue);
+    final textStyle = (emphasize ? textTheme.titleMedium : textTheme.bodyLarge)
+        ?.copyWith(
+          color: mappable ? colorScheme.primary : null,
+          decoration: mappable ? TextDecoration.underline : null,
+          fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+          height: 1.3,
+        );
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: textTheme.labelMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+      child: InkWell(
+        onTap: mappable
+            ? () => tryLaunchNaverMapSearch(context, searchValue)
+            : null,
+        borderRadius: BorderRadius.circular(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: textTheme.labelMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            _displayValue(value),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: (emphasize ? textTheme.titleMedium : textTheme.bodyLarge)
-                ?.copyWith(
-                  fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
-                  height: 1.3,
+            const SizedBox(height: 5),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    _displayValue(value),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: textStyle,
+                  ),
                 ),
-          ),
-        ],
+                if (mappable) ...[
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.map_outlined,
+                    size: 18,
+                    color: colorScheme.primary,
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

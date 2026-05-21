@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-05-21 — 주소값 네이버지도 검색 링크 1차
+### 사용자 표면
+- 예약상세 운행 정보의 `배차지`, `반납지` 주소값을 탭하면 네이버지도 검색을 연다.
+- 차량상세 운행 정보의 `배차지`, `주차지` 주소값을 탭하면 네이버지도 검색을 연다.
+- 일정상세 일정 정보의 `위치` 주소값을 탭하면 네이버지도 검색을 연다.
+- 주소값은 파란색 밑줄과 지도 아이콘으로 탭 가능 상태를 표시한다.
+
+### 실제 동작
+- 좌표/지오코딩 없이 주소 문자열 그대로 네이버지도 앱 검색 딥링크를 호출한다.
+- 네이버지도 앱 호출 실패 시 네이버지도 웹 검색으로 fallback한다.
+- 빈 주소값은 링크 처리하지 않는다.
+
+### 핵심 파일
+- `lib/shared/utils/map_launcher.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- `git diff --check` 통과
+
+### 남은 확인
+- Android 실기기에서 네이버지도 설치 상태로 주소 탭 → 앱 검색 이동 확인.
+- 네이버지도 미설치 상태에서는 웹 fallback 확인.
+
+---
+
 ## 2026-05-21 — Realtime 로그인 후 재구독 보강
 ### 사용자 표면
 - 로그인 이후 핵심 realtime 구독을 다시 붙여 자동 새로고침 누락 가능성을 줄였다.
