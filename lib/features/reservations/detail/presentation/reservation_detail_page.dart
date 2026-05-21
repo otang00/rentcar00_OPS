@@ -841,6 +841,7 @@ class _ReservationDetailBodyState
         final isCancelled = reservation.statusKey.trim() == '예약취소';
 
         return RefreshIndicator(
+          triggerMode: RefreshIndicatorTriggerMode.anywhere,
           onRefresh: () async {
             ref.invalidate(allReservationsProvider);
             ref.invalidate(allStatusBoardRecordsProvider);

@@ -22,6 +22,7 @@ class ActionLogPage extends ConsumerWidget {
           }
 
           return RefreshIndicator(
+            triggerMode: RefreshIndicatorTriggerMode.anywhere,
             onRefresh: () async {
               ref.invalidate(allActionLogsProvider);
               await ref.read(allActionLogsProvider.future);

@@ -30,6 +30,7 @@ class StaffManagementPage extends ConsumerWidget {
                 return const Center(child: Text('등록된 직원 계정이 없습니다.'));
               }
               return RefreshIndicator(
+                triggerMode: RefreshIndicatorTriggerMode.anywhere,
                 onRefresh: () async {
                   ref.invalidate(adminStaffAccountsProvider);
                   await ref.read(adminStaffAccountsProvider.future);

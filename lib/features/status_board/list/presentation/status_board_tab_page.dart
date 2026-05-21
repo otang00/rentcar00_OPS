@@ -20,6 +20,7 @@ class StatusBoardTabPage extends ConsumerWidget {
       data: (items) {
         final sortedItems = _sortItems(tab, items);
         return RefreshIndicator(
+          triggerMode: RefreshIndicatorTriggerMode.anywhere,
           onRefresh: () async {
             ref.invalidate(allStatusBoardRecordsProvider);
             await ref.read(allStatusBoardRecordsProvider.future);

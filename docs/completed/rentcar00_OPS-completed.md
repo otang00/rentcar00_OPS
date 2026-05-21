@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-05-21 — 어디서든 당겨서 새로고침
+### 사용자 표면
+- 새로고침 가능한 모든 화면에서 맨 위까지 가지 않아도 아래로 당기면 새로고침이 걸린다.
+- 작업로그는 realtime 대상에서 제외하고 수동 새로고침만 유지한다.
+
+### 실제 동작
+- 모든 `RefreshIndicator`에 `RefreshIndicatorTriggerMode.anywhere`를 적용했다.
+- 적용 대상은 예약/현황판/검색/예약상세/차량상세/일정상세/관리자 직원·차량·작업로그 화면이다.
+
+### 핵심 파일
+- `lib/features/reservations/list/presentation/reservation_tab_page.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/features/search/presentation/search_page.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/admin/presentation/action_log_page.dart`
+- `lib/features/admin/presentation/staff_management_page.dart`
+- `lib/features/admin/presentation/vehicle_management_page.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. 화면 안쪽에서 당기는 제스처가 카드/스크롤 동작과 충돌하지 않는지 실기기에서 확인한다.
+2. 작업로그는 수동 새로고침만 적용되어 있다.
+
+---
+
 ## 2026-05-21 — 수동 새로고침 + 핵심 Realtime 1차
 ### 사용자 표면
 - 예약 탭, 현황판 탭, 검색, 예약상세, 차량/일정 상세에서 당겨서 새로고침할 수 있다.

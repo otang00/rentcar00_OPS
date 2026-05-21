@@ -928,6 +928,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     final hasPhone = hasCallablePhone(record.customerPhone);
 
     return RefreshIndicator(
+      triggerMode: RefreshIndicatorTriggerMode.anywhere,
       onRefresh: () async {
         ref.invalidate(allStatusBoardRecordsProvider);
         ref.invalidate(allReservationsProvider);
@@ -3667,6 +3668,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
     final hasPhone = hasCallablePhone(record.customerPhone);
 
     return RefreshIndicator(
+      triggerMode: RefreshIndicatorTriggerMode.anywhere,
       onRefresh: () async {
         ref.invalidate(allStatusBoardRecordsProvider);
         ref.invalidate(allReservationsProvider);

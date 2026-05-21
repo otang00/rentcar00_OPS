@@ -13,6 +13,7 @@ class SearchPage extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('완료/검색')),
       body: RefreshIndicator(
+        triggerMode: RefreshIndicatorTriggerMode.anywhere,
         onRefresh: () async {
           ref.invalidate(allReservationsProvider);
           await ref.read(allReservationsProvider.future);

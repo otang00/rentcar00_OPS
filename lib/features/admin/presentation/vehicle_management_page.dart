@@ -108,6 +108,7 @@ class _VehicleManagementPageState extends ConsumerState<VehicleManagementPage> {
             data: (rows) {
               final filtered = _filterRows(rows);
               return RefreshIndicator(
+                triggerMode: RefreshIndicatorTriggerMode.anywhere,
                 onRefresh: () async =>
                     ref.invalidate(_adminVehicleRowsProvider),
                 child: ListView(

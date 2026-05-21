@@ -18,6 +18,7 @@ class ReservationTabPage extends ConsumerWidget {
     return itemsAsync.when(
       data: (items) {
         return RefreshIndicator(
+          triggerMode: RefreshIndicatorTriggerMode.anywhere,
           onRefresh: () async {
             ref.invalidate(allReservationsProvider);
             await ref.read(allReservationsProvider.future);

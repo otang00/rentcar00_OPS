@@ -66,6 +66,7 @@
 
 
 ### 9. 수동 새로고침 + 핵심 Realtime 1차
+- 새로고침 가능한 화면은 `anywhere` 당겨서 새로고침 기준이다.
 - 예약 탭, 현황판 탭, 검색, 예약상세, 차량/일정 상세에 당겨서 새로고침을 추가했다.
 - 앱 전역 `OpsRealtimeRefreshBridge`에서 핵심 테이블 변경을 구독한다.
 - 핵심 구독 대상은 `rc00_ops_reservations`, `rc00_ops_reservation_states`, `rc00_ops_schedules`, `rc00_ops_cars`다.
