@@ -13,7 +13,7 @@
 ## 현재 기준점
 - repository: `rentcar00_OPS`
 - branch: `main`
-- 현재 HEAD: `cd3ba6e Release b48 KST time handling`
+- 현재 HEAD: `2aaa2a4 Document OPS go-live readiness`
 - 앱 버전/build: `1.0.0+48`
 - 최신 APK 파일명 기준: `rentcar00_ops-app-release-arm64-b48-4ae2374.apk`
 - GDrive `rentcar00_OPS/apk/`에는 최신 APK 1개만 유지한다.

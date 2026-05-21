@@ -13,6 +13,7 @@
 
 ### 실제 동작
 - `docs/current/rentcar00_OPS-current.md`를 완료 기능 묶음, 실전 투입 전 체크리스트, 현재 리스크, 다음 작업 후보 중심으로 재정리했다.
+- `docs/current/`에는 active 문서 1개만 남기고, 완료된 HTML 계획/목업 2개는 `docs/past/snapshots-current-2026-05-21/`로 이동했다.
 - 완료된 세부 기능은 이 completed 문서에 유지하고, current에는 운영 기준점만 남겼다.
 - 최근 운영 DB 정리 내역을 문서화했다.
   - 차량번호 오기 `141호4780 → 142호4780`을 예약/일정 연결까지 정리했다.
@@ -23,10 +24,13 @@
 ### 핵심 파일
 - `docs/current/rentcar00_OPS-current.md`
 - `docs/completed/rentcar00_OPS-completed.md`
+- `docs/README.md`
+- `docs/past/snapshots-current-2026-05-21/vehicle-management-plan.html`
+- `docs/past/snapshots-current-2026-05-21/vehicle-detail-related-schedule-ui-mock.html`
 
 ### 검증
 - 문서 직접 점검
-- `git diff --check` 통과 예정
+- `git diff --check` 통과
 
 ### 1차 장애 확인 포인트
 1. b48 APK 실기기 확인 전까지는 배포물 준비/업로드 완료 상태로 본다.

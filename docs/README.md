@@ -29,6 +29,8 @@
   - 교체된 current 스냅샷 묶음
 - `snapshots-current-2026-05-15/`
   - raw 재구성 실행문서 스냅샷
+- `snapshots-current-2026-05-21/`
+  - 완료된 차량관리/차량상세 UI HTML 계획·목업 보관
 - `roadmap-archives-2026-05-14/`
   - 완료된 roadmap archive
 - `legacy-setup/`
