@@ -8,7 +8,7 @@
 ---
 
 ## 현재 active 작업
-**직원 액션 로그 기능 1차 구현 중**
+**수동 새로고침 + 핵심 Realtime 반영 1차 구현 중**
 
 ## 현재 기준점
 - repository: `rentcar00_OPS`
@@ -64,6 +64,14 @@
 - 검증: `flutter analyze`, `flutter test`, `flutter build apk --release --target-platform android-arm64` 통과.
 
 
+
+### 9. 수동 새로고침 + 핵심 Realtime 1차
+- 예약 탭, 현황판 탭, 검색, 예약상세, 차량/일정 상세에 당겨서 새로고침을 추가했다.
+- 앱 전역 `OpsRealtimeRefreshBridge`에서 핵심 테이블 변경을 구독한다.
+- 핵심 구독 대상은 `rc00_ops_reservations`, `rc00_ops_reservation_states`, `rc00_ops_schedules`, `rc00_ops_cars`다.
+- 로그 테이블 realtime은 메인 화면 과다 갱신 방지를 위해 이번 phase에서 제외했다.
+- 앱 복귀 시 핵심 provider를 1회 갱신한다.
+
 ### 8. 직원 액션 로그 1차
 - DB `rc00_ops_action_logs`를 예약 전용에서 직원 감사 로그용으로 확장했다.
 - 예약/차량/일정/직원관리 주요 변경 액션은 현재 로그인 직원 기준으로 기록한다.
@@ -87,6 +95,8 @@
 - staff 계정에서 관리자 화면 접근 차단 확인.
 
 ### 예약/차량 운영
+- Realtime 연결 상태에서 다른 직원 변경이 자동 반영되는지 확인.
+- 네트워크 복귀 후 당겨서 새로고침으로 수동 복구되는지 확인.
 - 작업로그 화면에서 직원별 주요 변경 이력이 보이는지 확인.
 - 예약판 배차대기 시간이 한국시간 기준으로 표시되는지 확인.
 - 일반예약 생성/수정/취소 흐름 확인.

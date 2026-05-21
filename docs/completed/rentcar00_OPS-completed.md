@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-05-21 — 수동 새로고침 + 핵심 Realtime 1차
+### 사용자 표면
+- 예약 탭, 현황판 탭, 검색, 예약상세, 차량/일정 상세에서 당겨서 새로고침할 수 있다.
+- 예약/차량/일정 핵심 데이터가 다른 기기에서 변경되면 앱이 자동으로 다시 불러온다.
+- 앱이 백그라운드에서 복귀할 때도 핵심 데이터를 한 번 갱신한다.
+
+### 실제 동작
+- `RefreshIndicator`를 메인 운영 화면과 주요 상세 화면에 추가했다.
+- `OpsRealtimeRefreshBridge`를 앱 전역에 두고 Supabase realtime postgres changes를 구독한다.
+- 구독 대상은 `rc00_ops_reservations`, `rc00_ops_reservation_states`, `rc00_ops_schedules`, `rc00_ops_cars`로 제한했다.
+- 이벤트 수신 시 450ms debounce 후 예약/현황판 provider를 invalidate한다.
+- `rc00_ops_action_logs`는 메인 화면 과다 갱신 방지를 위해 이번 phase에서 제외했다.
+- Supabase realtime publication에 핵심 4개 테이블을 추가하는 migration을 적용했다.
+
+### 핵심 파일
+- `lib/shared/realtime/ops_realtime_refresh_bridge.dart`
+- `lib/app/app.dart`
+- `lib/features/reservations/list/presentation/reservation_tab_page.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/features/search/presentation/search_page.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `supabase/migrations/20260521114000_enable_core_realtime_publication.sql`
+
+### 검증
+- `supabase db push`로 realtime publication migration 적용
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. Realtime은 네트워크/앱 백그라운드 상태에 영향을 받으므로 수동 새로고침을 항상 유지한다.
+2. 이번 phase에서는 로그 realtime을 제외했다. 작업로그 자동 반영은 다음 phase에서 별도로 붙인다.
+3. 실제 다기기 자동 반영은 APK 설치 후 운영 계정 2개 이상으로 현장 확인이 필요하다.
+
+---
+
 ## 2026-05-21 — 직원 액션 로그 1차
 ### 사용자 표면
 - 직원들이 예약/차량/일정/직원관리에서 수행한 주요 변경 액션을 기록한다.

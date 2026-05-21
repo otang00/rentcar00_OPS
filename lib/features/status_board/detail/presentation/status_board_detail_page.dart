@@ -927,253 +927,271 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     final inServiceActions = _isInServiceStatus(record.status);
     final hasPhone = hasCallablePhone(record.customerPhone);
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
-      children: [
-        Text(
-          record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
-          style: textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.4,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          record.carName.isEmpty ? '차종 미확인' : record.carName,
-          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            record.status.isEmpty
-                ? record.tab.label
-                : '${record.tab.label} · ${record.status}',
-            style: textTheme.titleSmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+    return RefreshIndicator(
+      onRefresh: () async {
+        ref.invalidate(allStatusBoardRecordsProvider);
+        ref.invalidate(allReservationsProvider);
+        ref.invalidate(statusBoardDetailProvider(widget.recordId));
+        ref.invalidate(relatedSchedulesProvider(widget.recordId));
+        await Future.wait([
+          ref.read(allStatusBoardRecordsProvider.future),
+          ref.read(allReservationsProvider.future),
+        ]);
+      },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+        children: [
+          Text(
+            record.carNumber.isEmpty ? '(차량번호없음)' : record.carNumber,
+            style: textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.4,
             ),
           ),
-        ),
-        const SizedBox(height: 14),
-        if (_submitting) ...[
-          const LinearProgressIndicator(),
-          const SizedBox(height: 10),
-        ],
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 4,
-          crossAxisSpacing: 6,
-          mainAxisSpacing: 6,
-          childAspectRatio: 1.05,
-          children: [
-            if (!repairActions)
-              _ActionChipButton(
-                label: '예약',
-                icon: Icons.add_card_rounded,
-                emphasis: _ActionChipEmphasis.primary,
-                expand: true,
-                onPressed: _submitting ? null : _createReservation,
-              ),
-            _ActionChipButton(
-              label: '수정',
-              icon: Icons.edit_outlined,
-              expand: true,
-              onPressed: _submitting ? null : _editVehicleStatus,
+          const SizedBox(height: 6),
+          Text(
+            record.carName.isEmpty ? '차종 미확인' : record.carName,
+            style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(10),
             ),
-            if (idleActions) ...[
-              _ActionChipButton(
-                label: '배차',
-                icon: Icons.directions_car_filled_outlined,
-                emphasis: _ActionChipEmphasis.primary,
-                expand: true,
-                onPressed: _submitting ? null : _openDispatchStatus,
+            child: Text(
+              record.status.isEmpty
+                  ? record.tab.label
+                  : '${record.tab.label} · ${record.status}',
+              style: textTheme.titleSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
               ),
-              _ActionChipButton(
-                label: '수리중',
-                icon: Icons.build_circle_outlined,
-                expand: true,
-                onPressed: _submitting ? null : _markUnderRepair,
-              ),
-            ],
-            if (repairActions)
-              _ActionChipButton(
-                label: '수리완료',
-                icon: Icons.task_alt_rounded,
-                emphasis: _ActionChipEmphasis.primary,
-                expand: true,
-                onPressed: _submitting ? null : _completeRepair,
-              ),
-            if (inServiceActions)
-              _ActionChipButton(
-                label: '반납',
-                icon: Icons.assignment_return_outlined,
-                emphasis: _ActionChipEmphasis.primary,
-                expand: true,
-                onPressed: _submitting ? null : _completeReturn,
-              ),
-            if (inServiceActions && hasPhone)
-              _ActionChipButton(
-                label: '전화',
-                icon: Icons.call_outlined,
-                expand: true,
-                onPressed: _submitting
-                    ? null
-                    : () => tryLaunchPhoneCall(context, record.customerPhone),
-              ),
-            if (inServiceActions && hasPhone)
-              _ActionChipButton(
-                label: '문자',
-                icon: Icons.sms_outlined,
-                expand: true,
-                onPressed: _submitting
-                    ? null
-                    : () => tryLaunchSms(context, record.customerPhone),
-              ),
-            if (idleActions)
-              _ActionChipButton(
-                label: '세차',
-                icon: _isTruthy(record.carWash)
-                    ? Icons.local_car_wash_rounded
-                    : Icons.local_car_wash_outlined,
-                active:
-                    _isTruthy(record.carWash) || _isTruthy(record.interiorWash),
-                expand: true,
-                onPressed: _submitting ? null : _openWashChoice,
-              ),
-            if (idleActions)
-              _ActionChipButton(
-                label: '주차',
-                icon: Icons.local_parking_outlined,
-                expand: true,
-                onPressed: _submitting ? null : _editParking,
-              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (_submitting) ...[
+            const LinearProgressIndicator(),
+            const SizedBox(height: 10),
           ],
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '연관일정',
-          trailing: relatedSchedulesAsync.valueOrNull == null
-              ? null
-              : Text(
-                  '${relatedSchedulesAsync.valueOrNull!.length}건',
-                  style: textTheme.labelMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w800,
-                  ),
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 4,
+            crossAxisSpacing: 6,
+            mainAxisSpacing: 6,
+            childAspectRatio: 1.05,
+            children: [
+              if (!repairActions)
+                _ActionChipButton(
+                  label: '예약',
+                  icon: Icons.add_card_rounded,
+                  emphasis: _ActionChipEmphasis.primary,
+                  expand: true,
+                  onPressed: _submitting ? null : _createReservation,
                 ),
-          child: relatedSchedulesAsync.when(
-            data: (items) {
-              if (items.isEmpty) {
-                return const Text('연결된 일정이 없습니다.');
-              }
-              final sortedItems = [...items]
-                ..sort((a, b) {
-                  final aAt = a.sortAt;
-                  final bAt = b.sortAt;
-                  if (aAt == null && bAt == null) return 0;
-                  if (aAt == null) return 1;
-                  if (bAt == null) return -1;
-                  return aAt.compareTo(bAt);
-                });
-              return Column(
-                children: [
-                  for (var index = 0; index < sortedItems.length; index++)
-                    Padding(
-                      padding: EdgeInsets.only(
-                        bottom: index == sortedItems.length - 1 ? 0 : 7,
-                      ),
-                      child: _RelatedScheduleCompactCard(
-                        item: sortedItems[index],
-                        emphasize: index == 0,
-                      ),
+              _ActionChipButton(
+                label: '수정',
+                icon: Icons.edit_outlined,
+                expand: true,
+                onPressed: _submitting ? null : _editVehicleStatus,
+              ),
+              if (idleActions) ...[
+                _ActionChipButton(
+                  label: '배차',
+                  icon: Icons.directions_car_filled_outlined,
+                  emphasis: _ActionChipEmphasis.primary,
+                  expand: true,
+                  onPressed: _submitting ? null : _openDispatchStatus,
+                ),
+                _ActionChipButton(
+                  label: '수리중',
+                  icon: Icons.build_circle_outlined,
+                  expand: true,
+                  onPressed: _submitting ? null : _markUnderRepair,
+                ),
+              ],
+              if (repairActions)
+                _ActionChipButton(
+                  label: '수리완료',
+                  icon: Icons.task_alt_rounded,
+                  emphasis: _ActionChipEmphasis.primary,
+                  expand: true,
+                  onPressed: _submitting ? null : _completeRepair,
+                ),
+              if (inServiceActions)
+                _ActionChipButton(
+                  label: '반납',
+                  icon: Icons.assignment_return_outlined,
+                  emphasis: _ActionChipEmphasis.primary,
+                  expand: true,
+                  onPressed: _submitting ? null : _completeReturn,
+                ),
+              if (inServiceActions && hasPhone)
+                _ActionChipButton(
+                  label: '전화',
+                  icon: Icons.call_outlined,
+                  expand: true,
+                  onPressed: _submitting
+                      ? null
+                      : () => tryLaunchPhoneCall(context, record.customerPhone),
+                ),
+              if (inServiceActions && hasPhone)
+                _ActionChipButton(
+                  label: '문자',
+                  icon: Icons.sms_outlined,
+                  expand: true,
+                  onPressed: _submitting
+                      ? null
+                      : () => tryLaunchSms(context, record.customerPhone),
+                ),
+              if (idleActions)
+                _ActionChipButton(
+                  label: '세차',
+                  icon: _isTruthy(record.carWash)
+                      ? Icons.local_car_wash_rounded
+                      : Icons.local_car_wash_outlined,
+                  active:
+                      _isTruthy(record.carWash) ||
+                      _isTruthy(record.interiorWash),
+                  expand: true,
+                  onPressed: _submitting ? null : _openWashChoice,
+                ),
+              if (idleActions)
+                _ActionChipButton(
+                  label: '주차',
+                  icon: Icons.local_parking_outlined,
+                  expand: true,
+                  onPressed: _submitting ? null : _editParking,
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: '연관일정',
+            trailing: relatedSchedulesAsync.valueOrNull == null
+                ? null
+                : Text(
+                    '${relatedSchedulesAsync.valueOrNull!.length}건',
+                    style: textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w800,
                     ),
-                ],
-              );
-            },
-            loading: () => const LinearProgressIndicator(),
-            error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
+                  ),
+            child: relatedSchedulesAsync.when(
+              data: (items) {
+                if (items.isEmpty) {
+                  return const Text('연결된 일정이 없습니다.');
+                }
+                final sortedItems = [...items]
+                  ..sort((a, b) {
+                    final aAt = a.sortAt;
+                    final bAt = b.sortAt;
+                    if (aAt == null && bAt == null) return 0;
+                    if (aAt == null) return 1;
+                    if (bAt == null) return -1;
+                    return aAt.compareTo(bAt);
+                  });
+                return Column(
+                  children: [
+                    for (var index = 0; index < sortedItems.length; index++)
+                      Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index == sortedItems.length - 1 ? 0 : 7,
+                        ),
+                        child: _RelatedScheduleCompactCard(
+                          item: sortedItems[index],
+                          emphasize: index == 0,
+                        ),
+                      ),
+                  ],
+                );
+              },
+              loading: () => const LinearProgressIndicator(),
+              error: (error, stack) => Text('일정 정보를 불러오지 못했습니다.\n$error'),
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '운행 정보',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(
-                label: '임차인',
-                value: record.customerName,
-                emphasize: true,
-              ),
-              _FieldBlock(label: '고객번호', value: record.customerPhone),
-              _FieldBlock(label: '대여일', value: record.startAt),
-              _FieldBlock(label: '반납일', value: record.endAt),
-              _FieldBlock(label: '배차지', value: record.pickupLocation),
-              _FieldBlock(label: '주차지', value: record.parkingLocation),
-            ],
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: '운행 정보',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _FieldBlock(
+                  label: '임차인',
+                  value: record.customerName,
+                  emphasize: true,
+                ),
+                _FieldBlock(label: '고객번호', value: record.customerPhone),
+                _FieldBlock(label: '대여일', value: record.startAt),
+                _FieldBlock(label: '반납일', value: record.endAt),
+                _FieldBlock(label: '배차지', value: record.pickupLocation),
+                _FieldBlock(label: '주차지', value: record.parkingLocation),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '차량 관리 정보',
-          trailing: TextButton.icon(
-            onPressed: _submitting ? null : _editCarManagementInfo,
-            icon: const Icon(Icons.edit_outlined, size: 18),
-            label: const Text('수정'),
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: '차량 관리 정보',
+            trailing: TextButton.icon(
+              onPressed: _submitting ? null : _editCarManagementInfo,
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('수정'),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _FieldBlock(label: '세차', value: record.carWash),
+                _FieldBlock(label: '실내세차', value: record.interiorWash),
+                _FieldBlock(label: '차량등록일', value: record.carRegisteredAt),
+                _FieldBlock(label: '차량검사일', value: record.carInspectionAt),
+                _FieldBlock(label: '차령만료일', value: record.carAgeExpiryAt),
+              ],
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(label: '세차', value: record.carWash),
-              _FieldBlock(label: '실내세차', value: record.interiorWash),
-              _FieldBlock(label: '차량등록일', value: record.carRegisteredAt),
-              _FieldBlock(label: '차량검사일', value: record.carInspectionAt),
-              _FieldBlock(label: '차령만료일', value: record.carAgeExpiryAt),
-            ],
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: '차량 번호 세부',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _FieldBlock(
+                  label: '차량번호(앞)',
+                  value: record.carNumberFront,
+                  emphasize: true,
+                ),
+                _FieldBlock(
+                  label: '차량번호(중)',
+                  value: record.carNumberMiddle,
+                  emphasize: true,
+                ),
+                _FieldBlock(
+                  label: '차량번호(네자리)',
+                  value: record.carNumberRear,
+                  emphasize: true,
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '차량 번호 세부',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(
-                label: '차량번호(앞)',
-                value: record.carNumberFront,
-                emphasize: true,
-              ),
-              _FieldBlock(
-                label: '차량번호(중)',
-                value: record.carNumberMiddle,
-                emphasize: true,
-              ),
-              _FieldBlock(
-                label: '차량번호(네자리)',
-                value: record.carNumberRear,
-                emphasize: true,
-              ),
-            ],
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: '메모 / 상태',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _FieldBlock(label: '상태액션', value: record.statusAction),
+                _FieldBlock(
+                  label: '비고',
+                  value: record.noteText,
+                  multiline: true,
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '메모 / 상태',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(label: '상태액션', value: record.statusAction),
-              _FieldBlock(label: '비고', value: record.noteText, multiline: true),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -3648,154 +3666,166 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
     final textTheme = Theme.of(context).textTheme;
     final hasPhone = hasCallablePhone(record.customerPhone);
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-      children: [
-        Text(
-          record.scheduleType.isEmpty ? '일정 디테일' : record.scheduleType,
-          style: textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.4,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          record.timeLabel.isEmpty ? '-' : record.timeLabel,
-          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            record.carNumber.isEmpty ? '차량번호 미확인' : record.carNumber,
-            style: textTheme.headlineSmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
+    return RefreshIndicator(
+      onRefresh: () async {
+        ref.invalidate(allStatusBoardRecordsProvider);
+        ref.invalidate(allReservationsProvider);
+        ref.invalidate(statusBoardDetailProvider(record.recordId));
+        await Future.wait([
+          ref.read(allStatusBoardRecordsProvider.future),
+          ref.read(allReservationsProvider.future),
+        ]);
+      },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        children: [
+          Text(
+            record.scheduleType.isEmpty ? '일정 디테일' : record.scheduleType,
+            style: textTheme.headlineMedium?.copyWith(
               fontWeight: FontWeight.w900,
-              letterSpacing: -0.2,
+              letterSpacing: -0.4,
             ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '기능',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_submitting) ...[
-                const LinearProgressIndicator(),
-                const SizedBox(height: 12),
-              ],
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 4,
-                crossAxisSpacing: 6,
-                mainAxisSpacing: 6,
-                childAspectRatio: 1.05,
-                children: [
-                  _ActionChipButton(
-                    label: '완료',
-                    icon: Icons.task_alt_outlined,
-                    emphasis: _ActionChipEmphasis.primary,
-                    expand: true,
-                    onPressed: _submitting ? null : _completeSchedule,
-                  ),
-                  _ActionChipButton(
-                    label: '수정',
-                    icon: Icons.edit_outlined,
-                    expand: true,
-                    onPressed: _submitting ? null : _editSchedule,
-                  ),
-                  if (hasPhone)
-                    _ActionChipButton(
-                      label: '전화',
-                      icon: Icons.call_outlined,
-                      expand: true,
-                      onPressed: _submitting
-                          ? null
-                          : () => tryLaunchPhoneCall(
-                              context,
-                              record.customerPhone,
-                            ),
-                    ),
-                  if (hasPhone)
-                    _ActionChipButton(
-                      label: '문자',
-                      icon: Icons.sms_outlined,
-                      expand: true,
-                      onPressed: _submitting
-                          ? null
-                          : () => tryLaunchSms(context, record.customerPhone),
-                    ),
-                  _ActionChipButton(
-                    label: '삭제',
-                    icon: Icons.delete_outline,
-                    emphasis: _ActionChipEmphasis.danger,
-                    expand: true,
-                    onPressed: _submitting ? null : _deleteSchedule,
-                  ),
+          const SizedBox(height: 6),
+          Text(
+            record.timeLabel.isEmpty ? '-' : record.timeLabel,
+            style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              record.carNumber.isEmpty ? '차량번호 미확인' : record.carNumber,
+              style: textTheme.headlineSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: '기능',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_submitting) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 12),
                 ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '일정 정보',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _FieldBlock(
-                label: '일정번호',
-                value: record.scheduleId,
-                emphasize: true,
-              ),
-              _FieldBlock(label: '일정유형', value: record.scheduleType),
-              _FieldBlock(label: '일정시각', value: record.startAt),
-              _FieldBlock(
-                label: '차량번호',
-                value: record.carNumber,
-                emphasize: true,
-              ),
-              _FieldBlock(label: '차종', value: record.carName),
-              _FieldBlock(label: '위치', value: record.locationSummary),
-              _FieldBlock(
-                label: '상세정보',
-                value: record.detailText,
-                multiline: true,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionCard(
-          title: '예약 연결',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (record.reservationId.isNotEmpty)
-                _LinkedFieldBlock(
-                  label: '예약ID',
-                  value: record.reservationId,
-                  enabled: true,
-                  onTap: () => context.push(
-                    AppRoutes.reservationDetail.replaceFirst(
-                      ':reservationId',
-                      Uri.encodeComponent(record.reservationId),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 4,
+                  crossAxisSpacing: 6,
+                  mainAxisSpacing: 6,
+                  childAspectRatio: 1.05,
+                  children: [
+                    _ActionChipButton(
+                      label: '완료',
+                      icon: Icons.task_alt_outlined,
+                      emphasis: _ActionChipEmphasis.primary,
+                      expand: true,
+                      onPressed: _submitting ? null : _completeSchedule,
                     ),
-                  ),
-                )
-              else
-                const _FieldBlock(label: '예약ID', value: '연결된 예약 없음'),
-              _FieldBlock(label: '외부예약번호', value: record.reservationNumber),
-            ],
+                    _ActionChipButton(
+                      label: '수정',
+                      icon: Icons.edit_outlined,
+                      expand: true,
+                      onPressed: _submitting ? null : _editSchedule,
+                    ),
+                    if (hasPhone)
+                      _ActionChipButton(
+                        label: '전화',
+                        icon: Icons.call_outlined,
+                        expand: true,
+                        onPressed: _submitting
+                            ? null
+                            : () => tryLaunchPhoneCall(
+                                context,
+                                record.customerPhone,
+                              ),
+                      ),
+                    if (hasPhone)
+                      _ActionChipButton(
+                        label: '문자',
+                        icon: Icons.sms_outlined,
+                        expand: true,
+                        onPressed: _submitting
+                            ? null
+                            : () => tryLaunchSms(context, record.customerPhone),
+                      ),
+                    _ActionChipButton(
+                      label: '삭제',
+                      icon: Icons.delete_outline,
+                      emphasis: _ActionChipEmphasis.danger,
+                      expand: true,
+                      onPressed: _submitting ? null : _deleteSchedule,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: '일정 정보',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _FieldBlock(
+                  label: '일정번호',
+                  value: record.scheduleId,
+                  emphasize: true,
+                ),
+                _FieldBlock(label: '일정유형', value: record.scheduleType),
+                _FieldBlock(label: '일정시각', value: record.startAt),
+                _FieldBlock(
+                  label: '차량번호',
+                  value: record.carNumber,
+                  emphasize: true,
+                ),
+                _FieldBlock(label: '차종', value: record.carName),
+                _FieldBlock(label: '위치', value: record.locationSummary),
+                _FieldBlock(
+                  label: '상세정보',
+                  value: record.detailText,
+                  multiline: true,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _SectionCard(
+            title: '예약 연결',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (record.reservationId.isNotEmpty)
+                  _LinkedFieldBlock(
+                    label: '예약ID',
+                    value: record.reservationId,
+                    enabled: true,
+                    onTap: () => context.push(
+                      AppRoutes.reservationDetail.replaceFirst(
+                        ':reservationId',
+                        Uri.encodeComponent(record.reservationId),
+                      ),
+                    ),
+                  )
+                else
+                  const _FieldBlock(label: '예약ID', value: '연결된 예약 없음'),
+                _FieldBlock(label: '외부예약번호', value: record.reservationNumber),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

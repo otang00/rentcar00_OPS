@@ -17,19 +17,26 @@ class ReservationTabPage extends ConsumerWidget {
 
     return itemsAsync.when(
       data: (items) {
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-          children: [
-            if (items.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('현재 이 탭에 표시할 실데이터가 없습니다.'),
-                ),
-              )
-            else
-              for (final item in items) _ReservationStatusCard(item: item),
-          ],
+        return RefreshIndicator(
+          onRefresh: () async {
+            ref.invalidate(allReservationsProvider);
+            await ref.read(allReservationsProvider.future);
+          },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+            children: [
+              if (items.isEmpty)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('현재 이 탭에 표시할 실데이터가 없습니다.'),
+                  ),
+                )
+              else
+                for (final item in items) _ReservationStatusCard(item: item),
+            ],
+          ),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),

@@ -19,19 +19,26 @@ class StatusBoardTabPage extends ConsumerWidget {
     return itemsAsync.when(
       data: (items) {
         final sortedItems = _sortItems(tab, items);
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-          children: [
-            if (sortedItems.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('현재 이 탭에 표시할 실데이터가 없습니다.'),
-                ),
-              )
-            else
-              ..._buildTabContent(context, sortedItems),
-          ],
+        return RefreshIndicator(
+          onRefresh: () async {
+            ref.invalidate(allStatusBoardRecordsProvider);
+            await ref.read(allStatusBoardRecordsProvider.future);
+          },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+            children: [
+              if (sortedItems.isEmpty)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('현재 이 탭에 표시할 실데이터가 없습니다.'),
+                  ),
+                )
+              else
+                ..._buildTabContent(context, sortedItems),
+            ],
+          ),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),

@@ -840,321 +840,350 @@ class _ReservationDetailBodyState
             !isCompleted && isDispatched && returnPending;
         final isCancelled = reservation.statusKey.trim() == '예약취소';
 
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-          children: [
-            Text(
-              reservation.customerName.isEmpty
-                  ? '(고객명없음)'
-                  : reservation.customerName,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.4,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              reservation.carNumber.isEmpty
-                  ? '차량번호 미확인'
-                  : reservation.carNumber,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                reservation.statusKey.isEmpty
-                    ? reservation.tab.label
-                    : '${reservation.tab.label} · ${reservation.statusKey}',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w700,
+        return RefreshIndicator(
+          onRefresh: () async {
+            ref.invalidate(allReservationsProvider);
+            ref.invalidate(allStatusBoardRecordsProvider);
+            ref.invalidate(reservationDetailProvider(widget.reservationId));
+            ref.invalidate(
+              externalReservationLinkProvider(widget.reservationId),
+            );
+            ref.invalidate(actionLogsProvider(widget.reservationId));
+            await Future.wait([
+              ref.read(allReservationsProvider.future),
+              ref.read(allStatusBoardRecordsProvider.future),
+              ref.read(actionLogsProvider(widget.reservationId).future),
+            ]);
+          },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+            children: [
+              Text(
+                reservation.customerName.isEmpty
+                    ? '(고객명없음)'
+                    : reservation.customerName,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: '기능',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (showPickupComplete) ...[
-                    _LifecycleActionButton(
-                      label: '배차완료',
-                      description: '연결 배차일정 완료 + 차량 일반 전환',
-                      icon: Icons.upload_rounded,
-                      loading: _lifecycleUpdating,
-                      onPressed: _lifecycleUpdating
-                          ? null
-                          : () => _completeReservationLifecycle(
-                              reservation: reservation,
-                              linkedSchedules: linkedSchedules,
-                              scheduleType: '배차',
-                              externalLink: externalLink,
-                            ),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  if (showReturnComplete) ...[
-                    _LifecycleActionButton(
-                      label: '반납완료',
-                      description: hasActiveImsRegistration
-                          ? '연결 반납일정 완료 + 차량 대기중 전환 + IMS 반납 시도'
-                          : '연결 반납일정 완료 + 차량 대기중 전환',
-                      icon: Icons.assignment_turned_in_outlined,
-                      loading: _lifecycleUpdating,
-                      danger: hasActiveImsRegistration,
-                      onPressed: _lifecycleUpdating
-                          ? null
-                          : () => _completeReservationLifecycle(
-                              reservation: reservation,
-                              linkedSchedules: linkedSchedules,
-                              scheduleType: '반납',
-                              externalLink: externalLink,
-                            ),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  const _ActionGroupLabel('관리'),
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 6,
-                    childAspectRatio: 1.05,
-                    children: [
-                      _DetailActionButton(
-                        label: '수정',
-                        icon: Icons.edit_outlined,
-                        loading: _reservationUpdating,
-                        onPressed: _reservationUpdating
+              const SizedBox(height: 6),
+              Text(
+                reservation.carNumber.isEmpty
+                    ? '차량번호 미확인'
+                    : reservation.carNumber,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  reservation.statusKey.isEmpty
+                      ? reservation.tab.label
+                      : '${reservation.tab.label} · ${reservation.statusKey}',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _SectionCard(
+                title: '기능',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (showPickupComplete) ...[
+                      _LifecycleActionButton(
+                        label: '배차완료',
+                        description: '연결 배차일정 완료 + 차량 일반 전환',
+                        icon: Icons.upload_rounded,
+                        loading: _lifecycleUpdating,
+                        onPressed: _lifecycleUpdating
                             ? null
-                            : () => _editReservation(reservation),
-                      ),
-                      _DetailActionButton(
-                        label: '차량변경',
-                        icon: Icons.directions_car_filled_outlined,
-                        loading: _reservationUpdating,
-                        onPressed: _reservationUpdating
-                            ? null
-                            : () => _changeVehicle(reservation, externalLink),
-                      ),
-                      if (hasActiveImsRegistration)
-                        const _DetailActionButton(
-                          label: 'IMS등록됨',
-                          icon: Icons.link_outlined,
-                          onPressed: null,
-                        )
-                      else
-                        _DetailActionButton(
-                          label: 'IMS추가',
-                          icon: Icons.cloud_upload_outlined,
-                          loading: _imsSubmitting,
-                          onPressed: _imsSubmitting
-                              ? null
-                              : _submitImsReservation,
-                        ),
-                      if (needsHomepageReview)
-                        _DetailActionButton(
-                          label: '홈페이지확인',
-                          icon: Icons.check_circle_outline,
-                          loading: _reservationUpdating,
-                          onPressed: _reservationUpdating
-                              ? null
-                              : () => _markHomepageReviewed(reservation),
-                        ),
-                      _DetailActionButton(
-                        label: '예약취소',
-                        icon: Icons.block_outlined,
-                        loading: _cancelUpdating,
-                        danger: true,
-                        onPressed: isCancelled || _cancelUpdating
-                            ? null
-                            : () => _cancelReservation(
+                            : () => _completeReservationLifecycle(
                                 reservation: reservation,
+                                linkedSchedules: linkedSchedules,
+                                scheduleType: '배차',
                                 externalLink: externalLink,
                               ),
                       ),
+                      const SizedBox(height: 14),
                     ],
-                  ),
-                  if (hasPhone) ...[
-                    const SizedBox(height: 14),
-                    const _ActionGroupLabel('연락'),
+                    if (showReturnComplete) ...[
+                      _LifecycleActionButton(
+                        label: '반납완료',
+                        description: hasActiveImsRegistration
+                            ? '연결 반납일정 완료 + 차량 대기중 전환 + IMS 반납 시도'
+                            : '연결 반납일정 완료 + 차량 대기중 전환',
+                        icon: Icons.assignment_turned_in_outlined,
+                        loading: _lifecycleUpdating,
+                        danger: hasActiveImsRegistration,
+                        onPressed: _lifecycleUpdating
+                            ? null
+                            : () => _completeReservationLifecycle(
+                                reservation: reservation,
+                                linkedSchedules: linkedSchedules,
+                                scheduleType: '반납',
+                                externalLink: externalLink,
+                              ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    const _ActionGroupLabel('관리'),
                     GridView.count(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      crossAxisCount: 2,
+                      crossAxisCount: 3,
                       crossAxisSpacing: 6,
                       mainAxisSpacing: 6,
-                      childAspectRatio: 1.55,
+                      childAspectRatio: 1.05,
                       children: [
                         _DetailActionButton(
-                          label: '전화',
-                          icon: Icons.call_outlined,
-                          onPressed: () => tryLaunchPhoneCall(
-                            context,
-                            reservation.customerPhone,
-                          ),
+                          label: '수정',
+                          icon: Icons.edit_outlined,
+                          loading: _reservationUpdating,
+                          onPressed: _reservationUpdating
+                              ? null
+                              : () => _editReservation(reservation),
                         ),
                         _DetailActionButton(
-                          label: '문자',
-                          icon: Icons.sms_outlined,
-                          onPressed: () =>
-                              tryLaunchSms(context, reservation.customerPhone),
+                          label: '차량변경',
+                          icon: Icons.directions_car_filled_outlined,
+                          loading: _reservationUpdating,
+                          onPressed: _reservationUpdating
+                              ? null
+                              : () => _changeVehicle(reservation, externalLink),
+                        ),
+                        if (hasActiveImsRegistration)
+                          const _DetailActionButton(
+                            label: 'IMS등록됨',
+                            icon: Icons.link_outlined,
+                            onPressed: null,
+                          )
+                        else
+                          _DetailActionButton(
+                            label: 'IMS추가',
+                            icon: Icons.cloud_upload_outlined,
+                            loading: _imsSubmitting,
+                            onPressed: _imsSubmitting
+                                ? null
+                                : _submitImsReservation,
+                          ),
+                        if (needsHomepageReview)
+                          _DetailActionButton(
+                            label: '홈페이지확인',
+                            icon: Icons.check_circle_outline,
+                            loading: _reservationUpdating,
+                            onPressed: _reservationUpdating
+                                ? null
+                                : () => _markHomepageReviewed(reservation),
+                          ),
+                        _DetailActionButton(
+                          label: '예약취소',
+                          icon: Icons.block_outlined,
+                          loading: _cancelUpdating,
+                          danger: true,
+                          onPressed: isCancelled || _cancelUpdating
+                              ? null
+                              : () => _cancelReservation(
+                                  reservation: reservation,
+                                  externalLink: externalLink,
+                                ),
                         ),
                       ],
                     ),
-                  ],
-                  if (actions.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    for (final action in actions)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: FilledButton.tonal(
-                          onPressed: null,
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(action.label),
+                    if (hasPhone) ...[
+                      const SizedBox(height: 14),
+                      const _ActionGroupLabel('연락'),
+                      GridView.count(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 6,
+                        mainAxisSpacing: 6,
+                        childAspectRatio: 1.55,
+                        children: [
+                          _DetailActionButton(
+                            label: '전화',
+                            icon: Icons.call_outlined,
+                            onPressed: () => tryLaunchPhoneCall(
+                              context,
+                              reservation.customerPhone,
+                            ),
+                          ),
+                          _DetailActionButton(
+                            label: '문자',
+                            icon: Icons.sms_outlined,
+                            onPressed: () => tryLaunchSms(
+                              context,
+                              reservation.customerPhone,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (actions.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      for (final action in actions)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: FilledButton.tonal(
+                            onPressed: null,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(action.label),
+                            ),
                           ),
                         ),
-                      ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: '연결된 일정',
-              child: _LinkedSchedulesList(schedulesAsync: linkedSchedulesAsync),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: 'IMS 등록 정보',
-              child: _ImsRegistrationInfo(
-                link: externalLink,
-                isLoading: externalLinkAsync.isLoading,
-                isUpdating: _registrationUpdating,
-                onCreate: hasActiveImsRegistration || _imsSubmitting
-                    ? null
-                    : _submitImsReservation,
-                onUnlink: hasActiveImsRegistration && !_registrationUpdating
-                    ? _clearImsReservationRegistration
-                    : null,
-              ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: '예약 정보',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _DetailField(
-                    label: '예약ID',
-                    value: reservation.reservationId,
-                    emphasize: true,
-                  ),
-                  _DetailField(
-                    label: '외부예약번호',
-                    value: reservation.reservationNumber,
-                  ),
-                  _DetailField(label: '차종', value: reservation.carName),
-                  _DetailField(label: '소개처', value: reservation.referralSource),
-                  _DetailField(
-                    label: '가격',
-                    value: _formatWon(reservation.paymentAmount),
-                  ),
-                  _DetailField(
-                    label: '생년월일',
-                    value: reservation.customerBirthDate,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: '운행 정보',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _DetailField(
-                    label: '고객번호',
-                    value: reservation.customerPhone,
-                    emphasize: true,
-                  ),
-                  _DetailField(
-                    label: '배차',
-                    value: _formatDateTime(reservation.startAt),
-                  ),
-                  _DetailField(
-                    label: '반납',
-                    value: _formatDateTime(reservation.endAt),
-                  ),
-                  _DetailField(
-                    label: '배차지',
-                    value: reservation.locationSummary,
-                  ),
-                  _DetailField(
-                    label: '반납지',
-                    value: reservation.dropoffLocation,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            if (reservation.primaryBadges.isNotEmpty)
-              _SectionCard(
-                title: '체크 상태',
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final badge in reservation.primaryBadges)
-                      Chip(label: Text(badge)),
-                    for (final entry in reservation.checkPayload.entries)
-                      Chip(label: Text('${entry.key}: ${entry.value}')),
+                    ],
                   ],
                 ),
               ),
-            if (reservation.primaryBadges.isNotEmpty)
               const SizedBox(height: 14),
-            if (logs.isNotEmpty)
               _SectionCard(
-                title: '업무 로그',
-                child: Column(
-                  children: [
-                    for (final log in logs)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(log.label),
-                        subtitle: Text(
-                          '${_formatDateTime(log.executedAt)} · ${log.actorDisplayName} · ${log.note}',
-                        ),
-                      ),
-                  ],
+                title: '연결된 일정',
+                child: _LinkedSchedulesList(
+                  schedulesAsync: linkedSchedulesAsync,
                 ),
               ),
-            if (logs.isNotEmpty) const SizedBox(height: 14),
-            if (outboxPreview.isNotEmpty)
+              const SizedBox(height: 14),
               _SectionCard(
-                title: 'outbox dry-run',
+                title: 'IMS 등록 정보',
+                child: _ImsRegistrationInfo(
+                  link: externalLink,
+                  isLoading: externalLinkAsync.isLoading,
+                  isUpdating: _registrationUpdating,
+                  onCreate: hasActiveImsRegistration || _imsSubmitting
+                      ? null
+                      : _submitImsReservation,
+                  onUnlink: hasActiveImsRegistration && !_registrationUpdating
+                      ? _clearImsReservationRegistration
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _SectionCard(
+                title: '예약 정보',
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [for (final line in outboxPreview) Text('• $line')],
+                  children: [
+                    _DetailField(
+                      label: '예약ID',
+                      value: reservation.reservationId,
+                      emphasize: true,
+                    ),
+                    _DetailField(
+                      label: '외부예약번호',
+                      value: reservation.reservationNumber,
+                    ),
+                    _DetailField(label: '차종', value: reservation.carName),
+                    _DetailField(
+                      label: '소개처',
+                      value: reservation.referralSource,
+                    ),
+                    _DetailField(
+                      label: '가격',
+                      value: _formatWon(reservation.paymentAmount),
+                    ),
+                    _DetailField(
+                      label: '생년월일',
+                      value: reservation.customerBirthDate,
+                    ),
+                  ],
                 ),
               ),
-            if (outboxPreview.isNotEmpty) const SizedBox(height: 14),
-            _SectionCard(
-              title: '메모',
-              child: Text(_displayValue(reservation.rawNoteText)),
-            ),
-          ],
+              const SizedBox(height: 14),
+              _SectionCard(
+                title: '운행 정보',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _DetailField(
+                      label: '고객번호',
+                      value: reservation.customerPhone,
+                      emphasize: true,
+                    ),
+                    _DetailField(
+                      label: '배차',
+                      value: _formatDateTime(reservation.startAt),
+                    ),
+                    _DetailField(
+                      label: '반납',
+                      value: _formatDateTime(reservation.endAt),
+                    ),
+                    _DetailField(
+                      label: '배차지',
+                      value: reservation.locationSummary,
+                    ),
+                    _DetailField(
+                      label: '반납지',
+                      value: reservation.dropoffLocation,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (reservation.primaryBadges.isNotEmpty)
+                _SectionCard(
+                  title: '체크 상태',
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final badge in reservation.primaryBadges)
+                        Chip(label: Text(badge)),
+                      for (final entry in reservation.checkPayload.entries)
+                        Chip(label: Text('${entry.key}: ${entry.value}')),
+                    ],
+                  ),
+                ),
+              if (reservation.primaryBadges.isNotEmpty)
+                const SizedBox(height: 14),
+              if (logs.isNotEmpty)
+                _SectionCard(
+                  title: '업무 로그',
+                  child: Column(
+                    children: [
+                      for (final log in logs)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(log.label),
+                          subtitle: Text(
+                            '${_formatDateTime(log.executedAt)} · ${log.actorDisplayName} · ${log.note}',
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              if (logs.isNotEmpty) const SizedBox(height: 14),
+              if (outboxPreview.isNotEmpty)
+                _SectionCard(
+                  title: 'outbox dry-run',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final line in outboxPreview) Text('• $line'),
+                    ],
+                  ),
+                ),
+              if (outboxPreview.isNotEmpty) const SizedBox(height: 14),
+              _SectionCard(
+                title: '메모',
+                child: Text(_displayValue(reservation.rawNoteText)),
+              ),
+            ],
+          ),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
