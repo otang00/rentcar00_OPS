@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-05-21 — Realtime 로그인 후 재구독 보강
+### 사용자 표면
+- 로그인 이후 핵심 realtime 구독을 다시 붙여 자동 새로고침 누락 가능성을 줄였다.
+- 구독 실패/timeout/closed 상태에서는 2초 뒤 재구독을 시도한다.
+- 앱 복귀 시 구독이 없으면 재구독하고, 구독 중이면 핵심 데이터를 갱신한다.
+
+### 실제 동작
+- 기존 문제 후보: 앱 시작 직후 비로그인 상태에서 realtime 구독을 시도하고, 로그인 후 재구독하지 않았다.
+- `auth.onAuthStateChange`를 구독해 로그인 세션이 생기면 core realtime을 force 재구독한다.
+- 로그아웃/세션 없음 상태에서는 core realtime channel을 제거한다.
+- `RealtimeSubscribeStatus.subscribed/channelError/timedOut/closed`를 처리한다.
+- 이벤트 수신 시 debug log를 남기고 예약/현황판 provider를 invalidate한다.
+
+### 핵심 파일
+- `lib/shared/realtime/ops_realtime_refresh_bridge.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- `git diff --check` 통과
+
+### 1차 장애 확인 포인트
+1. 실제 자동 반영은 새 APK 설치 후 계정 2개 이상으로 확인한다.
+2. Supabase realtime 상태는 디버그 로그의 `ops realtime ... status`와 `ops realtime event`로 확인한다.
+3. 작업로그 realtime은 여전히 제외 상태다.
+
+---
+
 ## 2026-05-21 — 어디서든 당겨서 새로고침
 ### 사용자 표면
 - 새로고침 가능한 모든 화면에서 맨 위까지 가지 않아도 아래로 당기면 새로고침이 걸린다.
