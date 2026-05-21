@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-05-21 — 일정 생성 차량선택 추가
+### 사용자 표면
+- 일정 생성 화면에서 차량번호 입력칸 오른쪽 차량 아이콘으로 차량을 선택할 수 있다.
+- 차량번호/뒤4자리/차종 검색으로 차량을 찾고 선택하면 차량번호와 차종이 자동 입력된다.
+- `선택안함`을 지원해 차량 없는 일정도 계속 만들 수 있다.
+- 기존 수기 입력도 유지한다.
+- 일정 수정 화면도 같은 차량선택/선택안함 방식을 지원한다.
+
+### 실제 동작
+- 일정 생성 전 현황판 차량 목록을 읽어 일정 항목을 제외한 차량만 선택 목록에 표시한다.
+- 선택 결과는 기존 `createScheduleOnly` / `updateSchedule` 저장 경로의 `carNumber`, `carName`으로 전달된다.
+- DB 스키마 변경은 없다.
+
+### 핵심 파일
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `lib/features/status_board/shared/presentation/schedule_editor_dialog.dart`
+- `lib/features/status_board/shared/presentation/status_board_car_select_dialog.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- `git diff --check` 통과
+
+### 남은 확인
+- 실기기에서 일정 생성 → 차량 선택 → 생성 후 일정 카드에 차량번호/차종 표시 확인.
+- `선택안함`으로 차량 없이 일정 생성되는지 확인.
+
+---
+
 ## 2026-05-21 — 주소값 네이버지도 검색 링크 1차
 ### 사용자 표면
 - 예약상세 운행 정보의 `배차지`, `반납지` 주소값을 탭하면 네이버지도 검색을 연다.

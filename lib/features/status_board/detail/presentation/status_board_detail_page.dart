@@ -3598,6 +3598,13 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
       return;
     }
 
+    final cachedRecords = ref.read(allStatusBoardRecordsProvider).valueOrNull;
+    final List<StatusBoardRecord> records =
+        cachedRecords ?? await ref.read(allStatusBoardRecordsProvider.future);
+    final cars = records.where((item) => !item.isScheduleEntry).toList()
+      ..sort((a, b) => a.carNumber.compareTo(b.carNumber));
+    if (!mounted) return;
+
     final form = await showDialog<ScheduleEditorResult>(
       context: context,
       builder: (context) => ScheduleEditorDialog(
@@ -3609,6 +3616,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
         initialCarName: record.carName,
         initialLocationText: record.locationSummary,
         initialDetailText: record.detailText,
+        availableCars: cars,
       ),
     );
     if (form == null) return;

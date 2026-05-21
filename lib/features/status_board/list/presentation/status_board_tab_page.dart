@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
+import 'package:rentcar00_ops/features/status_board/shared/presentation/status_board_car_select_dialog.dart';
 import 'package:rentcar00_ops/shared/utils/korean_holidays.dart';
 import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
@@ -182,9 +183,16 @@ class _StatusBoardScheduleFabState
   Future<void> _openCreateSchedule() async {
     if (_submitting) return;
 
+    final cachedRecords = ref.read(allStatusBoardRecordsProvider).valueOrNull;
+    final List<StatusBoardRecord> records =
+        cachedRecords ?? await ref.read(allStatusBoardRecordsProvider.future);
+    final cars = records.where((item) => !item.isScheduleEntry).toList()
+      ..sort((a, b) => a.carNumber.compareTo(b.carNumber));
+
+    if (!mounted) return;
     final form = await showDialog<_ScheduleCreateFormResult>(
       context: context,
-      builder: (context) => const _ScheduleCreateDialog(),
+      builder: (context) => _ScheduleCreateDialog(cars: cars),
     );
     if (form == null) return;
 
@@ -233,7 +241,9 @@ class _StatusBoardScheduleFabState
 }
 
 class _ScheduleCreateDialog extends StatefulWidget {
-  const _ScheduleCreateDialog();
+  const _ScheduleCreateDialog({required this.cars});
+
+  final List<StatusBoardRecord> cars;
 
   @override
   State<_ScheduleCreateDialog> createState() => _ScheduleCreateDialogState();
@@ -278,6 +288,38 @@ class _ScheduleCreateDialogState extends State<_ScheduleCreateDialog> {
     _locationController.dispose();
     _detailController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickCar() async {
+    StatusBoardRecord? initialCar;
+    for (final car in widget.cars) {
+      if (car.carNumber.trim() == _carNumberController.text.trim()) {
+        initialCar = car;
+        break;
+      }
+    }
+    final result = await showDialog<StatusBoardCarSelectResult>(
+      context: context,
+      builder: (context) => StatusBoardCarSelectDialog(
+        cars: widget.cars,
+        initialCar: initialCar,
+        allowNone: true,
+      ),
+    );
+    if (result == null || !mounted) return;
+    if (result.cleared) {
+      setState(() {
+        _carNumberController.clear();
+        _carNameController.clear();
+      });
+      return;
+    }
+    final car = result.car;
+    if (car == null) return;
+    setState(() {
+      _carNumberController.text = car.carNumber;
+      _carNameController.text = car.carName;
+    });
   }
 
   Future<void> _pickDateTime() async {
@@ -351,6 +393,11 @@ class _ScheduleCreateDialogState extends State<_ScheduleCreateDialog> {
                 _ScheduleDialogTextField(
                   controller: _carNumberController,
                   label: '차량번호',
+                  suffixIcon: IconButton(
+                    tooltip: '차량 선택',
+                    onPressed: widget.cars.isEmpty ? null : _pickCar,
+                    icon: const Icon(Icons.directions_car_filled_outlined),
+                  ),
                 ),
                 _ScheduleDialogTextField(
                   controller: _carNameController,

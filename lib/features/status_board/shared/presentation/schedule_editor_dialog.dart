@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:rentcar00_ops/data/models/status_board_record.dart';
+import 'package:rentcar00_ops/features/status_board/shared/presentation/status_board_car_select_dialog.dart';
 import 'package:rentcar00_ops/shared/input/ops_input_formatters.dart';
 
 class ScheduleEditorDialog extends StatefulWidget {
@@ -13,6 +15,7 @@ class ScheduleEditorDialog extends StatefulWidget {
     this.initialCarName = '',
     this.initialLocationText = '',
     this.initialDetailText = '',
+    this.availableCars = const [],
   });
 
   final String title;
@@ -23,6 +26,7 @@ class ScheduleEditorDialog extends StatefulWidget {
   final String initialCarName;
   final String initialLocationText;
   final String initialDetailText;
+  final List<StatusBoardRecord> availableCars;
 
   @override
   State<ScheduleEditorDialog> createState() => _ScheduleEditorDialogState();
@@ -69,6 +73,38 @@ class _ScheduleEditorDialogState extends State<ScheduleEditorDialog> {
     _locationController.dispose();
     _detailController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickCar() async {
+    StatusBoardRecord? initialCar;
+    for (final car in widget.availableCars) {
+      if (car.carNumber.trim() == _carNumberController.text.trim()) {
+        initialCar = car;
+        break;
+      }
+    }
+    final result = await showDialog<StatusBoardCarSelectResult>(
+      context: context,
+      builder: (context) => StatusBoardCarSelectDialog(
+        cars: widget.availableCars,
+        initialCar: initialCar,
+        allowNone: true,
+      ),
+    );
+    if (result == null || !mounted) return;
+    if (result.cleared) {
+      setState(() {
+        _carNumberController.clear();
+        _carNameController.clear();
+      });
+      return;
+    }
+    final car = result.car;
+    if (car == null) return;
+    setState(() {
+      _carNumberController.text = car.carNumber;
+      _carNameController.text = car.carName;
+    });
   }
 
   Future<void> _pickDateTime() async {
@@ -147,6 +183,11 @@ class _ScheduleEditorDialogState extends State<ScheduleEditorDialog> {
                 _ScheduleDialogTextField(
                   controller: _carNumberController,
                   label: '차량번호',
+                  suffixIcon: IconButton(
+                    tooltip: '차량 선택',
+                    onPressed: widget.availableCars.isEmpty ? null : _pickCar,
+                    icon: const Icon(Icons.directions_car_filled_outlined),
+                  ),
                 ),
                 _ScheduleDialogTextField(
                   controller: _carNameController,
