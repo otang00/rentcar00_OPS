@@ -921,6 +921,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     final relatedSchedulesAsync = ref.watch(
       relatedSchedulesProvider(widget.recordId),
     );
+    final reservationsAsync = ref.watch(allReservationsProvider);
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final idleActions = _isIdleStatus(record.status);
@@ -1084,9 +1085,16 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   ),
             child: relatedSchedulesAsync.when(
               data: (items) {
-                if (items.isEmpty) {
-                  return const Text('연결된 일정이 없습니다.');
-                }
+                final relatedReservations =
+                    reservationsAsync.valueOrNull
+                        ?.where(
+                          (reservation) =>
+                              reservation.carNumber.trim().isNotEmpty &&
+                              reservation.carNumber.trim() ==
+                                  record.carNumber.trim(),
+                        )
+                        .toList() ??
+                    const <ReservationRecord>[];
                 final sortedItems = [...items]
                   ..sort((a, b) {
                     final aAt = a.sortAt;
@@ -1097,17 +1105,31 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                     return aAt.compareTo(bAt);
                   });
                 return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (var index = 0; index < sortedItems.length; index++)
-                      Padding(
-                        padding: EdgeInsets.only(
-                          bottom: index == sortedItems.length - 1 ? 0 : 7,
-                        ),
-                        child: _RelatedScheduleCompactCard(
-                          item: sortedItems[index],
-                          emphasize: index == 0,
+                    _VehicleAvailabilityCalendar(
+                      reservations: relatedReservations,
+                    ),
+                    if (sortedItems.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        '가까운 일정',
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      for (var index = 0; index < sortedItems.length; index++)
+                        Padding(
+                          padding: EdgeInsets.only(
+                            bottom: index == sortedItems.length - 1 ? 0 : 7,
+                          ),
+                          child: _RelatedScheduleCompactCard(
+                            item: sortedItems[index],
+                            emphasize: index == 0,
+                          ),
+                        ),
+                    ],
                   ],
                 );
               },
@@ -3851,6 +3873,391 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
       ),
     );
   }
+}
+
+class _VehicleAvailabilityCalendar extends StatelessWidget {
+  const _VehicleAvailabilityCalendar({required this.reservations});
+
+  final List<ReservationRecord> reservations;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final gridStart = today.subtract(Duration(days: today.weekday % 7));
+    final weeks = List.generate(
+      5,
+      (week) => List.generate(
+        7,
+        (day) => gridStart.add(Duration(days: week * 7 + day)),
+      ),
+    );
+    final visibleReservations = reservations.where((reservation) {
+      return !reservation.endAt.isBefore(gridStart) &&
+          !reservation.startAt.isAfter(weeks.last.last);
+    }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '이번주부터 5주 예약 현황',
+                style: textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ),
+            Text(
+              '${reservations.length}건',
+              style: textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final label in const ['일', '월', '화', '수', '목', '금', '토'])
+              Expanded(
+                child: Center(
+                  child: Text(
+                    label,
+                    style: textTheme.labelSmall?.copyWith(
+                      color: label == '일'
+                          ? const Color(0xFFD32F2F)
+                          : label == '토'
+                          ? const Color(0xFF1976D2)
+                          : colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Column(
+              children: [
+                for (var weekIndex = 0; weekIndex < weeks.length; weekIndex++)
+                  _AvailabilityWeekRow(
+                    days: weeks[weekIndex],
+                    today: today,
+                    reservations: visibleReservations,
+                    showBottomBorder: weekIndex != weeks.length - 1,
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            const _AvailabilityLegendDot(
+              color: Color(0xFFFFE7E7),
+              borderColor: Color(0xFFD32F2F),
+              label: '예약중',
+            ),
+            Text(
+              '막대 양끝 시간 = 배차/반납',
+              style: textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AvailabilityWeekRow extends StatelessWidget {
+  const _AvailabilityWeekRow({
+    required this.days,
+    required this.today,
+    required this.reservations,
+    required this.showBottomBorder,
+  });
+
+  final List<DateTime> days;
+  final DateTime today;
+  final List<ReservationRecord> reservations;
+  final bool showBottomBorder;
+
+  @override
+  Widget build(BuildContext context) {
+    final segments = _buildSegments();
+    const rowHeight = 50.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cellWidth = constraints.maxWidth / 7;
+        return SizedBox(
+          height: rowHeight,
+          child: Stack(
+            children: [
+              Row(
+                children: [
+                  for (var index = 0; index < days.length; index++)
+                    Expanded(
+                      child: _AvailabilityDayCell(
+                        date: days[index],
+                        today: today,
+                        isPast: days[index].isBefore(today),
+                        showRightBorder: index != days.length - 1,
+                        showBottomBorder: showBottomBorder,
+                      ),
+                    ),
+                ],
+              ),
+              for (final segment in segments)
+                Positioned(
+                  left: segment.startIndex * cellWidth + 3,
+                  top: 24 + (segment.lane * 15),
+                  width: (segment.length * cellWidth) - 6,
+                  height: 14,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: segment.continuesFromPrevious
+                          ? const Color(0xFFF4B4B4)
+                          : const Color(0xFFFFE7E7),
+                      border: Border.all(
+                        color: const Color(0xFFD32F2F),
+                        width: 1.3,
+                      ),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      child: Row(
+                        children: [
+                          if (!segment.continuesFromPrevious)
+                            Text(
+                              _formatAvailabilityTime(
+                                segment.reservation.startAt,
+                              ),
+                              style: _availabilityTimeStyle(context),
+                            )
+                          else
+                            Text('계속', style: _availabilityTimeStyle(context)),
+                          if (segment.showName) ...[
+                            const Spacer(),
+                            Flexible(
+                              child: Text(
+                                segment.reservation.customerName.trim(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: _availabilityTimeStyle(context),
+                              ),
+                            ),
+                          ],
+                          const Spacer(),
+                          if (!segment.continuesToNext)
+                            Text(
+                              _formatAvailabilityTime(
+                                segment.reservation.endAt,
+                              ),
+                              style: _availabilityTimeStyle(context),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  List<_AvailabilitySegment> _buildSegments() {
+    final weekStart = days.first;
+    final weekEnd = days.last;
+    final result = <_AvailabilitySegment>[];
+    for (final reservation in reservations) {
+      final startDate = _dateOnly(reservation.startAt);
+      final endDate = _dateOnly(reservation.endAt);
+      if (endDate.isBefore(weekStart) || startDate.isAfter(weekEnd)) continue;
+      final visibleStart = startDate.isBefore(weekStart)
+          ? weekStart
+          : startDate;
+      final visibleEnd = endDate.isAfter(weekEnd) ? weekEnd : endDate;
+      final startIndex = visibleStart.difference(weekStart).inDays;
+      final endIndex = visibleEnd.difference(weekStart).inDays;
+      result.add(
+        _AvailabilitySegment(
+          reservation: reservation,
+          startIndex: startIndex,
+          length: endIndex - startIndex + 1,
+          lane: result.length % 2,
+          continuesFromPrevious: startDate.isBefore(weekStart),
+          continuesToNext: endDate.isAfter(weekEnd),
+          showName: endDate.difference(startDate).inDays + 1 >= 3,
+        ),
+      );
+    }
+    return result.take(2).toList();
+  }
+}
+
+class _AvailabilityDayCell extends StatelessWidget {
+  const _AvailabilityDayCell({
+    required this.date,
+    required this.today,
+    required this.isPast,
+    required this.showRightBorder,
+    required this.showBottomBorder,
+  });
+
+  final DateTime date;
+  final DateTime today;
+  final bool isPast;
+  final bool showRightBorder;
+  final bool showBottomBorder;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isToday = _sameDate(date, today);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: isPast ? const Color(0xFFE5E7EB) : colorScheme.surface,
+        border: Border(
+          right: showRightBorder
+              ? BorderSide(color: colorScheme.outlineVariant)
+              : BorderSide.none,
+          bottom: showBottomBorder
+              ? BorderSide(color: colorScheme.outlineVariant)
+              : BorderSide.none,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 4, top: 4),
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Container(
+            padding: isToday
+                ? const EdgeInsets.symmetric(horizontal: 4, vertical: 1)
+                : EdgeInsets.zero,
+            decoration: isToday
+                ? BoxDecoration(
+                    color: colorScheme.onSurface,
+                    borderRadius: BorderRadius.circular(6),
+                  )
+                : null,
+            child: Text(
+              '${date.day}',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: isToday
+                    ? colorScheme.surface
+                    : isPast
+                    ? colorScheme.outline
+                    : colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w900,
+                fontSize: 10,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AvailabilityLegendDot extends StatelessWidget {
+  const _AvailabilityLegendDot({
+    required this.color,
+    required this.borderColor,
+    required this.label,
+  });
+
+  final Color color;
+  final Color borderColor;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(
+            color: color,
+            border: Border.all(color: borderColor),
+            borderRadius: BorderRadius.circular(99),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AvailabilitySegment {
+  const _AvailabilitySegment({
+    required this.reservation,
+    required this.startIndex,
+    required this.length,
+    required this.lane,
+    required this.continuesFromPrevious,
+    required this.continuesToNext,
+    required this.showName,
+  });
+
+  final ReservationRecord reservation;
+  final int startIndex;
+  final int length;
+  final int lane;
+  final bool continuesFromPrevious;
+  final bool continuesToNext;
+  final bool showName;
+}
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
+
+bool _sameDate(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+String _formatAvailabilityTime(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(value.hour)}:${two(value.minute)}';
+}
+
+TextStyle? _availabilityTimeStyle(BuildContext context) {
+  return Theme.of(context).textTheme.labelSmall?.copyWith(
+    color: const Color(0xFFA32020),
+    fontWeight: FontWeight.w900,
+    fontSize: 9,
+    height: 1,
+  );
 }
 
 class _RelatedScheduleCompactCard extends StatelessWidget {

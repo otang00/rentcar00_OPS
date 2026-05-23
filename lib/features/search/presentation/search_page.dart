@@ -44,19 +44,19 @@ class SearchPage extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
             _AsyncSearchSection<StatusBoardRecord>(
-              title: '일정',
-              query: query,
-              itemsAsync: schedulesAsync,
-              emptyText: '일정 검색 결과가 없습니다.',
-              itemBuilder: (context, item) => _ScheduleResultCard(item: item),
-            ),
-            const SizedBox(height: 16),
-            _AsyncSearchSection<StatusBoardRecord>(
               title: '차량',
               query: query,
               itemsAsync: vehiclesAsync,
               emptyText: '차량 검색 결과가 없습니다.',
               itemBuilder: (context, item) => _VehicleResultCard(item: item),
+            ),
+            const SizedBox(height: 16),
+            _AsyncSearchSection<StatusBoardRecord>(
+              title: '일정',
+              query: query,
+              itemsAsync: schedulesAsync,
+              emptyText: '일정 검색 결과가 없습니다.',
+              itemBuilder: (context, item) => _ScheduleResultCard(item: item),
             ),
             const SizedBox(height: 16),
             _AsyncSearchSection<ReservationSummary>(
@@ -155,17 +155,13 @@ class _ScheduleResultCard extends StatelessWidget {
       item.locationSummary,
     ].where((value) => value.trim().isNotEmpty).join(' · ');
 
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.event_note_outlined),
-        title: Text(title),
-        subtitle: Text(subtitle.isEmpty ? '-' : subtitle),
-        trailing: item.reservationId.isEmpty
-            ? null
-            : const Icon(Icons.link, size: 18),
-        onTap: () =>
-            context.push('/schedule/${Uri.encodeComponent(item.recordId)}'),
-      ),
+    return _SearchResultCard(
+      icon: Icons.event_note_outlined,
+      title: title,
+      subtitle: subtitle.isEmpty ? '-' : subtitle,
+      trailingIcon: item.reservationId.isEmpty ? null : Icons.link,
+      onTap: () =>
+          context.push('/schedule/${Uri.encodeComponent(item.recordId)}'),
     );
   }
 }
@@ -184,14 +180,11 @@ class _VehicleResultCard extends StatelessWidget {
       item.locationSummary,
     ].where((value) => value.trim().isNotEmpty).join(' · ');
 
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.directions_car_filled_outlined),
-        title: Text(item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber),
-        subtitle: Text(subtitle.isEmpty ? '-' : subtitle),
-        onTap: () =>
-            context.push('/board/${Uri.encodeComponent(item.recordId)}'),
-      ),
+    return _SearchResultCard(
+      icon: Icons.directions_car_filled_outlined,
+      title: item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber,
+      subtitle: subtitle.isEmpty ? '-' : subtitle,
+      onTap: () => context.push('/board/${Uri.encodeComponent(item.recordId)}'),
     );
   }
 }
@@ -208,14 +201,92 @@ class _ReservationResultCard extends StatelessWidget {
       item.carNumber,
     ].where((value) => value.trim().isNotEmpty).join(' · ');
 
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.assignment_outlined),
-        title: Text(title),
-        subtitle: Text(
+    return _SearchResultCard(
+      icon: Icons.assignment_outlined,
+      title: title,
+      subtitle:
           '${item.reservationNumber.isEmpty ? item.reservationId : item.reservationNumber} · ${item.tab.label} · ${item.timeLabel}',
+      onTap: () => context.push('/reservation/${item.reservationId}'),
+    );
+  }
+}
+
+class _SearchResultCard extends StatelessWidget {
+  const _SearchResultCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailingIcon,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final IconData? trailingIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      color: colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer.withValues(alpha: 0.38),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: colorScheme.primary, size: 21),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (trailingIcon != null) ...[
+                const SizedBox(width: 8),
+                Icon(trailingIcon, size: 18, color: colorScheme.outline),
+              ],
+            ],
+          ),
         ),
-        onTap: () => context.push('/reservation/${item.reservationId}'),
       ),
     );
   }

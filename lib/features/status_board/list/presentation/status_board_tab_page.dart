@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
+import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
+import 'package:rentcar00_ops/features/reservations/detail/presentation/ims_return_input_dialog.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
 import 'package:rentcar00_ops/features/status_board/shared/presentation/status_board_car_select_dialog.dart';
+import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 import 'package:rentcar00_ops/shared/utils/korean_holidays.dart';
 import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
@@ -750,33 +754,137 @@ class _ScheduleDateHeader extends StatelessWidget {
   }
 }
 
-class _ScheduleCard extends StatelessWidget {
+class _ScheduleCard extends ConsumerStatefulWidget {
   const _ScheduleCard({required this.item});
 
   final StatusBoardRecord item;
 
   @override
+  ConsumerState<_ScheduleCard> createState() => _ScheduleCardState();
+}
+
+class _ScheduleCardState extends ConsumerState<_ScheduleCard> {
+  bool _submitting = false;
+
+  StatusBoardRecord get item => widget.item;
+
+  Future<void> _completeSchedule() async {
+    if (_submitting) return;
+    final scheduleRowId = _extractScheduleRawRowId(item.recordId);
+    if (scheduleRowId == null) {
+      _showScheduleSnackBar('일정 row id를 찾지 못했습니다.');
+      return;
+    }
+    final scheduleType = item.scheduleType.trim().isEmpty
+        ? '일정'
+        : item.scheduleType.trim();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.task_alt_rounded),
+        title: Text('$scheduleType 완료 처리할까요?'),
+        content: Text(
+          item.reservationId.trim().isEmpty
+              ? '이 일정을 완료 처리합니다.'
+              : '이 일정을 완료 처리하고 연결된 예약/차량 상태를 함께 갱신합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('완료'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _submitting = true);
+    try {
+      final isLinkedReturn =
+          item.scheduleType.trim() == '반납' &&
+          item.reservationId.trim().isNotEmpty;
+      final externalLink = isLinkedReturn
+          ? await ref.read(
+              externalReservationLinkProvider(item.reservationId).future,
+            )
+          : null;
+      ImsReturnInputResult? imsReturnInput;
+      if (externalLink?.isActiveBinding == true) {
+        if (!mounted) return;
+        imsReturnInput = await showDialog<ImsReturnInputResult>(
+          context: context,
+          builder: (context) => const ImsReturnInputDialog(),
+        );
+        if (imsReturnInput == null) return;
+      }
+      await ref
+          .read(supabaseOpsRepositoryProvider)
+          .completeSchedule(
+            scheduleRowId: scheduleRowId,
+            scheduleType: item.scheduleType,
+            reservationId: item.reservationId,
+            carNumber: item.carNumber,
+          );
+      var imsMessage = '';
+      if (externalLink?.isActiveBinding == true) {
+        final contractId = _resolveScheduleListImsReturnContractId(
+          externalLink!,
+        );
+        if (contractId.isEmpty) {
+          imsMessage = ' IMS 반납완료는 실패했습니다(IMS 계약 ID 없음).';
+        } else {
+          try {
+            final appEnv = ref.read(appEnvProvider);
+            final imsResult =
+                await ImsReservationClient(
+                  baseUrl: appEnv.aiParserBaseUrl,
+                ).completeReservationReturn(
+                  contractId: contractId,
+                  reservationId: item.reservationId,
+                  doneAt: DateTime.now(),
+                  returnGasCharge: imsReturnInput!.returnGasCharge,
+                  drivenDistanceUponReturn:
+                      imsReturnInput.drivenDistanceUponReturn,
+                  fuelCost: imsReturnInput.fuelCost,
+                );
+            imsMessage = imsResult.isSuccess
+                ? ' IMS도 반납완료 처리했습니다.'
+                : ' IMS 반납완료는 실패했습니다(${imsResult.message.isEmpty ? imsResult.code : imsResult.message}).';
+          } catch (error) {
+            imsMessage = ' IMS 반납완료는 실패했습니다($error).';
+          }
+        }
+      }
+      ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(allReservationsProvider);
+      _showScheduleSnackBar('일정완료 처리했습니다.$imsMessage');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  void _showScheduleSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final linkedReservation = item.reservationId.trim().isNotEmpty;
     final scheduleType = item.scheduleType.trim();
-    final linkedPickup = linkedReservation && scheduleType == '배차';
-    final linkedReturn = linkedReservation && scheduleType == '반납';
-    final accentColor = linkedReturn
-        ? const Color(0xFFD32F2F)
-        : linkedPickup
-        ? const Color(0xFF1976D2)
-        : const Color(0xFF2E7D32);
-    final cardColor = linkedReturn
+    final isPickup = scheduleType == '배차';
+    final isReturn = scheduleType == '반납';
+    final cardColor = isReturn
         ? const Color(0xFFFFEBEE)
-        : linkedPickup
+        : isPickup
         ? const Color(0xFFE3F2FD)
-        : linkedReservation
-        ? const Color(0xFFEAF7EA)
-        : Colors.white;
-    final borderColor = linkedReservation
-        ? accentColor
-        : colorScheme.outlineVariant;
+        : const Color(0xFFF3F4F6);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -784,10 +892,7 @@ class _ScheduleCard extends StatelessWidget {
       color: cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
-          color: borderColor,
-          width: linkedReservation ? 2.4 : 1,
-        ),
+        side: const BorderSide(color: Color(0xFF202124), width: 2),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -800,20 +905,32 @@ class _ScheduleCard extends StatelessWidget {
             children: [
               SizedBox(
                 width: 70,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    _scheduleTimeOnly(item),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: linkedReservation
-                          ? accentColor
-                          : colorScheme.primary,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.2,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _scheduleDateOnly(item),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        _scheduleTimeOnly(item),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
@@ -823,7 +940,7 @@ class _ScheduleCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(
+                        Flexible(
                           child: Text(
                             item.carNumber.isEmpty ? '-' : item.carNumber,
                             maxLines: 1,
@@ -832,8 +949,10 @@ class _ScheduleCard extends StatelessWidget {
                                 ?.copyWith(fontWeight: FontWeight.w800),
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        _ScheduleTypeBadge(scheduleType: item.scheduleType),
+                        const SizedBox(width: 5),
+                        _ScheduleTypeInlineIcon(
+                          scheduleType: item.scheduleType,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -846,6 +965,12 @@ class _ScheduleCard extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
+              _ScheduleCompleteButton(
+                scheduleType: item.scheduleType,
+                submitting: _submitting,
+                onPressed: _completeSchedule,
+              ),
             ],
           ),
         ),
@@ -854,41 +979,63 @@ class _ScheduleCard extends StatelessWidget {
   }
 }
 
-class _ScheduleTypeBadge extends StatelessWidget {
-  const _ScheduleTypeBadge({required this.scheduleType});
+class _ScheduleTypeInlineIcon extends StatelessWidget {
+  const _ScheduleTypeInlineIcon({required this.scheduleType});
 
   final String scheduleType;
 
   @override
   Widget build(BuildContext context) {
-    final normalized = scheduleType.trim();
-    final isReturn = normalized == '반납';
-    final isEtc = normalized == '기타';
-    final color = isEtc
-        ? const Color(0xFF2E7D32)
-        : isReturn
-        ? const Color(0xFFD32F2F)
-        : const Color(0xFF1976D2);
-    final label = normalized.isEmpty ? '일정' : normalized;
-    final icon = isEtc
-        ? Icons.priority_high_rounded
-        : isReturn
-        ? Icons.arrow_downward
-        : Icons.arrow_upward;
+    final icon = _scheduleTypeIcon(scheduleType);
+    final color = _scheduleTypeColor(context, scheduleType);
+    return Icon(icon, size: 18, color: color);
+  }
+}
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 12, color: color),
-        const SizedBox(width: 2),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: color,
-            fontWeight: FontWeight.w800,
+class _ScheduleCompleteButton extends StatelessWidget {
+  const _ScheduleCompleteButton({
+    required this.scheduleType,
+    required this.submitting,
+    required this.onPressed,
+  });
+
+  final String scheduleType;
+  final bool submitting;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = scheduleType.trim().isEmpty ? '일정' : scheduleType.trim();
+    final color = _scheduleTypeColor(context, scheduleType);
+    return SizedBox(
+      width: 58,
+      height: 48,
+      child: FilledButton(
+        onPressed: submitting ? null : onPressed,
+        style: FilledButton.styleFrom(
+          padding: EdgeInsets.zero,
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
           ),
         ),
-      ],
+        child: submitting
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Text(
+                label,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.2,
+                ),
+              ),
+      ),
     );
   }
 }
@@ -1155,6 +1302,52 @@ String _scheduleTimeOnly(StatusBoardRecord item) {
   final parsed = item.sortAt ?? _parseFlexibleDate(item.startAt);
   if (parsed == null) return item.timeLabel;
   return opsFormatKstTime(parsed);
+}
+
+String _scheduleDateOnly(StatusBoardRecord item) {
+  final parsed = item.sortAt ?? _parseFlexibleDate(item.startAt);
+  if (parsed == null) return '-';
+  final kst = opsAsKstWallTime(parsed);
+  return '${kst.month}/${kst.day}(${opsKoreanWeekday(kst)})';
+}
+
+IconData _scheduleTypeIcon(String type) {
+  final normalized = type.trim();
+  if (normalized == '반납') return Icons.arrow_downward;
+  if (normalized == '기타') return Icons.priority_high_rounded;
+  return Icons.arrow_upward;
+}
+
+Color _scheduleTypeColor(BuildContext context, String type) {
+  final normalized = type.trim();
+  if (normalized == '반납') return const Color(0xFFD32F2F);
+  if (normalized == '배차') return const Color(0xFF1976D2);
+  return Theme.of(context).colorScheme.onSurfaceVariant;
+}
+
+String? _extractScheduleRawRowId(String recordId) {
+  final trimmed = recordId.trim();
+  const prefix = 'schedule:';
+  if (trimmed.startsWith(prefix) && trimmed.length > prefix.length) {
+    return trimmed.substring(prefix.length);
+  }
+  if (trimmed.isNotEmpty && !trimmed.contains(':')) return trimmed;
+  return null;
+}
+
+String _resolveScheduleListImsReturnContractId(ExternalReservationLink link) {
+  final candidates = [
+    link.externalDetailId,
+    link.reservationRefId,
+    link.lastResultJson['contractId']?.toString() ?? '',
+    link.lastResultJson['contract_id']?.toString() ?? '',
+    link.lastResultJson['id']?.toString() ?? '',
+  ];
+  for (final candidate in candidates) {
+    final trimmed = candidate.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+  }
+  return '';
 }
 
 String _scheduleHeaderLabel(DateTime value) {
