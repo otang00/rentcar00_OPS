@@ -1224,6 +1224,35 @@ function toImsReservationImportItem(schedule) {
   const reservation = schedule?.reservation || schedule?.detail || {};
   const detail = schedule?.detail || schedule?.reservation || {};
   const request = schedule?.requestDetail || {};
+  const birthDate = firstText(
+    reservation?.customer_birth_date,
+    reservation?.customer_birth,
+    reservation?.birth_date,
+    reservation?.birthDate,
+    reservation?.birthday,
+    reservation?.driver_date_of_birth,
+    reservation?.driver_birth_date,
+    reservation?.customer?.birth_date,
+    reservation?.customer?.birthDate,
+    detail?.customer_birth_date,
+    detail?.customer_birth,
+    detail?.birth_date,
+    detail?.birthDate,
+    detail?.birthday,
+    detail?.driver_date_of_birth,
+    detail?.driver_birth_date,
+    detail?.customer?.birth_date,
+    detail?.customer?.birthDate,
+    request?.driver_date_of_birth,
+    request?.driver_birth_date,
+    request?.birth_date,
+    request?.birthDate,
+    request?.birthday,
+    request?.customer_birth_date,
+    request?.customer_birth,
+    request?.self_contract_birth_date,
+    request?.self_contract_birth,
+  );
   return {
     scheduleId: stringifyNullable(schedule?.id || schedule?.schedule_id),
     detailId: stringifyNullable(reservation?.id || detail?.id || schedule?.detail_id),
@@ -1235,7 +1264,8 @@ function toImsReservationImportItem(schedule) {
     carName: stringifyNullable(schedule?.car?.model || schedule?.car?.car_model || schedule?.car?.car_name || request?.response_car?.car_name || schedule?.car_name),
     customerName: stringifyNullable(reservation?.customer_name || detail?.customer_name || request?.self_contract_name || request?.driver_name || schedule?.customer_name),
     customerPhone: digitsOnly(reservation?.customer_contact || detail?.customer_contact || request?.self_contract_contact || request?.original_customer_contact || schedule?.customer_contact),
-    birthDate: stringifyNullable(reservation?.customer_birth_date || reservation?.customer_birth || detail?.customer_birth_date || detail?.customer_birth || request?.driver_date_of_birth),
+    birthDate: normalizeBirthDateText(birthDate),
+    birthDateSource: birthDate ? 'reservation/detail/request' : '',
     price: stringifyNullable(reservation?.price || reservation?.total_price || reservation?.payment_amount || detail?.price || detail?.total_price || detail?.payment_amount || request?.paid_cost || request?.response_car?.price),
     rentalAt: normalizeImsDateTime(schedule?.start_at || request?.pickup_at),
     returnAt: normalizeImsDateTime(schedule?.end_at || request?.dropoff_at),
@@ -1247,6 +1277,17 @@ function toImsReservationImportItem(schedule) {
 }
 
 function toImsInsuranceClaimImportItem(claim) {
+  const birthDate = firstText(
+    claim?.customer_birth_date,
+    claim?.customer_birth,
+    claim?.birth_date,
+    claim?.birthDate,
+    claim?.birthday,
+    claim?.driver_date_of_birth,
+    claim?.driver_birth_date,
+    claim?.claim_customer_birth_date,
+    claim?.claim_user_birth_date,
+  );
   return {
     claimId: stringifyNullable(claim?.id),
     status: stringifyNullable(claim?.claim_state),
@@ -1254,6 +1295,8 @@ function toImsInsuranceClaimImportItem(claim) {
     carName: stringifyNullable(claim?.car_model),
     customerName: stringifyNullable(claim?.customer_name),
     customerPhone: digitsOnly(claim?.customer_contact),
+    birthDate: normalizeBirthDateText(birthDate),
+    birthDateSource: birthDate ? 'insuranceClaim' : '',
     rentalAt: normalizeImsDateTime(claim?.delivered_at),
     returnAt: normalizeImsDateTime(claim?.expect_return_date || claim?.return_date),
     pickupLocation: stringifyNullable(claim?.customer_address),
@@ -1404,6 +1447,16 @@ function normalizeText(value) {
 
 function digitsOnly(value) {
   return String(value || '').replace(/\D+/g, '');
+}
+
+function normalizeBirthDateText(value) {
+  const text = stringifyNullable(value).trim();
+  if (!text) return '';
+  const digits = text.replace(/\D+/g, '');
+  if (digits.length === 8) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  }
+  return text;
 }
 
 function stringifyNullable(value) {

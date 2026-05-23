@@ -4975,7 +4975,7 @@ String? _positiveMoneyValidator(String? value) {
 
 String? _birthDateValidator(String? value) {
   final text = (value ?? '').trim();
-  if (text.isEmpty) return '필수 입력입니다.';
+  if (text.isEmpty) return null;
   if (!opsIsCompleteBirthDate(text)) {
     return '실제 날짜를 입력하세요.';
   }
