@@ -1573,7 +1573,9 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
       return;
     }
 
-    _applyImsImport(selected, matchedCar);
+    final result = _buildImportedImsFormResult(selected, matchedCar);
+    if (result == null || !mounted) return;
+    Navigator.of(context).pop(result);
   }
 
   StatusBoardRecord? _findCarByNumber(String carNumber) {
@@ -1587,40 +1589,40 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
     return null;
   }
 
-  void _applyImsImport(
+  _ReservationCreateFormResult? _buildImportedImsFormResult(
     ImsReservationImportCandidate imported,
     StatusBoardRecord car,
   ) {
-    setState(() {
-      _importedIms = imported;
-      _imsChecked = false;
-      _selectedCar = car;
-      _carController.text = _carDisplayLabel(car);
-      _reservationNumberController.text = imported.reservationNumber;
-      _customerNameController.text = imported.customerName;
-      _customerPhoneController.text = opsFormatPhoneInput(
-        imported.customerPhone,
+    final startAt = _tryParseDateTime(imported.rentalAt.trim());
+    final endAt = _tryParseDateTime(imported.returnAt.trim());
+    if (startAt == null || endAt == null || !endAt.isAfter(startAt)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('IMS 가져오기 일정 시각을 확인할 수 없습니다.')),
       );
-      if (imported.birthDate.trim().isNotEmpty) {
-        _customerBirthDateController.text = opsFormatBirthDateInput(
-          imported.birthDate,
-        );
-      }
-      _referralSourceController.text = imported.recommenderName;
-      if (imported.price.trim().isNotEmpty) {
-        _paymentAmountController.text = imported.price;
-      }
-      _startAtController.text = imported.rentalAt;
-      _endAtController.text = imported.returnAt;
-      _pickupLocationController.text = imported.pickupLocation;
-      _dropoffLocationController.text = imported.dropoffLocation;
-      _noteController.text = [
+      return null;
+    }
+
+    return _ReservationCreateFormResult(
+      car: car,
+      reservationNumber: imported.reservationNumber.trim(),
+      customerName: imported.customerName.trim(),
+      customerPhone: _normalizePhoneForStorage(imported.customerPhone),
+      customerBirthDate: _normalizeBirthDateForStorage(imported.birthDate),
+      referralSource: imported.recommenderName.trim(),
+      paymentAmount: _normalizeMoneyForStorage(imported.price),
+      startAt: startAt,
+      endAt: endAt,
+      pickupLocation: _defaultOfficeLocation(imported.pickupLocation),
+      dropoffLocation: _defaultOfficeLocation(imported.dropoffLocation),
+      noteText: [
         'IMS 가져오기',
         if (imported.title.trim().isNotEmpty) imported.title.trim(),
         'schedule:${imported.scheduleId}',
         'detail:${imported.detailId}',
-      ].join(' | ');
-    });
+      ].join(' | '),
+      imsChecked: false,
+      importedIms: imported,
+    );
   }
 
   void _applyAiParserResult(
@@ -1804,7 +1806,10 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                     hintText: '1990-01-31',
                     keyboardType: TextInputType.number,
                     inputFormatters: [OpsBirthDateInputFormatter()],
-                    validator: _birthDateValidator,
+                    validator: (_) => _reservationCreateBirthDateValidator(
+                      value: _customerBirthDateController.text,
+                      imsChecked: _imsChecked,
+                    ),
                   ),
                   _DialogTextField(
                     controller: _referralSourceController,
@@ -1851,12 +1856,10 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                   _DialogTextField(
                     controller: _pickupLocationController,
                     label: '배차지',
-                    validator: _requiredValidator,
                   ),
                   _DialogTextField(
                     controller: _dropoffLocationController,
                     label: '반납지',
-                    validator: _requiredValidator,
                   ),
                   _DialogTextField(
                     controller: _noteController,
@@ -1923,6 +1926,14 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
             }
             _startAtController.text = _formatEditorDateTime(startAt);
             _endAtController.text = _formatEditorDateTime(endAt);
+            final pickupLocation = _defaultOfficeLocation(
+              _pickupLocationController.text,
+            );
+            final dropoffLocation = _defaultOfficeLocation(
+              _dropoffLocationController.text,
+            );
+            _pickupLocationController.text = pickupLocation;
+            _dropoffLocationController.text = dropoffLocation;
             final result = _ReservationCreateFormResult(
               car: selectedCar,
               reservationNumber: _reservationNumberController.text.trim(),
@@ -1939,8 +1950,8 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
               ),
               startAt: startAt,
               endAt: endAt,
-              pickupLocation: _pickupLocationController.text.trim(),
-              dropoffLocation: _dropoffLocationController.text.trim(),
+              pickupLocation: pickupLocation,
+              dropoffLocation: dropoffLocation,
               noteText: _noteController.text.trim(),
               imsChecked: _imsChecked,
               importedIms: _importedIms,
@@ -4973,13 +4984,23 @@ String? _positiveMoneyValidator(String? value) {
   return null;
 }
 
-String? _birthDateValidator(String? value) {
-  final text = (value ?? '').trim();
-  if (text.isEmpty) return null;
+String? _reservationCreateBirthDateValidator({
+  required String value,
+  required bool imsChecked,
+}) {
+  final text = value.trim();
+  if (text.isEmpty) {
+    return imsChecked ? 'IMS 연동생성 시 생년월일은 필수입니다.' : null;
+  }
   if (!opsIsCompleteBirthDate(text)) {
     return '실제 날짜를 입력하세요.';
   }
   return null;
+}
+
+String _defaultOfficeLocation(String value) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? '사무실' : trimmed;
 }
 
 String _resolveImsReturnContractId(ExternalReservationLink? link) {
