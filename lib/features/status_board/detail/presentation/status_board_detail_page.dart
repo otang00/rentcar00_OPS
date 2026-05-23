@@ -3746,7 +3746,7 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
             style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
-          FilledButton.tonalIcon(
+          OutlinedButton.icon(
             onPressed: linkedCar == null
                 ? null
                 : () => _openLinkedCar(linkedCar),
@@ -3756,13 +3756,14 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
               style: textTheme.headlineSmall?.copyWith(
                 color: linkedCar == null
                     ? colorScheme.onSurfaceVariant
-                    : colorScheme.onSecondaryContainer,
+                    : colorScheme.primary,
                 fontWeight: FontWeight.w900,
                 letterSpacing: -0.2,
               ),
             ),
-            style: FilledButton.styleFrom(
+            style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              side: BorderSide(color: colorScheme.primary, width: 1.6),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
