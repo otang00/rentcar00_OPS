@@ -1085,16 +1085,12 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   ),
             child: relatedSchedulesAsync.when(
               data: (items) {
-                final relatedReservations =
-                    reservationsAsync.valueOrNull
-                        ?.where(
-                          (reservation) =>
-                              reservation.carNumber.trim().isNotEmpty &&
-                              reservation.carNumber.trim() ==
-                                  record.carNumber.trim(),
-                        )
-                        .toList() ??
-                    const <ReservationRecord>[];
+                final availabilityItems = _buildAvailabilityItems(
+                  car: record,
+                  reservations:
+                      reservationsAsync.valueOrNull ??
+                      const <ReservationRecord>[],
+                );
                 final sortedItems = [...items]
                   ..sort((a, b) {
                     final aAt = a.sortAt;
@@ -1107,9 +1103,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _VehicleAvailabilityCalendar(
-                      reservations: relatedReservations,
-                    ),
+                    _VehicleAvailabilityCalendar(items: availabilityItems),
                     if (sortedItems.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Text(
@@ -3489,6 +3483,22 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
 
   StatusBoardRecord get record => widget.record;
 
+  StatusBoardRecord? _linkedCarRecord(AsyncValue<List<StatusBoardRecord>> all) {
+    final target = _normalizeCarNumber(record.carNumber);
+    if (target.isEmpty) return null;
+    final records = all.valueOrNull;
+    if (records == null) return null;
+    for (final item in records) {
+      if (item.isScheduleEntry) continue;
+      if (_normalizeCarNumber(item.carNumber) == target) return item;
+    }
+    return null;
+  }
+
+  void _openLinkedCar(StatusBoardRecord car) {
+    context.push('/board/${Uri.encodeComponent(car.recordId)}');
+  }
+
   Future<void> _runScheduleAction(Future<void> Function() action) async {
     if (_submitting) return;
     setState(() => _submitting = true);
@@ -3702,6 +3712,8 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
 
   @override
   Widget build(BuildContext context) {
+    final allRecordsAsync = ref.watch(allStatusBoardRecordsProvider);
+    final linkedCar = _linkedCarRecord(allRecordsAsync);
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final hasPhone = hasCallablePhone(record.customerPhone);
@@ -3734,18 +3746,25 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
             style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
+          FilledButton.tonalIcon(
+            onPressed: linkedCar == null
+                ? null
+                : () => _openLinkedCar(linkedCar),
+            icon: const Icon(Icons.directions_car_filled_outlined),
+            label: Text(
               record.carNumber.isEmpty ? '차량번호 미확인' : record.carNumber,
               style: textTheme.headlineSmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
+                color: linkedCar == null
+                    ? colorScheme.onSurfaceVariant
+                    : colorScheme.onSecondaryContainer,
                 fontWeight: FontWeight.w900,
                 letterSpacing: -0.2,
+              ),
+            ),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
           ),
@@ -3876,9 +3895,9 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
 }
 
 class _VehicleAvailabilityCalendar extends StatelessWidget {
-  const _VehicleAvailabilityCalendar({required this.reservations});
+  const _VehicleAvailabilityCalendar({required this.items});
 
-  final List<ReservationRecord> reservations;
+  final List<_AvailabilityItem> items;
 
   @override
   Widget build(BuildContext context) {
@@ -3894,9 +3913,9 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
         (day) => gridStart.add(Duration(days: week * 7 + day)),
       ),
     );
-    final visibleReservations = reservations.where((reservation) {
-      return !reservation.endAt.isBefore(gridStart) &&
-          !reservation.startAt.isAfter(weeks.last.last);
+    final visibleItems = items.where((item) {
+      return !item.endAt.isBefore(gridStart) &&
+          !item.startAt.isAfter(weeks.last.last);
     }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
 
     return Column(
@@ -3914,7 +3933,7 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
               ),
             ),
             Text(
-              '${reservations.length}건',
+              '${items.length}건',
               style: textTheme.labelSmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w800,
@@ -3957,7 +3976,7 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
                   _AvailabilityWeekRow(
                     days: weeks[weekIndex],
                     today: today,
-                    reservations: visibleReservations,
+                    items: visibleItems,
                     showBottomBorder: weekIndex != weeks.length - 1,
                   ),
               ],
@@ -3992,19 +4011,19 @@ class _AvailabilityWeekRow extends StatelessWidget {
   const _AvailabilityWeekRow({
     required this.days,
     required this.today,
-    required this.reservations,
+    required this.items,
     required this.showBottomBorder,
   });
 
   final List<DateTime> days;
   final DateTime today;
-  final List<ReservationRecord> reservations;
+  final List<_AvailabilityItem> items;
   final bool showBottomBorder;
 
   @override
   Widget build(BuildContext context) {
     final segments = _buildSegments();
-    const rowHeight = 50.0;
+    const rowHeight = 54.0;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -4030,7 +4049,7 @@ class _AvailabilityWeekRow extends StatelessWidget {
               for (final segment in segments)
                 Positioned(
                   left: segment.startIndex * cellWidth + 3,
-                  top: 24 + (segment.lane * 15),
+                  top: 18 + (segment.lane * 15),
                   width: (segment.length * cellWidth) - 6,
                   height: 14,
                   child: DecoratedBox(
@@ -4050,18 +4069,16 @@ class _AvailabilityWeekRow extends StatelessWidget {
                         children: [
                           if (!segment.continuesFromPrevious)
                             Text(
-                              _formatAvailabilityTime(
-                                segment.reservation.startAt,
-                              ),
+                              _formatAvailabilityTime(segment.item.startAt),
                               style: _availabilityTimeStyle(context),
                             )
                           else
-                            Text('계속', style: _availabilityTimeStyle(context)),
+                            const SizedBox.shrink(),
                           if (segment.showName) ...[
                             const Spacer(),
                             Flexible(
                               child: Text(
-                                segment.reservation.customerName.trim(),
+                                segment.item.customerName.trim(),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: _availabilityTimeStyle(context),
@@ -4071,9 +4088,7 @@ class _AvailabilityWeekRow extends StatelessWidget {
                           const Spacer(),
                           if (!segment.continuesToNext)
                             Text(
-                              _formatAvailabilityTime(
-                                segment.reservation.endAt,
-                              ),
+                              _formatAvailabilityTime(segment.item.endAt),
                               style: _availabilityTimeStyle(context),
                             ),
                         ],
@@ -4092,9 +4107,9 @@ class _AvailabilityWeekRow extends StatelessWidget {
     final weekStart = days.first;
     final weekEnd = days.last;
     final result = <_AvailabilitySegment>[];
-    for (final reservation in reservations) {
-      final startDate = _dateOnly(reservation.startAt);
-      final endDate = _dateOnly(reservation.endAt);
+    for (final item in items) {
+      final startDate = _dateOnly(item.startAt);
+      final endDate = _dateOnly(item.endAt);
       if (endDate.isBefore(weekStart) || startDate.isAfter(weekEnd)) continue;
       final visibleStart = startDate.isBefore(weekStart)
           ? weekStart
@@ -4104,7 +4119,7 @@ class _AvailabilityWeekRow extends StatelessWidget {
       final endIndex = visibleEnd.difference(weekStart).inDays;
       result.add(
         _AvailabilitySegment(
-          reservation: reservation,
+          item: item,
           startIndex: startIndex,
           length: endIndex - startIndex + 1,
           lane: result.length % 2,
@@ -4222,7 +4237,7 @@ class _AvailabilityLegendDot extends StatelessWidget {
 
 class _AvailabilitySegment {
   const _AvailabilitySegment({
-    required this.reservation,
+    required this.item,
     required this.startIndex,
     required this.length,
     required this.lane,
@@ -4231,13 +4246,97 @@ class _AvailabilitySegment {
     required this.showName,
   });
 
-  final ReservationRecord reservation;
+  final _AvailabilityItem item;
   final int startIndex;
   final int length;
   final int lane;
   final bool continuesFromPrevious;
   final bool continuesToNext;
   final bool showName;
+}
+
+class _AvailabilityItem {
+  const _AvailabilityItem({
+    required this.id,
+    required this.customerName,
+    required this.startAt,
+    required this.endAt,
+  });
+
+  final String id;
+  final String customerName;
+  final DateTime startAt;
+  final DateTime endAt;
+}
+
+List<_AvailabilityItem> _buildAvailabilityItems({
+  required StatusBoardRecord car,
+  required List<ReservationRecord> reservations,
+}) {
+  final targetCarNumber = _normalizeCarNumber(car.carNumber);
+  if (targetCarNumber.isEmpty) return const <_AvailabilityItem>[];
+
+  final items =
+      reservations
+          .where((reservation) {
+            if (_normalizeCarNumber(reservation.carNumber) != targetCarNumber) {
+              return false;
+            }
+            final status = reservation.statusKey.trim();
+            if (status == '예약취소') return false;
+            return !reservation.endAt.isBefore(reservation.startAt);
+          })
+          .map(
+            (reservation) => _AvailabilityItem(
+              id: reservation.reservationId,
+              customerName: reservation.customerName,
+              startAt: reservation.startAt,
+              endAt: reservation.endAt,
+            ),
+          )
+          .toList()
+        ..sort((a, b) => a.startAt.compareTo(b.startAt));
+
+  final inUseStartAt = _tryParseDateTime(car.startAt);
+  final inUseEndAt = _tryParseDateTime(car.endAt);
+  final shouldAddCurrentUsage =
+      car.status.trim() == '배차중' &&
+      inUseStartAt != null &&
+      inUseEndAt != null &&
+      !inUseEndAt.isBefore(inUseStartAt);
+
+  if (shouldAddCurrentUsage) {
+    final hasSameSpan = items.any(
+      (item) =>
+          item.startAt == inUseStartAt &&
+          item.endAt == inUseEndAt &&
+          item.customerName.trim() == car.customerName.trim(),
+    );
+    if (!hasSameSpan) {
+      items.add(
+        _AvailabilityItem(
+          id: 'active:${car.recordId}',
+          customerName: car.customerName,
+          startAt: inUseStartAt,
+          endAt: inUseEndAt,
+        ),
+      );
+      items.sort((a, b) => a.startAt.compareTo(b.startAt));
+    }
+  }
+
+  final deduped = <_AvailabilityItem>[];
+  final seen = <String>{};
+  for (final item in items) {
+    final key =
+        '${item.customerName.trim()}|${item.startAt.toIso8601String()}|${item.endAt.toIso8601String()}';
+    if (seen.add(key)) deduped.add(item);
+  }
+  return deduped;
+}
+
+String _normalizeCarNumber(String value) {
+  return value.replaceAll(RegExp(r'[^0-9가-힣a-zA-Z]'), '').trim();
 }
 
 DateTime _dateOnly(DateTime value) =>
