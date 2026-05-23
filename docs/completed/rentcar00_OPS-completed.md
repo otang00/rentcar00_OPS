@@ -5,6 +5,39 @@
 
 ---
 
+## 2026-05-23 — 일정/차량/예약 통합 검색 + 일정 연결카드 강조
+### 사용자 표면
+- 상단 예약추가 옆에 검색 버튼을 추가했다.
+- 검색 화면에서 일정, 차량, 예약을 한 번에 찾을 수 있다.
+- 검색 결과는 일정 → 차량 → 예약 순으로 나뉘어 표시된다.
+- 일정탭에서 예약 연결 일정은 배차 파랑 / 반납 빨강 카드로 더 강하게 구분된다.
+
+### 실제 동작
+- 기존 `/search` 화면을 확장해 `allStatusBoardRecordsProvider`와 `allReservationsProvider`를 함께 사용한다.
+- 일정 검색은 일정 엔트리만, 차량 검색은 차량 엔트리만 분리해 같은 검색어로 필터링한다.
+- 검색 대상에는 고객명, 차량번호, 차종, 예약ID/예약번호, 위치, 메모/상세텍스트가 포함된다.
+- 일정 카드 강조는 `reservationId`가 연결된 일정에만 적용한다.
+- `배차`는 파란 배경/굵은 파란 테두리, `반납`은 빨간 배경/굵은 빨간 테두리로 표시한다.
+
+### 핵심 파일
+- `lib/app/view/app_shell.dart`
+- `lib/features/reservations/shared/providers/reservation_providers.dart`
+- `lib/features/search/presentation/search_page.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `flutter build apk --release --target-platform android-arm64` 진행 예정 / 업로드 후 확인
+- `git diff --check` 통과
+
+### 남은 확인
+- 실기기에서 검색 버튼 → 검색 페이지 진입 확인
+- 검색어로 일정/차량/예약이 의도한 순서로 보이는지 확인
+- 일정탭 배차/반납 연결 카드 색상 체감이 충분한지 확인
+
+---
+
 ## 2026-05-21 — 일정 생성 차량선택 추가
 ### 사용자 표면
 - 일정 생성 화면에서 차량번호 입력칸 오른쪽 차량 아이콘으로 차량을 선택할 수 있다.
