@@ -224,6 +224,40 @@ final filteredReservationsProvider =
       });
     });
 
+final filteredScheduleRecordsProvider =
+    Provider<AsyncValue<List<StatusBoardRecord>>>((ref) {
+      final query = ref.watch(searchQueryProvider).trim().toLowerCase();
+      final boardAsync = ref.watch(allStatusBoardRecordsProvider);
+
+      return boardAsync.whenData((items) {
+        final schedules = items.where((item) => item.isScheduleEntry).toList();
+        if (query.isEmpty) {
+          return schedules;
+        }
+
+        return schedules
+            .where((item) => _matchesStatusBoardSearch(item, query))
+            .toList();
+      });
+    });
+
+final filteredVehicleRecordsProvider =
+    Provider<AsyncValue<List<StatusBoardRecord>>>((ref) {
+      final query = ref.watch(searchQueryProvider).trim().toLowerCase();
+      final boardAsync = ref.watch(allStatusBoardRecordsProvider);
+
+      return boardAsync.whenData((items) {
+        final vehicles = items.where((item) => !item.isScheduleEntry).toList();
+        if (query.isEmpty) {
+          return vehicles;
+        }
+
+        return vehicles
+            .where((item) => _matchesStatusBoardSearch(item, query))
+            .toList();
+      });
+    });
+
 final statusBoardListProvider =
     Provider.family<AsyncValue<List<StatusBoardRecord>>, StatusBoardTab>((
       ref,
@@ -370,4 +404,21 @@ String _formatDateTime(DateTime value) {
   final kst = opsAsKstWallTime(value);
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(kst.month)}/${two(kst.day)}(${opsKoreanWeekday(kst)}) ${two(kst.hour)}:${two(kst.minute)}';
+}
+
+bool _matchesStatusBoardSearch(StatusBoardRecord item, String query) {
+  return item.carNumber.toLowerCase().contains(query) ||
+      item.carName.toLowerCase().contains(query) ||
+      item.customerName.toLowerCase().contains(query) ||
+      item.customerPhone.toLowerCase().contains(query) ||
+      item.reservationId.toLowerCase().contains(query) ||
+      item.reservationNumber.toLowerCase().contains(query) ||
+      item.scheduleType.toLowerCase().contains(query) ||
+      item.status.toLowerCase().contains(query) ||
+      item.statusAction.toLowerCase().contains(query) ||
+      item.locationSummary.toLowerCase().contains(query) ||
+      item.pickupLocation.toLowerCase().contains(query) ||
+      item.parkingLocation.toLowerCase().contains(query) ||
+      item.noteText.toLowerCase().contains(query) ||
+      item.detailText.toLowerCase().contains(query);
 }

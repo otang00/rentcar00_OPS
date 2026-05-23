@@ -88,6 +88,11 @@ class AppShell extends ConsumerWidget {
               ),
             ),
           IconButton(
+            tooltip: '검색',
+            icon: const Icon(Icons.search),
+            onPressed: () => context.push(AppRoutes.search),
+          ),
+          IconButton(
             tooltip: '예약추가',
             icon: const Icon(Icons.add),
             onPressed: () =>

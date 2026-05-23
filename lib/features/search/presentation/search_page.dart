@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:rentcar00_ops/data/models/status_board_record.dart';
+import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_summary.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 
 class SearchPage extends ConsumerWidget {
@@ -8,15 +10,22 @@ class SearchPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final itemsAsync = ref.watch(filteredReservationsProvider);
+    final query = ref.watch(searchQueryProvider).trim();
+    final schedulesAsync = ref.watch(filteredScheduleRecordsProvider);
+    final vehiclesAsync = ref.watch(filteredVehicleRecordsProvider);
+    final reservationsAsync = ref.watch(filteredReservationsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('완료/검색')),
+      appBar: AppBar(title: const Text('검색')),
       body: RefreshIndicator(
         triggerMode: RefreshIndicatorTriggerMode.anywhere,
         onRefresh: () async {
+          ref.invalidate(allStatusBoardRecordsProvider);
           ref.invalidate(allReservationsProvider);
-          await ref.read(allReservationsProvider.future);
+          await Future.wait([
+            ref.read(allStatusBoardRecordsProvider.future),
+            ref.read(allReservationsProvider.future),
+          ]);
         },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -24,49 +33,189 @@ class SearchPage extends ConsumerWidget {
           children: [
             TextField(
               decoration: const InputDecoration(
-                labelText: '고객명 / 차량번호 / 예약ID 검색',
+                labelText: '일정 / 차량 / 예약 검색',
+                hintText: '고객명, 차량번호, 예약번호, 위치, 비고',
                 border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.search),
               ),
               onChanged: (value) {
                 ref.read(searchQueryProvider.notifier).state = value;
               },
             ),
             const SizedBox(height: 16),
-            itemsAsync.when(
-              data: (items) => Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '검색 결과 ${items.length}건',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  for (final item in items)
-                    Card(
-                      child: ListTile(
-                        title: Text(
-                          '${item.customerName.isEmpty ? '(고객명없음)' : item.customerName} · ${item.carNumber}',
-                        ),
-                        subtitle: Text(
-                          '${item.reservationId} · ${item.tab.label} · ${item.timeLabel}',
-                        ),
-                        onTap: () =>
-                            context.push('/reservation/${item.reservationId}'),
-                      ),
-                    ),
-                ],
-              ),
-              loading: () => const Padding(
-                padding: EdgeInsets.only(top: 24),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-              error: (error, stack) => Padding(
-                padding: const EdgeInsets.only(top: 24),
-                child: Text('검색 데이터를 불러오지 못했습니다.\n$error'),
-              ),
+            _AsyncSearchSection<StatusBoardRecord>(
+              title: '일정',
+              query: query,
+              itemsAsync: schedulesAsync,
+              emptyText: '일정 검색 결과가 없습니다.',
+              itemBuilder: (context, item) => _ScheduleResultCard(item: item),
+            ),
+            const SizedBox(height: 16),
+            _AsyncSearchSection<StatusBoardRecord>(
+              title: '차량',
+              query: query,
+              itemsAsync: vehiclesAsync,
+              emptyText: '차량 검색 결과가 없습니다.',
+              itemBuilder: (context, item) => _VehicleResultCard(item: item),
+            ),
+            const SizedBox(height: 16),
+            _AsyncSearchSection<ReservationSummary>(
+              title: '예약',
+              query: query,
+              itemsAsync: reservationsAsync,
+              emptyText: '예약 검색 결과가 없습니다.',
+              itemBuilder: (context, item) =>
+                  _ReservationResultCard(item: item),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AsyncSearchSection<T> extends StatelessWidget {
+  const _AsyncSearchSection({
+    required this.title,
+    required this.query,
+    required this.itemsAsync,
+    required this.emptyText,
+    required this.itemBuilder,
+  });
+
+  final String title;
+  final String query;
+  final AsyncValue<List<T>> itemsAsync;
+  final String emptyText;
+  final Widget Function(BuildContext context, T item) itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return itemsAsync.when(
+      data: (items) {
+        final visibleItems = query.isEmpty ? items.take(5).toList() : items;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$title ${items.length}건',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            if (items.isEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Text(query.isEmpty ? '$title 데이터가 없습니다.' : emptyText),
+                ),
+              )
+            else ...[
+              for (final item in visibleItems) itemBuilder(context, item),
+              if (query.isEmpty && items.length > visibleItems.length)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, top: 2),
+                  child: Text(
+                    '검색어를 입력하면 전체 결과를 볼 수 있습니다.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+            ],
+          ],
+        );
+      },
+      loading: () => const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (error, stack) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Text('$title 데이터를 불러오지 못했습니다.\n$error'),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScheduleResultCard extends StatelessWidget {
+  const _ScheduleResultCard({required this.item});
+
+  final StatusBoardRecord item;
+
+  @override
+  Widget build(BuildContext context) {
+    final type = item.scheduleType.isEmpty ? '일정' : item.scheduleType;
+    final title = '${item.timeLabel.isEmpty ? '-' : item.timeLabel} · $type';
+    final subtitle = [
+      item.carNumber,
+      item.carName,
+      item.customerName,
+      item.locationSummary,
+    ].where((value) => value.trim().isNotEmpty).join(' · ');
+
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.event_note_outlined),
+        title: Text(title),
+        subtitle: Text(subtitle.isEmpty ? '-' : subtitle),
+        trailing: item.reservationId.isEmpty
+            ? null
+            : const Icon(Icons.link, size: 18),
+        onTap: () =>
+            context.push('/schedule/${Uri.encodeComponent(item.recordId)}'),
+      ),
+    );
+  }
+}
+
+class _VehicleResultCard extends StatelessWidget {
+  const _VehicleResultCard({required this.item});
+
+  final StatusBoardRecord item;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = [
+      item.carName,
+      item.status,
+      item.customerName,
+      item.locationSummary,
+    ].where((value) => value.trim().isNotEmpty).join(' · ');
+
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.directions_car_filled_outlined),
+        title: Text(item.carNumber.isEmpty ? '(차량번호없음)' : item.carNumber),
+        subtitle: Text(subtitle.isEmpty ? '-' : subtitle),
+        onTap: () =>
+            context.push('/board/${Uri.encodeComponent(item.recordId)}'),
+      ),
+    );
+  }
+}
+
+class _ReservationResultCard extends StatelessWidget {
+  const _ReservationResultCard({required this.item});
+
+  final ReservationSummary item;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = [
+      item.customerName.isEmpty ? '(고객명없음)' : item.customerName,
+      item.carNumber,
+    ].where((value) => value.trim().isNotEmpty).join(' · ');
+
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.assignment_outlined),
+        title: Text(title),
+        subtitle: Text(
+          '${item.reservationNumber.isEmpty ? item.reservationId : item.reservationNumber} · ${item.tab.label} · ${item.timeLabel}',
+        ),
+        onTap: () => context.push('/reservation/${item.reservationId}'),
       ),
     );
   }

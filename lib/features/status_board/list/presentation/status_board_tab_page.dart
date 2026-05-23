@@ -759,17 +759,34 @@ class _ScheduleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final linkedReservation = item.reservationId.trim().isNotEmpty;
+    final scheduleType = item.scheduleType.trim();
+    final linkedPickup = linkedReservation && scheduleType == '배차';
+    final linkedReturn = linkedReservation && scheduleType == '반납';
+    final accentColor = linkedReturn
+        ? const Color(0xFFD32F2F)
+        : linkedPickup
+        ? const Color(0xFF1976D2)
+        : const Color(0xFF2E7D32);
+    final cardColor = linkedReturn
+        ? const Color(0xFFFFEBEE)
+        : linkedPickup
+        ? const Color(0xFFE3F2FD)
+        : linkedReservation
+        ? const Color(0xFFEAF7EA)
+        : Colors.white;
+    final borderColor = linkedReservation
+        ? accentColor
+        : colorScheme.outlineVariant;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
-      color: linkedReservation ? const Color(0xFFEAF5FF) : Colors.white,
+      color: cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: linkedReservation
-              ? const Color(0xFFBBD7F5)
-              : colorScheme.outlineVariant,
+          color: borderColor,
+          width: linkedReservation ? 2.4 : 1,
         ),
       ),
       child: InkWell(
@@ -790,7 +807,9 @@ class _ScheduleCard extends StatelessWidget {
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: colorScheme.primary,
+                      color: linkedReservation
+                          ? accentColor
+                          : colorScheme.primary,
                       fontWeight: FontWeight.w900,
                       letterSpacing: -0.2,
                     ),
