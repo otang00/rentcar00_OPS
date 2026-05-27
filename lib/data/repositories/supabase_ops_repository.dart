@@ -845,6 +845,7 @@ class SupabaseOpsRepository {
     required String reservationId,
     required String scheduleType,
     required DateTime scheduleAt,
+    required String locationText,
   }) async {
     final normalizedScheduleType = scheduleType.trim();
 
@@ -852,6 +853,7 @@ class SupabaseOpsRepository {
         .from('rc00_ops_schedules')
         .update({
           'schedule_at': _toDbTimestamp(scheduleAt),
+          'location_text': locationText.trim(),
           'payload_json': {
             'updated_via': 'status_board_linked_schedule_time',
             'status': normalizedScheduleType,
@@ -864,13 +866,12 @@ class SupabaseOpsRepository {
       reservationId: reservationId,
       scheduleType: normalizedScheduleType,
       scheduleAt: scheduleAt,
-      locationText: '',
-      syncLocation: false,
+      locationText: locationText,
     );
 
     await recordActionLog(
       actionKey: 'schedule.time_update',
-      label: '일정 시간수정',
+      label: '일정 수정',
       targetType: 'schedule',
       targetRef: scheduleRowId,
       reservationId: reservationId,

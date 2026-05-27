@@ -2767,23 +2767,38 @@ class _WashToggleTile extends StatelessWidget {
   }
 }
 
-class _LinkedScheduleTimeDialog extends StatefulWidget {
-  const _LinkedScheduleTimeDialog({
+class _LinkedScheduleEditResult {
+  const _LinkedScheduleEditResult({
+    required this.scheduleAt,
+    required this.locationText,
+  });
+
+  final DateTime scheduleAt;
+  final String locationText;
+}
+
+class _LinkedScheduleEditDialog extends StatefulWidget {
+  const _LinkedScheduleEditDialog({
     required this.title,
+    required this.locationLabel,
     required this.initialScheduleAt,
+    required this.initialLocationText,
   });
 
   final String title;
+  final String locationLabel;
   final DateTime initialScheduleAt;
+  final String initialLocationText;
 
   @override
-  State<_LinkedScheduleTimeDialog> createState() =>
-      _LinkedScheduleTimeDialogState();
+  State<_LinkedScheduleEditDialog> createState() =>
+      _LinkedScheduleEditDialogState();
 }
 
-class _LinkedScheduleTimeDialogState extends State<_LinkedScheduleTimeDialog> {
+class _LinkedScheduleEditDialogState extends State<_LinkedScheduleEditDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _scheduleAtController;
+  late final TextEditingController _locationController;
 
   @override
   void initState() {
@@ -2791,11 +2806,15 @@ class _LinkedScheduleTimeDialogState extends State<_LinkedScheduleTimeDialog> {
     _scheduleAtController = TextEditingController(
       text: _formatEditorDateTime(widget.initialScheduleAt),
     );
+    _locationController = TextEditingController(
+      text: widget.initialLocationText,
+    );
   }
 
   @override
   void dispose() {
     _scheduleAtController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
@@ -2837,22 +2856,32 @@ class _LinkedScheduleTimeDialogState extends State<_LinkedScheduleTimeDialog> {
         width: 360,
         child: Form(
           key: _formKey,
-          child: _DialogTextField(
-            controller: _scheduleAtController,
-            label: '일정 시간',
-            hintText: '${widget.initialScheduleAt.year}-05171000',
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              OpsDateTimeInputFormatter(
-                defaultYear: widget.initialScheduleAt.year,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DialogTextField(
+                controller: _scheduleAtController,
+                label: '일정 시간',
+                hintText: '${widget.initialScheduleAt.year}-05171000',
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  OpsDateTimeInputFormatter(
+                    defaultYear: widget.initialScheduleAt.year,
+                  ),
+                ],
+                validator: _dateTimeValidator,
+                suffixIcon: IconButton(
+                  tooltip: '날짜 선택',
+                  onPressed: _pickDateTime,
+                  icon: const Icon(Icons.event_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _DialogTextField(
+                controller: _locationController,
+                label: widget.locationLabel,
               ),
             ],
-            validator: _dateTimeValidator,
-            suffixIcon: IconButton(
-              tooltip: '날짜 선택',
-              onPressed: _pickDateTime,
-              icon: const Icon(Icons.event_outlined),
-            ),
           ),
         ),
       ),
@@ -2866,7 +2895,12 @@ class _LinkedScheduleTimeDialogState extends State<_LinkedScheduleTimeDialog> {
             if (!_formKey.currentState!.validate()) return;
             final parsed = _tryParseDateTime(_scheduleAtController.text.trim());
             if (parsed == null) return;
-            Navigator.of(context).pop(parsed);
+            Navigator.of(context).pop(
+              _LinkedScheduleEditResult(
+                scheduleAt: parsed,
+                locationText: _locationController.text.trim(),
+              ),
+            );
           },
           child: const Text('저장'),
         ),
@@ -3615,14 +3649,16 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
         (record.scheduleType.trim() == '배차' ||
             record.scheduleType.trim() == '반납');
     if (isLinkedReservationSchedule) {
-      final scheduleAt = await showDialog<DateTime>(
+      final form = await showDialog<_LinkedScheduleEditResult>(
         context: context,
-        builder: (context) => _LinkedScheduleTimeDialog(
-          title: '${record.scheduleType} 시간 수정',
+        builder: (context) => _LinkedScheduleEditDialog(
+          title: '${record.scheduleType} 일정 수정',
+          locationLabel: record.scheduleType.trim() == '반납' ? '반차지' : '배차지',
           initialScheduleAt: record.sortAt ?? DateTime.now(),
+          initialLocationText: record.locationSummary,
         ),
       );
-      if (scheduleAt == null) return;
+      if (form == null) return;
 
       await _runScheduleAction(() async {
         await ref
@@ -3631,12 +3667,13 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
               scheduleRowId: scheduleRowId,
               reservationId: record.reservationId,
               scheduleType: record.scheduleType,
-              scheduleAt: scheduleAt,
+              scheduleAt: form.scheduleAt,
+              locationText: form.locationText,
             );
         if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('연결 일정 시간을 수정했습니다.')));
+        ).showSnackBar(const SnackBar(content: Text('연결 일정을 수정했습니다.')));
       });
       return;
     }
