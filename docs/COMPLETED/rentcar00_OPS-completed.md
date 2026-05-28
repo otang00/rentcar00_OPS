@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-05-28 — 문서 구조 정리 및 앱 수정 전 기준점 고정
+### 사용자 표면
+- 앱 수정 전 문서 구조를 `GOAL / PHASE / COMPLETED / ARCHIVE` 네 영역으로 정리했다.
+- 애매하거나 오래된 문서는 active 문서로 남기지 않고 `ARCHIVE`에 보관했다.
+- 현재 업로드본은 사장님 확인 기준 최신 운영 기준으로 보고, 다음 작업 후보를 가격 정책 수정으로 고정했다.
+
+### 실제 동작
+- 기존 `docs/current` 문서는 `docs/GOAL` 기준으로 전환했다.
+- 기존 `docs/completed` 문서는 `docs/COMPLETED` 기준으로 전환했다.
+- 기존 `docs/past` 하위 과거 자료는 `docs/ARCHIVE`로 이동했다.
+- `docs/README.md`를 새 문서 구조 기준으로 정리했다.
+- `docs/GOAL/rentcar00_OPS-current.md`를 현재 HEAD `ebc2620` 기준으로 업데이트했다.
+
+### 핵심 파일
+- `docs/README.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
+- `docs/ARCHIVE/`
+
+### 검증
+- `grep`으로 active 문서 내 구 경로 참조 확인
+- `git diff --check` 통과
+- `git status`로 문서 변경만 포함 확인
+
+### 남은 확인
+- 원격 `origin/main`보다 로컬 `main`이 18커밋 앞서 있으므로 push 전 원격 반영 전략 확인 필요.
+
+---
+
 ## 2026-05-23 — 일정/차량/예약 통합 검색 + 일정 연결카드 강조
 ### 사용자 표면
 - 상단 예약추가 옆에 검색 버튼을 추가했다.
@@ -240,8 +269,8 @@
 - 최근 운영 DB 정리 내역도 현재 문서에 반영했다.
 
 ### 실제 동작
-- `docs/current/rentcar00_OPS-current.md`를 완료 기능 묶음, 실전 투입 전 체크리스트, 현재 리스크, 다음 작업 후보 중심으로 재정리했다.
-- `docs/current/`에는 active 문서 1개만 남기고, 완료된 HTML 계획/목업 2개는 `docs/past/snapshots-current-2026-05-21/`로 이동했다.
+- `docs/GOAL/rentcar00_OPS-current.md`를 완료 기능 묶음, 실전 투입 전 체크리스트, 현재 리스크, 다음 작업 후보 중심으로 재정리했다.
+- `docs/GOAL/`에는 active 문서 1개만 남기고, 완료된 HTML 계획/목업 2개는 `docs/ARCHIVE/snapshots-current-2026-05-21/`로 이동했다.
 - 완료된 세부 기능은 이 completed 문서에 유지하고, current에는 운영 기준점만 남겼다.
 - 최근 운영 DB 정리 내역을 문서화했다.
   - 차량번호 오기 `141호4780 → 142호4780`을 예약/일정 연결까지 정리했다.
@@ -250,11 +279,11 @@
 - 다음 큰 작업 후보는 회계/정산 프로그램으로 기록했다.
 
 ### 핵심 파일
-- `docs/current/rentcar00_OPS-current.md`
-- `docs/completed/rentcar00_OPS-completed.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
 - `docs/README.md`
-- `docs/past/snapshots-current-2026-05-21/vehicle-management-plan.html`
-- `docs/past/snapshots-current-2026-05-21/vehicle-detail-related-schedule-ui-mock.html`
+- `docs/ARCHIVE/snapshots-current-2026-05-21/vehicle-management-plan.html`
+- `docs/ARCHIVE/snapshots-current-2026-05-21/vehicle-detail-related-schedule-ui-mock.html`
 
 ### 검증
 - 문서 직접 점검
@@ -329,8 +358,8 @@
 - `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png`
 - `lib/app/view/app_shell.dart`
 - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
-- `docs/current/rentcar00_OPS-current.md`
-- `docs/completed/rentcar00_OPS-completed.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
 
 ### 검증
 - `dart format lib/app/view/app_shell.dart lib/features/status_board/detail/presentation/status_board_detail_page.dart` 통과
@@ -360,8 +389,8 @@
 
 ### 핵심 파일
 - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
-- `docs/current/rentcar00_OPS-current.md`
-- `docs/completed/rentcar00_OPS-completed.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
 
 ### 검증
 - `dart format lib/features/status_board/detail/presentation/status_board_detail_page.dart` 통과
@@ -386,8 +415,8 @@
 
 ### 핵심 파일
 - `pubspec.yaml`
-- `docs/current/rentcar00_OPS-current.md`
-- `docs/completed/rentcar00_OPS-completed.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
 
 ### 검증
 - `flutter build apk --release --target-platform android-arm64` 통과
@@ -426,8 +455,8 @@
 - `lib/data/repositories/supabase_ops_repository.dart`
 - `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
 - `lib/features/reservations/shared/providers/reservation_providers.dart`
-- `docs/current/rentcar00_OPS-current.md`
-- `docs/completed/rentcar00_OPS-completed.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
 
 ### 검증
 - `node --check reservation_ai_parser/src/server.js` 통과
@@ -476,9 +505,9 @@
 - `lib/features/admin/presentation/vehicle_management_page.dart`
 - `lib/app/router/app_routes.dart`
 - `lib/app/router/app_router.dart`
-- `docs/current/rentcar00_OPS-current.md`
-- `docs/current/vehicle-management-plan.html`
-- `docs/completed/rentcar00_OPS-completed.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/ARCHIVE/snapshots-current-2026-05-21/vehicle-management-plan.html`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
 
 ### 검증
 - `flutter analyze` 통과
@@ -519,8 +548,8 @@
 - `reservation_ai_parser/src/server.js`
 - `reservation_ai_parser/README.md`
 - `pubspec.yaml`
-- `docs/current/rentcar00_OPS-current.md`
-- `docs/completed/rentcar00_OPS-completed.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
 
 ### 검증
 - `node --check reservation_ai_parser/src/server.js` 통과
@@ -560,7 +589,7 @@
 - `reservation_ai_parser/src/parser-core.js`
 - `reservation_ai_parser/README.md`
 - `supabase/migrations/20260520015500_add_reservation_event_inbox.sql`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 
 ### 검증
 - `node --check reservation_ai_parser/src/server.js` 통과
@@ -598,7 +627,7 @@
 - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
 - `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
 - `lib/app/router/app_router.dart`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 
 ### 검증
 - 독립 IMS probe: 생성 응답 `{success:true}` 확인
@@ -646,7 +675,7 @@
 - `lib/app/router/app_router.dart`
 - `lib/features/auth/data/staff_account_repository.dart`
 - `lib/features/auth/shared/auth_providers.dart`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 
 ### 검증
 - `flutter analyze` 통과
@@ -939,7 +968,7 @@
 - `reservation_ai_parser/README.md`
 - `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
 - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 
 ### 검증
 - `npm --prefix reservation_ai_parser run check` 통과
@@ -974,7 +1003,7 @@
 - `lib/features/reservations/detail/presentation/ims_return_input_dialog.dart`
 - `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
 - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 - `/Users/otang_server/.openclaw/workspace/IMS_API_MANUAL.md`
 
 ### 검증
@@ -1054,7 +1083,7 @@
 - `lib/app/router/app_router.dart`
 - `lib/features/admin/presentation/admin_home_page.dart`
 - `lib/features/auth/domain/staff_account.dart`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 
 ### 검증
 - `flutter analyze` 통과
@@ -1130,7 +1159,7 @@
 - `lib/features/reservations/detail/data/ims_reservation_client.dart`
 - `reservation_ai_parser/src/server.js`
 - `reservation_ai_parser/README.md`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 - `IMS_API_MANUAL.md`
 
 ### 검증
@@ -1266,7 +1295,7 @@
 
 ### 남은 주의점
 - `pubspec.yaml`의 build number `+31` 변경은 아직 커밋하지 않았다.
-- 다음 구현 작업은 `docs/current/rentcar00_OPS-current.md`의 `상태보드 수리중/배차 UX 보정`이다.
+- 다음 구현 작업은 `docs/GOAL/rentcar00_OPS-current.md`의 `상태보드 수리중/배차 UX 보정`이다.
 
 ## 2026-05-16 — 상태보드 배차/세차/연결 일정 UX 보정 완료
 ### 사용자 표면
@@ -1437,7 +1466,7 @@
 - `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
 - `lib/features/reservations/detail/data/ims_reservation_payload.dart`
 - `pubspec.yaml`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 
 ### 검증
 - `npm --prefix reservation_ai_parser run check` 통과
@@ -1527,7 +1556,7 @@
 - `lib/features/status_board/list/presentation/status_board_tab_page.dart`
 - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
 - `lib/features/status_board/shared/presentation/schedule_editor_dialog.dart`
-- 당시 기준 문서: `docs/past/current-archive-2026-05-16/rentcar00_OPS-main.md`
+- 당시 기준 문서: `docs/ARCHIVE/current-archive-2026-05-16/rentcar00_OPS-main.md`
 
 ### 검증
 - raw import success 확인
@@ -1870,7 +1899,7 @@
 - `reservation_ai_parser/README.md`
 - `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
 - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
-- `docs/current/rentcar00_OPS-current.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
 
 ### 검증
 - IMS live probe로 `GET /v2/rencar-claims?periodOption=using_car&startdate=2026-05-19&enddate=2026-05-19`가 1건을 반환하는 것을 확인했다.
@@ -1905,8 +1934,8 @@
 
 ### 핵심 파일
 - `pubspec.yaml`
-- `docs/current/rentcar00_OPS-current.md`
-- `docs/completed/rentcar00_OPS-completed.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `docs/COMPLETED/rentcar00_OPS-completed.md`
 
 ### 검증
 - `rclone lsf gdrive:rentcar00_OPS/apk/` 결과 최신 b42 APK 1개 확인
