@@ -7,7 +7,9 @@
    - 현재 목표, 기준점, 실전 투입 전 확인사항, 다음 작업 후보
 2. `docs/COMPLETED/rentcar00_OPS-completed.md`
    - 완료된 기능의 운영/검증/장애 대응 누적
-3. `docs/ARCHIVE/current-archive-2026-05-16/rentcar00_OPS-main.md`
+3. `docs/PHASE/rentcar00_OPS-vehicle-group-pricing-policy.md`
+   - 자동차 그룹별 가격 정책 재설정 준비 phase
+4. `docs/ARCHIVE/current-archive-2026-05-16/rentcar00_OPS-main.md`
    - 과거 main 기준 문서 archive. 현재 active 문서로 취급하지 않는다.
 
 ## 폴더 역할
@@ -15,7 +17,7 @@
   - 현재 목표 문서만 둔다.
 - `docs/PHASE/`
   - 진행 예정/진행 중 phase 문서를 둔다.
-  - 현재 별도 active phase 문서는 없다.
+  - 현재 active phase는 자동차 그룹별 가격 정책 재설정이다.
 - `docs/COMPLETED/`
   - 완료 기능 단일 누적 문서를 둔다.
 - `docs/ARCHIVE/`
