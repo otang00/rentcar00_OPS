@@ -889,7 +889,8 @@ class SupabaseOpsRepository {
     final normalizedScheduleType = scheduleType.trim();
     final normalizedReservationId = reservationId.trim();
     final normalizedCarNumber = carNumber.trim();
-    final now = DateTime.now().toIso8601String();
+    final completedAt = DateTime.now();
+    final now = completedAt.toIso8601String();
 
     await _client
         .from('rc00_ops_schedules')
@@ -908,6 +909,7 @@ class SupabaseOpsRepository {
           reservationId: normalizedReservationId,
           reservationStatus: '완료',
           tabKey: TabKeys.completed,
+          completedAt: completedAt,
         );
       }
     }
@@ -1014,11 +1016,21 @@ class SupabaseOpsRepository {
     required String reservationId,
     required String reservationStatus,
     required String tabKey,
+    DateTime? completedAt,
   }) async {
-    final now = DateTime.now().toIso8601String();
+    final nowDateTime = completedAt ?? DateTime.now();
+    final now = nowDateTime.toIso8601String();
+    final reservationUpdate = <String, dynamic>{
+      'reservation_status': reservationStatus,
+      'updated_at': now,
+    };
+    if (reservationStatus.trim() == '완료') {
+      reservationUpdate['end_at'] = _toDbTimestamp(nowDateTime);
+    }
+
     await _client
         .from('rc00_ops_reservations')
-        .update({'reservation_status': reservationStatus, 'updated_at': now})
+        .update(reservationUpdate)
         .eq('reservation_id', reservationId.trim());
 
     await _client

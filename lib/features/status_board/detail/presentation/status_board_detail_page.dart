@@ -4332,7 +4332,10 @@ List<_AvailabilityItem> _buildAvailabilityItems({
               return false;
             }
             final status = reservation.statusKey.trim();
-            if (status == '예약취소') return false;
+            if (status == '예약취소' || status == '완료') return false;
+            if (reservation.tab == ReservationTab.completed) return false;
+            final now = DateTime.now();
+            if (reservation.endAt.isBefore(now)) return false;
             return !reservation.endAt.isBefore(reservation.startAt);
           })
           .map(
