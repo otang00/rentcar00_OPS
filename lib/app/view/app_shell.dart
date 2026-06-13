@@ -21,16 +21,14 @@ String _boardLabel(StatusBoardTab tab, int? count) {
   return '${tab.label}\n$count';
 }
 
-void _openAdminMenu(BuildContext context, WidgetRef ref) {
+void _openAccountMenu(BuildContext context, WidgetRef ref) {
   final staff = ref.read(currentStaffAccountProvider).valueOrNull;
   if (staff?.isAdmin == true) {
     context.push(AppRoutes.admin);
     return;
   }
 
-  ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(const SnackBar(content: Text('관리자만 접근할 수 있습니다.')));
+  context.push(AppRoutes.admin);
 }
 
 class AppShell extends ConsumerWidget {
@@ -103,7 +101,7 @@ class AppShell extends ConsumerWidget {
           children: [
             InkWell(
               borderRadius: BorderRadius.circular(8),
-              onTap: () => _openAdminMenu(context, ref),
+              onTap: () => _openAccountMenu(context, ref),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
                 child: Text(
