@@ -3943,10 +3943,19 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
   }
 }
 
-class _VehicleAvailabilityCalendar extends StatelessWidget {
+class _VehicleAvailabilityCalendar extends StatefulWidget {
   const _VehicleAvailabilityCalendar({required this.items});
 
   final List<_AvailabilityItem> items;
+
+  @override
+  State<_VehicleAvailabilityCalendar> createState() =>
+      _VehicleAvailabilityCalendarState();
+}
+
+class _VehicleAvailabilityCalendarState
+    extends State<_VehicleAvailabilityCalendar> {
+  int _pageOffset = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -3954,7 +3963,8 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final gridStart = today.subtract(Duration(days: today.weekday % 7));
+    final baseGridStart = today.subtract(Duration(days: today.weekday % 7));
+    final gridStart = baseGridStart.add(Duration(days: _pageOffset * 35));
     final weeks = List.generate(
       5,
       (week) => List.generate(
@@ -3962,7 +3972,7 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
         (day) => gridStart.add(Duration(days: week * 7 + day)),
       ),
     );
-    final visibleItems = items.where((item) {
+    final visibleItems = widget.items.where((item) {
       return !item.endAt.isBefore(today) &&
           !item.endAt.isBefore(gridStart) &&
           !item.startAt.isAfter(weeks.last.last);
@@ -3982,12 +3992,23 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
                 ),
               ),
             ),
-            Text(
-              '${items.length}건',
-              style: textTheme.labelSmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w800,
+            _AvailabilityCalendarArrow(
+              icon: Icons.chevron_left_rounded,
+              onPressed: () => setState(() => _pageOffset -= 1),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                '${widget.items.length}건',
+                style: textTheme.labelSmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
+            ),
+            _AvailabilityCalendarArrow(
+              icon: Icons.chevron_right_rounded,
+              onPressed: () => setState(() => _pageOffset += 1),
             ),
           ],
         ),
@@ -4053,6 +4074,34 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _AvailabilityCalendarArrow extends StatelessWidget {
+  const _AvailabilityCalendarArrow({
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 24,
+      height: 24,
+      child: IconButton.filledTonal(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 15),
+        padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.compact,
+        style: IconButton.styleFrom(
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          minimumSize: const Size(24, 24),
+        ),
+      ),
     );
   }
 }
