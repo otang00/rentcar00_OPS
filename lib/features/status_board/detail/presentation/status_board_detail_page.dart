@@ -3963,7 +3963,8 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
       ),
     );
     final visibleItems = items.where((item) {
-      return !item.endAt.isBefore(gridStart) &&
+      return !item.endAt.isBefore(today) &&
+          !item.endAt.isBefore(gridStart) &&
           !item.startAt.isAfter(weeks.last.last);
     }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
 
@@ -4072,7 +4073,8 @@ class _AvailabilityWeekRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final segments = _buildSegments();
-    const rowHeight = 54.0;
+    final rowHeight =
+        54.0 + (segments.length > 2 ? segments.length - 2 : 0) * 15.0;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -4171,14 +4173,14 @@ class _AvailabilityWeekRow extends StatelessWidget {
           item: item,
           startIndex: startIndex,
           length: endIndex - startIndex + 1,
-          lane: result.length % 2,
+          lane: result.length,
           continuesFromPrevious: startDate.isBefore(weekStart),
           continuesToNext: endDate.isAfter(weekEnd),
           showName: endDate.difference(startDate).inDays + 1 >= 3,
         ),
       );
     }
-    return result.take(2).toList();
+    return result;
   }
 }
 
