@@ -4279,7 +4279,7 @@ class _AvailabilityDayCell extends StatelessWidget {
                   )
                 : null,
             child: Text(
-              '${date.day}',
+              _formatAvailabilityDateLabel(date),
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: isToday
                     ? colorScheme.surface
@@ -4447,6 +4447,11 @@ DateTime _dateOnly(DateTime value) =>
 
 bool _sameDate(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
+
+String _formatAvailabilityDateLabel(DateTime value) {
+  if (value.day == 1) return '${value.month}/${value.day}';
+  return '${value.day}';
+}
 
 String _formatAvailabilityTime(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');
