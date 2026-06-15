@@ -1310,6 +1310,17 @@ String _carDisplayLabel(StatusBoardRecord car) {
   return name.isEmpty ? car.carNumber : '${car.carNumber} · $name';
 }
 
+List<String> _visibleAiParserWarnings(
+  ReservationAiParseResult result,
+  StatusBoardRecord? selectedCar,
+) {
+  final hasSelectedCar = selectedCar?.carNumber.trim().isNotEmpty == true;
+  if (!hasSelectedCar) return result.warnings;
+  return result.warnings
+      .where((warning) => warning.trim() != 'carNumber_missing')
+      .toList(growable: false);
+}
+
 class _CarSelectDialog extends StatefulWidget {
   const _CarSelectDialog({required this.cars, this.initialCar});
 
@@ -1529,11 +1540,12 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
       final result = await client.parseText(text);
       if (!mounted) return;
       _applyAiParserResult(result, sourceText: text);
+      final visibleWarnings = _visibleAiParserWarnings(result, _selectedCar);
 
       final message = [
         if (result.missing.isNotEmpty) '누락: ${result.missing.join(', ')}',
-        if (result.warnings.isNotEmpty) '경고: ${result.warnings.join(', ')}',
-        if (result.missing.isEmpty && result.warnings.isEmpty)
+        if (visibleWarnings.isNotEmpty) '경고: ${visibleWarnings.join(', ')}',
+        if (result.missing.isEmpty && visibleWarnings.isEmpty)
           'AI파서 결과를 입력했습니다.',
       ].join('\n');
 
