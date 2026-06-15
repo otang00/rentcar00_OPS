@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-06-15 — b50 APK 배포 완료
+### 사용자 표면
+- 차량상세 5주 캘린더 개선분이 포함된 b50 APK를 설치 테스트할 수 있다.
+- 예약 없는 단독 일정은 점으로 표시하며, 배차/반납/기타 일정 색상을 각각 파랑/빨강/초록으로 구분한다.
+- 예약 추가 AI파서에서 선택 차량이 있을 때 `carNumber_missing` 경고가 뜨지 않는다.
+
+### 실제 동작
+- Android build number를 `1.0.0+50`으로 올렸다.
+- arm64 release APK를 빌드했다.
+- GDrive `rentcar00_OPS/apk/`에 b50 APK를 업로드했다.
+- GDrive APK 폴더에는 최신 b50 APK 1개만 남겼다.
+
+### 핵심 파일
+- `pubspec.yaml`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `build/releases/rentcar00_ops-app-release-arm64-b50-74649e2.apk`
+
+### 검증
+- `flutter test test/ims_reservation_payload_test.dart test/widget_test.dart` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b50-74649e2.apk` 1개만 존재
+
+### 남은 확인
+- 실기기에서 차량상세 5주 캘린더 점 색상과 APK 설치 확인 필요.
+
+---
+
 ## 2026-05-28 — 문서 구조 정리 및 앱 수정 전 기준점 고정
 ### 사용자 표면
 - 앱 수정 전 문서 구조를 `GOAL / PHASE / COMPLETED / ARCHIVE` 네 영역으로 정리했다.
