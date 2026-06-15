@@ -1091,6 +1091,9 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                       reservationsAsync.valueOrNull ??
                       const <ReservationRecord>[],
                 );
+                final availabilityScheduleDots = _buildAvailabilityScheduleDots(
+                  schedules: items,
+                );
                 final sortedItems = [...items]
                   ..sort((a, b) {
                     final aAt = a.sortAt;
@@ -1103,7 +1106,10 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _VehicleAvailabilityCalendar(items: availabilityItems),
+                    _VehicleAvailabilityCalendar(
+                      items: availabilityItems,
+                      scheduleDots: availabilityScheduleDots,
+                    ),
                     if (sortedItems.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Text(
@@ -3956,9 +3962,13 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
 }
 
 class _VehicleAvailabilityCalendar extends StatefulWidget {
-  const _VehicleAvailabilityCalendar({required this.items});
+  const _VehicleAvailabilityCalendar({
+    required this.items,
+    required this.scheduleDots,
+  });
 
   final List<_AvailabilityItem> items;
+  final List<_AvailabilityScheduleDot> scheduleDots;
 
   @override
   State<_VehicleAvailabilityCalendar> createState() =>
@@ -3989,6 +3999,11 @@ class _VehicleAvailabilityCalendarState
           !item.endAt.isBefore(gridStart) &&
           !item.startAt.isAfter(weeks.last.last);
     }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
+    final visibleScheduleDots = widget.scheduleDots.where((dot) {
+      return !dot.date.isBefore(today) &&
+          !dot.date.isBefore(gridStart) &&
+          !dot.date.isAfter(weeks.last.last);
+    }).toList()..sort((a, b) => a.date.compareTo(b.date));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4060,6 +4075,7 @@ class _VehicleAvailabilityCalendarState
                     days: weeks[weekIndex],
                     today: today,
                     items: visibleItems,
+                    scheduleDots: visibleScheduleDots,
                     showBottomBorder: weekIndex != weeks.length - 1,
                   ),
               ],
@@ -4075,6 +4091,11 @@ class _VehicleAvailabilityCalendarState
               color: Color(0xFFFFE7E7),
               borderColor: Color(0xFFD32F2F),
               label: '예약중',
+            ),
+            const _AvailabilityLegendDot(
+              color: Color(0xFF2563EB),
+              borderColor: Color(0xFF2563EB),
+              label: '일정',
             ),
             Text(
               '막대 양끝 시간 = 배차/반납',
@@ -4123,17 +4144,20 @@ class _AvailabilityWeekRow extends StatelessWidget {
     required this.days,
     required this.today,
     required this.items,
+    required this.scheduleDots,
     required this.showBottomBorder,
   });
 
   final List<DateTime> days;
   final DateTime today;
   final List<_AvailabilityItem> items;
+  final List<_AvailabilityScheduleDot> scheduleDots;
   final bool showBottomBorder;
 
   @override
   Widget build(BuildContext context) {
     final segments = _buildSegments();
+    final dotsByDay = _groupScheduleDotsByDay();
     final rowHeight =
         54.0 + (segments.length > 2 ? segments.length - 2 : 0) * 15.0;
 
@@ -4152,6 +4176,8 @@ class _AvailabilityWeekRow extends StatelessWidget {
                         date: days[index],
                         today: today,
                         isPast: days[index].isBefore(today),
+                        scheduleDotCount:
+                            dotsByDay[_dateOnly(days[index])] ?? 0,
                         showRightBorder: index != days.length - 1,
                         showBottomBorder: showBottomBorder,
                       ),
@@ -4243,6 +4269,18 @@ class _AvailabilityWeekRow extends StatelessWidget {
     }
     return result;
   }
+
+  Map<DateTime, int> _groupScheduleDotsByDay() {
+    final result = <DateTime, int>{};
+    final weekStart = days.first;
+    final weekEnd = days.last;
+    for (final dot in scheduleDots) {
+      final date = _dateOnly(dot.date);
+      if (date.isBefore(weekStart) || date.isAfter(weekEnd)) continue;
+      result[date] = (result[date] ?? 0) + 1;
+    }
+    return result;
+  }
 }
 
 class _AvailabilityDayCell extends StatelessWidget {
@@ -4250,6 +4288,7 @@ class _AvailabilityDayCell extends StatelessWidget {
     required this.date,
     required this.today,
     required this.isPast,
+    required this.scheduleDotCount,
     required this.showRightBorder,
     required this.showBottomBorder,
   });
@@ -4257,6 +4296,7 @@ class _AvailabilityDayCell extends StatelessWidget {
   final DateTime date;
   final DateTime today;
   final bool isPast;
+  final int scheduleDotCount;
   final bool showRightBorder;
   final bool showBottomBorder;
 
@@ -4277,32 +4317,48 @@ class _AvailabilityDayCell extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.only(left: 4, top: 4),
-        child: Align(
-          alignment: Alignment.topLeft,
-          child: Container(
-            padding: isToday
-                ? const EdgeInsets.symmetric(horizontal: 4, vertical: 1)
-                : EdgeInsets.zero,
-            decoration: isToday
-                ? BoxDecoration(
-                    color: colorScheme.onSurface,
-                    borderRadius: BorderRadius.circular(6),
-                  )
-                : null,
-            child: Text(
-              _formatAvailabilityDateLabel(date),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: isToday
-                    ? colorScheme.surface
-                    : isPast
-                    ? colorScheme.outline
-                    : colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w900,
-                fontSize: 10,
+        padding: const EdgeInsets.only(left: 4, top: 4, right: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: isToday
+                  ? const EdgeInsets.symmetric(horizontal: 4, vertical: 1)
+                  : EdgeInsets.zero,
+              decoration: isToday
+                  ? BoxDecoration(
+                      color: colorScheme.onSurface,
+                      borderRadius: BorderRadius.circular(6),
+                    )
+                  : null,
+              child: Text(
+                _formatAvailabilityDateLabel(date),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: isToday
+                      ? colorScheme.surface
+                      : isPast
+                      ? colorScheme.outline
+                      : colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 10,
+                ),
               ),
             ),
-          ),
+            if (scheduleDotCount > 0) ...[
+              const SizedBox(height: 17),
+              Align(
+                alignment: Alignment.center,
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2563EB),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -4381,6 +4437,13 @@ class _AvailabilityItem {
   final DateTime endAt;
 }
 
+class _AvailabilityScheduleDot {
+  const _AvailabilityScheduleDot({required this.id, required this.date});
+
+  final String id;
+  final DateTime date;
+}
+
 List<_AvailabilityItem> _buildAvailabilityItems({
   required StatusBoardRecord car,
   required List<ReservationRecord> reservations,
@@ -4448,6 +4511,22 @@ List<_AvailabilityItem> _buildAvailabilityItems({
     if (seen.add(key)) deduped.add(item);
   }
   return deduped;
+}
+
+List<_AvailabilityScheduleDot> _buildAvailabilityScheduleDots({
+  required List<StatusBoardRecord> schedules,
+}) {
+  final dots = <_AvailabilityScheduleDot>[];
+  for (final schedule in schedules) {
+    if (!schedule.isScheduleEntry) continue;
+    if (schedule.reservationId.trim().isNotEmpty) continue;
+    final date = schedule.sortAt ?? _tryParseDateTime(schedule.startAt);
+    if (date == null) continue;
+    dots.add(
+      _AvailabilityScheduleDot(id: schedule.recordId, date: _dateOnly(date)),
+    );
+  }
+  return dots;
 }
 
 String _normalizeCarNumber(String value) {
