@@ -4093,9 +4093,19 @@ class _VehicleAvailabilityCalendarState
               label: '예약중',
             ),
             const _AvailabilityLegendDot(
-              color: Color(0xFF2563EB),
-              borderColor: Color(0xFF2563EB),
-              label: '일정',
+              color: Color(0xFF1976D2),
+              borderColor: Color(0xFF1976D2),
+              label: '배차일정',
+            ),
+            const _AvailabilityLegendDot(
+              color: Color(0xFFD32F2F),
+              borderColor: Color(0xFFD32F2F),
+              label: '반납일정',
+            ),
+            const _AvailabilityLegendDot(
+              color: Color(0xFF2E7D32),
+              borderColor: Color(0xFF2E7D32),
+              label: '기타일정',
             ),
             Text(
               '막대 양끝 시간 = 배차/반납',
@@ -4176,8 +4186,7 @@ class _AvailabilityWeekRow extends StatelessWidget {
                         date: days[index],
                         today: today,
                         isPast: days[index].isBefore(today),
-                        scheduleDotCount:
-                            dotsByDay[_dateOnly(days[index])] ?? 0,
+                        scheduleDotType: dotsByDay[_dateOnly(days[index])],
                         showRightBorder: index != days.length - 1,
                         showBottomBorder: showBottomBorder,
                       ),
@@ -4270,14 +4279,14 @@ class _AvailabilityWeekRow extends StatelessWidget {
     return result;
   }
 
-  Map<DateTime, int> _groupScheduleDotsByDay() {
-    final result = <DateTime, int>{};
+  Map<DateTime, String> _groupScheduleDotsByDay() {
+    final result = <DateTime, String>{};
     final weekStart = days.first;
     final weekEnd = days.last;
     for (final dot in scheduleDots) {
       final date = _dateOnly(dot.date);
       if (date.isBefore(weekStart) || date.isAfter(weekEnd)) continue;
-      result[date] = (result[date] ?? 0) + 1;
+      result[date] = _mergeScheduleDotType(result[date], dot.scheduleType);
     }
     return result;
   }
@@ -4288,7 +4297,7 @@ class _AvailabilityDayCell extends StatelessWidget {
     required this.date,
     required this.today,
     required this.isPast,
-    required this.scheduleDotCount,
+    required this.scheduleDotType,
     required this.showRightBorder,
     required this.showBottomBorder,
   });
@@ -4296,7 +4305,7 @@ class _AvailabilityDayCell extends StatelessWidget {
   final DateTime date;
   final DateTime today;
   final bool isPast;
-  final int scheduleDotCount;
+  final String? scheduleDotType;
   final bool showRightBorder;
   final bool showBottomBorder;
 
@@ -4344,7 +4353,7 @@ class _AvailabilityDayCell extends StatelessWidget {
                 ),
               ),
             ),
-            if (scheduleDotCount > 0) ...[
+            if (scheduleDotType != null) ...[
               const SizedBox(height: 17),
               Align(
                 alignment: Alignment.center,
@@ -4352,7 +4361,7 @@ class _AvailabilityDayCell extends StatelessWidget {
                   width: 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2563EB),
+                    color: _availabilityScheduleColor(scheduleDotType!),
                     borderRadius: BorderRadius.circular(99),
                   ),
                 ),
@@ -4438,10 +4447,15 @@ class _AvailabilityItem {
 }
 
 class _AvailabilityScheduleDot {
-  const _AvailabilityScheduleDot({required this.id, required this.date});
+  const _AvailabilityScheduleDot({
+    required this.id,
+    required this.date,
+    required this.scheduleType,
+  });
 
   final String id;
   final DateTime date;
+  final String scheduleType;
 }
 
 List<_AvailabilityItem> _buildAvailabilityItems({
@@ -4523,10 +4537,29 @@ List<_AvailabilityScheduleDot> _buildAvailabilityScheduleDots({
     final date = schedule.sortAt ?? _tryParseDateTime(schedule.startAt);
     if (date == null) continue;
     dots.add(
-      _AvailabilityScheduleDot(id: schedule.recordId, date: _dateOnly(date)),
+      _AvailabilityScheduleDot(
+        id: schedule.recordId,
+        date: _dateOnly(date),
+        scheduleType: schedule.scheduleType.trim(),
+      ),
     );
   }
   return dots;
+}
+
+String _mergeScheduleDotType(String? current, String next) {
+  final normalized = next.trim();
+  if (current == '배차' || normalized == '배차') return '배차';
+  if (current == '반납' || normalized == '반납') return '반납';
+  return '기타';
+}
+
+Color _availabilityScheduleColor(String type) {
+  return switch (type.trim()) {
+    '배차' => const Color(0xFF1976D2),
+    '반납' => const Color(0xFFD32F2F),
+    _ => const Color(0xFF2E7D32),
+  };
 }
 
 String _normalizeCarNumber(String value) {
@@ -4577,11 +4610,13 @@ class _RelatedScheduleCompactCard extends StatelessWidget {
     final isReturn = type == '반납';
     final isDispatch = type == '배차';
     final isDone = _isTruthy(item.scheduleDone);
-    final typeColor = isReturn
-        ? const Color(0xFFD96B00)
-        : isDispatch
-        ? const Color(0xFF1976D2)
-        : colorScheme.primary;
+    final typeColor = _availabilityScheduleColor(
+      isDispatch
+          ? '배차'
+          : isReturn
+          ? '반납'
+          : '기타',
+    );
     final typeBg = typeColor.withValues(alpha: emphasize ? 0.14 : 0.08);
     final location = item.locationSummary.trim().isNotEmpty
         ? item.locationSummary.trim()
