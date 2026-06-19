@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-06-20 — b53 과태료 문서패키지 MVP APK 배포 완료
+### 사용자 표면
+- 과태료 원장을 엑셀식 리스트로 확인하고, 상세 모달에서 고지서수정/계약서 재검색/문서생성/공유를 실행할 수 있는 APK를 배포했다.
+- 문서생성 후 고지서묶음 폴더 기준 파일목록을 내려받아 휴대폰 공유 시트로 넘길 수 있다.
+
+### 실제 동작
+- Android build number를 `1.0.0+53`으로 올렸다.
+- arm64 release APK를 빌드했다.
+- GDrive `rentcar00_OPS/apk/`에 b53 APK를 업로드했다.
+- 기존 b52 APK를 삭제하고 GDrive APK 폴더에는 최신 b53 APK 1개만 남겼다.
+
+### 핵심 파일
+- `build/releases/rentcar00_ops-app-release-arm64-b53-a8f3e63.apk`
+- `pubspec.yaml`
+- `lib/features/fines/`
+- `reservation_ai_parser/src/server.js`
+- `docs/PHASE/rentcar00_OPS-fine-notice-app-document-package-mvp-pm.md`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/fine_notice_models_test.dart` 통과
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=53` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b53-a8f3e63.apk` 1개만 존재
+- GDrive 업로드 확인 용량: `20,636,535 bytes`
+- 로컬 SHA-256: `168bbe05ff5750d9697bbcbd1ae017092a2e4ede5454f08b221ff7471f66cfc4`
+
+### 남은 확인
+- 실기기 설치 후 과태료 리스트/문서생성/공유 시트 동작 확인 필요.
+- 외부 기관 제출 자동화는 아직 포함하지 않았다.
+
+---
+
 ## 2026-06-19 — 과태료 workflow integrity correction 로컬 구현/검증
 ### 사용자 표면
 - 과태료 계약검색은 예약검색이 아니라 `POST /ims/search-fine-notice-contracts` 전용 API를 사용하도록 정정했다.

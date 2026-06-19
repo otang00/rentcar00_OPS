@@ -16,7 +16,7 @@
 
 - `rentcar00_OPS-fine-notice-contract-search-boundary-correction-pm.md`
   - 상태: `Local Implementation Verified / DB apply and deployment pending`
-  - 남은 일: `not_our_vehicle` remote migration apply, parser restart, 실제 원장 1건 계약서 PDF 저장 smoke, APK build/upload, commit.
+  - 남은 일: `not_our_vehicle` remote migration apply 상태 재확인과 필요 시 후속 운영 smoke. b53 APK build/upload/commit은 완료.
   - 다음 승인 후보: 운영 게이트 기준 `pa fine-notice-next-db-apply`.
   - 문서 단독 alias: `pa workflow-integrity-db-apply`.
 
@@ -49,7 +49,7 @@
 
 ## 완료로 이동한 PM
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`
-  - b51 상단 메뉴/API parser hotfix PM. b52 APK build/upload까지 완료, commit은 별도 승인 전 미실행.
+  - b51 상단 메뉴/API parser hotfix PM. b52 APK build/upload 완료 기록이며, 최신 배포는 b53이다.
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_mvp_foundation_pm.md`
   - 기존 과태료 MVP foundation 로드맵.
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_intake_policy_and_rollback_pm.md`

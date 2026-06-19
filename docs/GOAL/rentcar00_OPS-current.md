@@ -12,7 +12,7 @@
 ### 과태료/주정차/통행료 임차인 변경 플로우
 MVP foundation은 `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_mvp_foundation_pm.md`로 완료 처리했다.
 후속 구현은 `docs/PHASE/rentcar00_OPS-fine-notice-next-operational-phases-pm.md`의 운영 게이트와 필요한 작은 MVP PM 기준으로 진행한다.
-b51/b52 실기기 hotfix는 `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`로 완료 처리했다.
+b51/b52 실기기 hotfix는 `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`로 완료 처리했고, b53 과태료 문서패키지 MVP APK는 `docs/COMPLETED/rentcar00_OPS-completed.md`에 배포 기록을 남겼다.
 intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_intake_policy_and_rollback_pm.md`로 완료 처리했다.
 강남순환도로 4건 다중 row parser 검증은 `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_gangnam_multi_parser_micro_pm.md`로 완료 처리했다.
 
@@ -28,7 +28,7 @@ intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00
 - IMS 일반/보험 계약 후보 검색 MVP 구현
 - 계약자 수동 확정값 저장과 action log 기록
 - 확정 계약의 IMS 계약서 PDF 저장 endpoint와 OPS 버튼 구현
-- b52 상단 메뉴 compact hotfix와 과태료 AI parser public endpoint 연결
+- b53 과태료 문서패키지 MVP APK 배포
 - 과태료 intake rollback 기준 잠금
 - 납부기한 primary UI/required warning 제거
 - 우리 소유/관리 차량 guard:
@@ -81,24 +81,20 @@ intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00
   - `pa all`로 Phase 1-5 로컬 구현/검증 완료
   - `not_our_vehicle` status migration draft 추가. remote Supabase 적용은 별도 승인 필요
   - `/fine-notices/save-contract-pdf`는 별도 내부 비밀번호 없이 기존 parser/Supabase/storage 설정으로 저장 시도
-  - 운영 parser restart, APK build/upload, commit은 아직 미실행
+  - b53 APK build/upload/commit 완료
 - 과태료 next operational phases PM:
   - `docs/PHASE/rentcar00_OPS-fine-notice-next-operational-phases-pm.md`
   - 남은 작업을 read-only 이상점 점검, remote DB status migration, parser restart, 실제 `contract_original.pdf` 저장 smoke, 문서생성 정책 잠금 순서로 재정렬
   - `pa all`은 사용하지 않고 phase별 승인으로만 진행
 
 아직 미구현/보호 구간:
-- `not_our_vehicle` status migration remote Supabase 적용
-- IMS 계약서 PDF 저장 runtime 1건 확인 `Phase 10`
-- parser restart 후 실제 계약서 PDF 저장 확인
-- 다중 row batch/grouping schema 설계와 DB migration 승인
-- 묶음 제출용 문서리스트 출력 기준 설계
-- 임차인 변경 신청서/신청차량리스트 양식 잠금 `Phase 11`
-- 문서 패키지 생성/첨부 `Phase 12`
-- 모바일 다운로드/공유 API와 앱 공유 버튼 `Phase 12.1`
+- b53 APK 실기기 설치 후 과태료 리스트/문서생성/공유 시트 확인
+- `not_our_vehicle` status migration remote Supabase 적용 상태 재확인
+- 다중 row batch/grouping schema의 운영 DB 기준 최종 잠금
+- 제출용 문서리스트/신청서 양식의 기관별 공식 템플릿 잠금
 - 기관별 제출 정책 `Phase 13`
 - fax/문서24/기관 사이트 실제 제출 `Phase 14`
-- commit/push/build/upload
+- push
 
 자동차 그룹별 가격 정책 재설정은 즉시 구현 phase가 아니라
 `docs/PHASE/rentcar00_OPS-vehicle-group-pricing-policy.md`의 PM 문서 기준으로만 남긴다.
@@ -107,9 +103,9 @@ intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00
 ## 현재 기준점
 - repository: `rentcar00_OPS`
 - branch: `fix/ops-return-complete-end-at`
-- 현재 HEAD: `05efdba docs: record b50 APK release`
-- 앱 버전/build: `1.0.0+52`
-- 업로드 상태: GDrive `rentcar00_OPS/apk/`에 b52 UI/parser hotfix APK 업로드 완료. 실기기 확인 필요
+- APK code commit: `a8f3e63 chore: bump android build to b53`
+- 앱 버전/build: `1.0.0+53`
+- 업로드 상태: GDrive `rentcar00_OPS/apk/`에 `rentcar00_ops-app-release-arm64-b53-a8f3e63.apk` 1개만 존재. 실기기 확인 필요
 - 문서 구조: `docs/GOAL`, `docs/PHASE`, `docs/COMPLETED`, `docs/ARCHIVE` 네 영역만 사용
 - `docs/current`, `docs/completed`, `docs/past` 구조는 더 이상 active 기준으로 쓰지 않는다.
 - 파일 보관 정책:
@@ -224,11 +220,11 @@ intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00
 - 수동 입력 유지 / 자동 계산 도입 / DB 정책 테이블 도입 중 하나를 선택
 - 승인된 phase 전까지 코드/DB/운영 반영 없음
 
-### 5순위: b52 UI/parser hotfix 실기기 확인
+### 5순위: b53 과태료 문서패키지 MVP 실기기 확인
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md` 완료 문서 참고
 - 상단 메뉴 icon-first 구조 육안 확인
 - 과태료 AI parser 연결상태와 실제 고지서 사진 파싱 확인
-- b52 APK 설치 확인
+- b53 APK 설치 확인
 
 ### 6순위: 실전 투입 피드백 반영
 - UI/데이터/시간/IMS 문제를 짧은 phase로 처리한다.
