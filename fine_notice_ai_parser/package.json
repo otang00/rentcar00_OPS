@@ -1,0 +1,15 @@
+{
+  "name": "fine_notice_ai_parser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node src/server.js --check",
+    "simulate": "node src/simulate.js",
+    "fixture-check": "node src/fixture-check.js",
+    "gangnam-multi-policy-check": "node src/gangnam-multi-policy-check.js",
+    "gangnam-multi-smoke": "node src/gangnam-multi-smoke.js",
+    "file-save-smoke": "node src/file-save-smoke.js"
+  }
+}

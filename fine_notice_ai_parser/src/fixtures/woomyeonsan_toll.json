@@ -1,0 +1,37 @@
+{
+  "noticeProfile": "toll_fee.woomyeonsan",
+  "noticeType": "toll_fee",
+  "issuer": "우면산인프라웨이(주)",
+  "documentNumber": "6419815",
+  "rawCandidate": {
+    "carNumber": "142호5626",
+    "passAt": "2026-05-26 10:00:26",
+    "periodStart": "2026-05-26",
+    "periodEnd": "2026-05-26",
+    "amount": 2500,
+    "totalAmount": 2500,
+    "surchargeAmount": 0,
+    "dueDate": "2026-06-22",
+    "paymentNumber": "34300180097070",
+    "items": [
+      {
+        "itemIndex": 1,
+        "occurredAt": "2026-05-26 10:00:26",
+        "amount": 2500,
+        "surchargeAmount": 0,
+        "location": "우면산터널",
+        "reason": "미납통행료",
+        "contractMatchRequired": true
+      }
+    ]
+  },
+  "fieldCrops": [
+    {
+      "field": "dueDate",
+      "profile": "toll_fee.woomyeonsan",
+      "hint": "납부기한 숫자 영역만 crop"
+    }
+  ],
+  "warnings": [],
+  "confidence": 0.9
+}

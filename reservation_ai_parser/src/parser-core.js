@@ -43,6 +43,10 @@ export function buildConfig(env = process.env) {
     opsReservationEventSecret: String(env.OPS_APP_RESERVATION_EVENT_SECRET || '').trim(),
     supabaseUrl: String(env.SUPABASE_URL || '').trim(),
     supabaseServiceRoleKey: String(env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
+    fineNoticeStorageRoot: String(
+      env.FINE_NOTICE_STORAGE_ROOT ||
+      path.resolve(env.INIT_CWD || process.cwd(), 'storage/fine-notices')
+    ).trim(),
     reservationEventTimestampToleranceMs: Number(env.OPS_APP_RESERVATION_EVENT_TIMESTAMP_TOLERANCE_MS || 5 * 60 * 1000)
   };
 }

@@ -1,1 +1,1 @@
-enum OpsLayer { reservations, statusBoard }
+enum OpsLayer { reservations, statusBoard, fines }

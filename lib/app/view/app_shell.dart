@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/domain/ops_layer.dart';
 import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
+import 'package:rentcar00_ops/features/fines/presentation/fine_notice_page.dart';
 import 'package:rentcar00_ops/features/reservations/list/presentation/reservation_tab_page.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
@@ -19,6 +20,22 @@ String _reservationLabel(ReservationTab tab, int? count) {
 String _boardLabel(StatusBoardTab tab, int? count) {
   if (count == null) return tab.label;
   return '${tab.label}\n$count';
+}
+
+IconData _layerIcon(OpsLayer layer) {
+  return switch (layer) {
+    OpsLayer.reservations => Icons.assignment_outlined,
+    OpsLayer.statusBoard => Icons.directions_car_filled_outlined,
+    OpsLayer.fines => Icons.receipt_long_outlined,
+  };
+}
+
+String _layerLabel(OpsLayer layer) {
+  return switch (layer) {
+    OpsLayer.reservations => '예약',
+    OpsLayer.statusBoard => '일정',
+    OpsLayer.fines => '과태료',
+  };
 }
 
 void _openAccountMenu(BuildContext context, WidgetRef ref) {
@@ -45,24 +62,28 @@ class AppShell extends ConsumerWidget {
     final homepagePending = ref
         .watch(homepagePendingReservationsProvider)
         .valueOrNull;
-    final selectedIndex = layer == OpsLayer.reservations
-        ? ReservationTab.values.indexOf(reservationTab)
-        : StatusBoardTab.values.indexOf(statusBoardTab);
-    final destinations = layer == OpsLayer.reservations
-        ? [
-            for (final tab in ReservationTab.values)
-              NavigationDestination(
-                icon: Icon(tab.icon),
-                label: _reservationLabel(tab, reservationCounts?[tab]),
-              ),
-          ]
-        : [
-            for (final tab in StatusBoardTab.values)
-              NavigationDestination(
-                icon: Icon(tab.icon),
-                label: _boardLabel(tab, boardCounts?[tab]),
-              ),
-          ];
+    final selectedIndex = switch (layer) {
+      OpsLayer.reservations => ReservationTab.values.indexOf(reservationTab),
+      OpsLayer.statusBoard => StatusBoardTab.values.indexOf(statusBoardTab),
+      OpsLayer.fines => 0,
+    };
+    final destinations = switch (layer) {
+      OpsLayer.reservations => [
+        for (final tab in ReservationTab.values)
+          NavigationDestination(
+            icon: Icon(tab.icon),
+            label: _reservationLabel(tab, reservationCounts?[tab]),
+          ),
+      ],
+      OpsLayer.statusBoard => [
+        for (final tab in StatusBoardTab.values)
+          NavigationDestination(
+            icon: Icon(tab.icon),
+            label: _boardLabel(tab, boardCounts?[tab]),
+          ),
+      ],
+      OpsLayer.fines => const <NavigationDestination>[],
+    };
 
     return Scaffold(
       appBar: AppBar(
@@ -91,10 +112,15 @@ class AppShell extends ConsumerWidget {
             onPressed: () => context.push(AppRoutes.search),
           ),
           IconButton(
-            tooltip: '예약추가',
+            tooltip: layer == OpsLayer.fines ? '과태료 등록' : '예약추가',
             icon: const Icon(Icons.add),
-            onPressed: () =>
-                showReservationCreateFlow(context: context, ref: ref),
+            onPressed: () {
+              if (layer == OpsLayer.fines) {
+                showFineNoticeCreateFlow(context: context, ref: ref);
+                return;
+              }
+              showReservationCreateFlow(context: context, ref: ref);
+            },
           ),
         ],
         title: Row(
@@ -116,29 +142,14 @@ class AppShell extends ConsumerWidget {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: SegmentedButton<OpsLayer>(
-                showSelectedIcon: false,
-                style: ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _OpsLayerSwitcher(
+                  selected: layer,
+                  onSelected: (value) {
+                    ref.read(selectedOpsLayerProvider.notifier).state = value;
+                  },
                 ),
-                segments: const [
-                  ButtonSegment(
-                    value: OpsLayer.reservations,
-                    label: Text('예약'),
-                    icon: Icon(Icons.assignment_outlined, size: 18),
-                  ),
-                  ButtonSegment(
-                    value: OpsLayer.statusBoard,
-                    label: Text('현황판'),
-                    icon: Icon(Icons.directions_car_filled_outlined, size: 18),
-                  ),
-                ],
-                selected: {layer},
-                onSelectionChanged: (selection) {
-                  ref.read(selectedOpsLayerProvider.notifier).state =
-                      selection.first;
-                },
               ),
             ),
           ],
@@ -147,38 +158,98 @@ class AppShell extends ConsumerWidget {
       body: switch (layer) {
         OpsLayer.reservations => ReservationTabPage(tab: reservationTab),
         OpsLayer.statusBoard => StatusBoardTabPage(tab: statusBoardTab),
+        OpsLayer.fines => const FineNoticePage(),
       },
       floatingActionButton:
           layer == OpsLayer.statusBoard &&
               statusBoardTab == StatusBoardTab.schedule
           ? const StatusBoardScheduleFab()
           : null,
-      bottomNavigationBar: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            final selected = states.contains(WidgetState.selected);
-            return TextStyle(
-              fontSize: selected ? 10.5 : 10,
-              height: 1.05,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-            );
-          }),
-        ),
-        child: NavigationBar(
-          height: 72,
-          selectedIndex: selectedIndex,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          onDestinationSelected: (index) {
-            if (layer == OpsLayer.reservations) {
-              ref.read(selectedReservationTabProvider.notifier).state =
-                  ReservationTab.values[index];
-            } else {
-              ref.read(selectedStatusBoardTabProvider.notifier).state =
-                  StatusBoardTab.values[index];
-            }
-          },
-          destinations: destinations,
-        ),
+      bottomNavigationBar: destinations.isEmpty
+          ? null
+          : NavigationBarTheme(
+              data: NavigationBarThemeData(
+                labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                  final selected = states.contains(WidgetState.selected);
+                  return TextStyle(
+                    fontSize: selected ? 10.5 : 10,
+                    height: 1.05,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                  );
+                }),
+              ),
+              child: NavigationBar(
+                height: 72,
+                selectedIndex: selectedIndex,
+                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                onDestinationSelected: (index) {
+                  if (layer == OpsLayer.reservations) {
+                    ref.read(selectedReservationTabProvider.notifier).state =
+                        ReservationTab.values[index];
+                  } else if (layer == OpsLayer.statusBoard) {
+                    ref.read(selectedStatusBoardTabProvider.notifier).state =
+                        StatusBoardTab.values[index];
+                  }
+                },
+                destinations: destinations,
+              ),
+            ),
+    );
+  }
+}
+
+class _OpsLayerSwitcher extends StatelessWidget {
+  const _OpsLayerSwitcher({required this.selected, required this.onSelected});
+
+  final OpsLayer selected;
+  final ValueChanged<OpsLayer> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final layer in OpsLayer.values)
+            Tooltip(
+              message: _layerLabel(layer),
+              child: Semantics(
+                button: true,
+                selected: selected == layer,
+                label: _layerLabel(layer),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () => onSelected(layer),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    width: 42,
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: selected == layer
+                          ? colorScheme.primaryContainer
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Icon(
+                      _layerIcon(layer),
+                      size: 20,
+                      color: selected == layer
+                          ? colorScheme.onPrimaryContainer
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

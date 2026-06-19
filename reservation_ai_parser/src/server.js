@@ -1,13 +1,21 @@
 import http from 'node:http';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { PDFDocument, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import { buildConfig, loadEnvFile, parseReservationInput, validateConfig } from './parser-core.js';
+import {
+  buildConfig as buildFineNoticeConfig,
+  parseFineNoticeInput,
+} from '../../fine_notice_ai_parser/src/parser-core.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 await loadEnvFile(path.resolve(__dirname, '../.env'));
 
 const config = buildConfig(process.env);
+const fineNoticeConfig = buildFineNoticeConfig(process.env);
 
 if (process.argv.includes('--check')) {
   console.log(JSON.stringify({
@@ -16,6 +24,9 @@ if (process.argv.includes('--check')) {
     host: config.host,
     port: config.port,
     timeoutMs: config.timeoutMs,
+    fineNoticeStorageRoot: config.fineNoticeStorageRoot,
+    fineNoticeOpenAiModel: fineNoticeConfig.openAiModel,
+    fineNoticeTimeoutMs: fineNoticeConfig.timeoutMs,
     hasOpsReservationEventSecret: Boolean(config.opsReservationEventSecret),
     hasSupabaseUrl: Boolean(config.supabaseUrl),
     hasSupabaseServiceRoleKey: Boolean(config.supabaseServiceRoleKey),
@@ -28,6 +39,8 @@ validateConfig(config);
 
 const server = http.createServer(async (req, res) => {
   try {
+    const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const pathname = requestUrl.pathname;
     if (req.url === '/health') {
       if (req.method !== 'GET') {
         return sendMethodNotAllowed(res, ['GET']);
@@ -50,6 +63,15 @@ const server = http.createServer(async (req, res) => {
       }
       const body = await readJsonBody(req);
       const result = await parseReservationInput({ text: body?.text }, config);
+      return sendJson(res, 200, result);
+    }
+
+    if (req.url === '/parse-fine-notice') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req, 12 * 1024 * 1024);
+      const result = await parseFineNoticeInput(body, fineNoticeConfig);
       return sendJson(res, 200, result);
     }
 
@@ -79,6 +101,16 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, payload, result });
     }
 
+    if (req.url === '/ims/search-fine-notice-contracts') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeFineNoticeContractSearchPayload(body);
+      const result = await searchFineNoticeContracts(payload);
+      return sendJson(res, 200, { ok: true, payload, result });
+    }
+
     if (req.url === '/ims/search-insurance-claims') {
       if (req.method !== 'POST') {
         return sendMethodNotAllowed(res, ['POST']);
@@ -87,6 +119,44 @@ const server = http.createServer(async (req, res) => {
       const payload = normalizeImsInsuranceClaimSearchPayload(body);
       const result = await searchImsInsuranceClaimsForDispatch(payload);
       return sendJson(res, 200, { ok: true, payload, result });
+    }
+
+    if (req.url === '/fine-notices/save-contract-pdf') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeFineNoticeContractPdfPayload(body);
+      const file = await saveFineNoticeContractPdf(payload);
+      return sendJson(res, 200, { ok: true, file: toFineNoticeGeneratedFileResponse(file) });
+    }
+
+    if (req.url === '/fine-notices/generate-documents') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeFineNoticeDocumentPackagePayload(body);
+      const result = await generateFineNoticeDocumentPackage(payload);
+      return sendJson(res, 200, { ok: true, ...result });
+    }
+
+    if (pathname === '/fine-notice-file-packages') {
+      if (req.method !== 'GET') {
+        return sendMethodNotAllowed(res, ['GET']);
+      }
+      const fineNoticeId = stringifyNullable(requestUrl.searchParams.get('fineNoticeId')).trim();
+      const result = await listFineNoticeFilePackage({ fineNoticeId });
+      return sendJson(res, 200, { ok: true, ...result });
+    }
+
+    if (pathname === '/fine-notice-files/download') {
+      if (req.method !== 'GET') {
+        return sendMethodNotAllowed(res, ['GET']);
+      }
+      const fileId = stringifyNullable(requestUrl.searchParams.get('fileId')).trim();
+      const result = await prepareFineNoticeFileDownload({ fileId });
+      return sendLocalFile(res, result);
     }
 
     if (req.url === '/ims/change-reservation-car') {
@@ -137,12 +207,12 @@ server.listen(config.port, config.host, () => {
   console.log(`reservation_ai_parser listening on http://${config.host}:${config.port}`);
 });
 
-function readJsonBody(req) {
+function readJsonBody(req, maxBytes = 5 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', (chunk) => {
       data += chunk;
-      if (data.length > 5 * 1024 * 1024) {
+      if (Buffer.byteLength(data, 'utf8') > maxBytes) {
         reject(new Error('payload_too_large'));
         req.destroy();
       }
@@ -589,6 +659,17 @@ function sendMethodNotAllowed(res, methods) {
   res.end(JSON.stringify({ ok: false, error: 'method_not_allowed' }));
 }
 
+async function sendLocalFile(res, { localPath, mimeType, downloadName }) {
+  const bytes = await fs.readFile(localPath);
+  const safeName = encodeURIComponent(downloadName || path.basename(localPath));
+  res.writeHead(200, {
+    'Content-Type': mimeType || 'application/octet-stream',
+    'Content-Length': String(bytes.length),
+    'Content-Disposition': `attachment; filename*=UTF-8''${safeName}`,
+  });
+  res.end(bytes);
+}
+
 function resolveErrorStatus(error) {
   if (error?.status) return error.status;
   if (error?.message === 'invalid_json') return 400;
@@ -639,6 +720,20 @@ function normalizeImsReservationSearchPayload(body = {}) {
   return payload;
 }
 
+function normalizeFineNoticeContractSearchPayload(body = {}) {
+  const payload = {
+    carNumber: String(body?.carNumber || '').trim(),
+    rentalDate: extractDate(body?.rentalDate || body?.startDate || body?.rentalAt || ''),
+    endDate: extractDate(body?.endDate || body?.returnDate || ''),
+  };
+
+  const missing = ['carNumber', 'rentalDate'].filter((key) => !payload[key]);
+  if (missing.length > 0) {
+    throw new Error(`missing required ims fields: ${missing.join(', ')}`);
+  }
+  return payload;
+}
+
 function normalizeImsInsuranceClaimSearchPayload(body = {}) {
   const payload = {
     customerName: String(body?.customerName || '').trim(),
@@ -649,6 +744,26 @@ function normalizeImsInsuranceClaimSearchPayload(body = {}) {
 
   if (!payload.rentalDate) {
     throw new Error('missing required ims fields: rentalDate');
+  }
+  return payload;
+}
+
+function normalizeFineNoticeContractPdfPayload(body = {}) {
+  const payload = {
+    fineNoticeId: String(body?.fineNoticeId || body?.fine_notice_id || '').trim(),
+  };
+  if (!payload.fineNoticeId) {
+    throw new ApiError(400, 'missing_fine_notice_id', 'fineNoticeId is required');
+  }
+  return payload;
+}
+
+function normalizeFineNoticeDocumentPackagePayload(body = {}) {
+  const payload = {
+    fineNoticeId: String(body?.fineNoticeId || body?.fine_notice_id || '').trim(),
+  };
+  if (!payload.fineNoticeId) {
+    throw new ApiError(400, 'missing_fine_notice_id', 'fineNoticeId is required');
   }
   return payload;
 }
@@ -773,15 +888,141 @@ async function searchImsReservationsForImport(payload) {
     }
   }
 
+  const items = matches.map((schedule) => toImsReservationImportItem(schedule));
   return {
     code: 'SUCCESS',
-    totalCount: matches.length,
-    items: matches.map((schedule) => toImsReservationImportItem(schedule)),
+    totalCount: items.length,
+    items,
   };
 }
 
-async function searchImsInsuranceClaimsForDispatch(payload) {
+async function searchFineNoticeContracts(payload) {
   const token = await fetchImsAccessToken();
+  const normalMatches = await findImsNormalContractMatchesForFineNotice({
+    token,
+    payload,
+  });
+  const normalItems = normalMatches.map(({ contract, detail }) =>
+    toImsNormalContractGroupImportItem(contract, detail),
+  );
+  const insuranceResult = await searchImsInsuranceClaimsForDispatch(payload, token);
+  const items = [
+    ...normalItems,
+    ...insuranceResult.items,
+  ];
+
+  return {
+    code: 'SUCCESS',
+    totalCount: items.length,
+    items,
+  };
+}
+
+async function findImsNormalContractMatchesForFineNotice({ token, payload, maxPages = 80 }) {
+  const targetDate = extractDate(payload.rentalDate);
+  if (!payload.carNumber || !targetDate) return [];
+
+  const matches = [];
+  let totalPage = 1;
+  for (let page = 1; page <= Math.min(totalPage, maxPages); page += 1) {
+    const url = new URL('https://api.rencar.co.kr/v2/normal-contracts/group');
+    url.searchParams.set('page', String(page));
+    const response = await fetch(url, { headers: buildImsApiHeaders(token) });
+    const json = await readJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(resolveApiErrorMessage(json, response.status, 'IMS normal contract group lookup failed'));
+    }
+
+    const contractList = Array.isArray(json?.contractList) ? json.contractList : [];
+    for (const contract of contractList) {
+      const details = normalizeImsNormalContractDetails(contract);
+      for (const detail of details) {
+        if (isImsNormalContractDetailMatch({ contract, detail, payload, targetDate })) {
+          matches.push({ contract, detail });
+        }
+      }
+    }
+
+    totalPage = Number(json?.totalPage || json?.total_page || 1);
+    if (contractList.length === 0 || page >= totalPage) break;
+  }
+
+  return matches;
+}
+
+function normalizeImsNormalContractDetails(contract) {
+  if (Array.isArray(contract?.details)) return contract.details;
+  if (contract?.details && typeof contract.details === 'object') return [contract.details];
+  return [];
+}
+
+function isImsNormalContractDetailMatch({ contract, detail, payload, targetDate }) {
+  const carNumber = stringifyNullable(
+    detail?.rent_car_number ||
+    detail?.car?.car_identity ||
+    detail?.car_identity ||
+    detail?.car_number ||
+    contract?.rent_car_number ||
+    contract?.car_identity,
+  );
+  if (normalizeText(carNumber) !== normalizeText(payload.carNumber)) return false;
+
+  const startDate = extractDate(
+    detail?.delivered_date ||
+    detail?.delivered_at ||
+    detail?.start_at ||
+    contract?.delivered_at ||
+    contract?.start_at,
+  );
+  const endDate = extractDate(
+    detail?.returned_at ||
+    detail?.expect_return_date ||
+    detail?.end_at ||
+    contract?.returned_at ||
+    contract?.expect_return_date ||
+    contract?.end_at,
+  ) || startDate;
+
+  return isDateWithinRange(targetDate, startDate, endDate);
+}
+
+function isDateWithinRange(targetDate, startDate, endDate) {
+  if (!targetDate || !startDate) return false;
+  if (!endDate) return targetDate === startDate;
+  return startDate <= targetDate && targetDate <= endDate;
+}
+
+function toImsNormalContractGroupImportItem(contract, detail) {
+  const contractId = stringifyNullable(detail?.normal_contract_id || contract?.id);
+  return {
+    sourceType: 'ims_normal_contract',
+    scheduleId: stringifyNullable(detail?.company_car_schedule_id || detail?.schedule_id),
+    detailId: stringifyNullable(detail?.id),
+    contractId,
+    normalContractId: contractId,
+    contractDetailId: stringifyNullable(detail?.id),
+    reservationNumber: stringifyNullable(contractId || detail?.id || contract?.id),
+    status: stringifyNullable(contract?.state || detail?.state),
+    detailStatus: stringifyNullable(detail?.state || contract?.state),
+    reservationType: stringifyNullable(contract?.rent_type || detail?.rent_type),
+    carNumber: stringifyNullable(detail?.rent_car_number || detail?.car_identity || contract?.rent_car_number),
+    carName: stringifyNullable(detail?.rent_car_name || detail?.car_name || contract?.rent_car_name),
+    customerName: stringifyNullable(detail?.customer_name || contract?.customer_name),
+    customerPhone: digitsOnly(detail?.customer_contact || contract?.customer_contact),
+    birthDate: stringifyNullable(detail?.customer_id_number1 || contract?.customer_id_number1),
+    price: stringifyNullable(contract?.total_cost || detail?.total_cost || detail?.cost),
+    rentalAt: normalizeImsDateTime(detail?.delivered_date || detail?.delivered_at || contract?.delivered_at),
+    returnAt: normalizeImsDateTime(detail?.returned_at || detail?.expect_return_date || contract?.returned_at || contract?.expect_return_date),
+    pickupLocation: stringifyNullable(detail?.customer_address || contract?.customer_address),
+    dropoffLocation: '',
+    recommenderName: stringifyNullable(contract?.recommender_name || detail?.recommender_name),
+    sourceOrigin: 'normal_contracts_group',
+    title: stringifyNullable(contract?.request_id ? `IMS 일반계약 ${contract.request_id}` : 'IMS 일반계약서'),
+  };
+}
+
+async function searchImsInsuranceClaimsForDispatch(payload, tokenOverride = null) {
+  const token = tokenOverride || await fetchImsAccessToken();
   const items = [];
   const endDate = payload.endDate || payload.rentalDate;
   let totalPage = 1;
@@ -820,6 +1061,1122 @@ async function searchImsInsuranceClaimsForDispatch(payload) {
     totalCount: items.length,
     items,
   };
+}
+
+async function saveFineNoticeContractPdf(payload) {
+  ensureFineNoticeContractPdfConfigured();
+
+  const notice = await findFineNoticeForContractPdf(payload.fineNoticeId);
+  if (!notice) {
+    throw new ApiError(404, 'fine_notice_not_found', 'fine notice not found');
+  }
+
+  const sourceType = stringifyNullable(notice.confirmed_contract_source_type).trim();
+  if (sourceType !== 'ims_normal_contract' && sourceType !== 'ims_insurance_claim') {
+    throw new ApiError(409, 'unsupported_contract_source_type', 'contract source type must be ims_normal_contract or ims_insurance_claim');
+  }
+  const sourceId = sourceType === 'ims_insurance_claim'
+    ? stringifyNullable(notice.ims_claim_id).trim()
+    : stringifyNullable(notice.ims_contract_id).trim();
+  if (!sourceType || !sourceId) {
+    throw new ApiError(409, 'contract_not_confirmed', 'contract must be confirmed before saving PDF');
+  }
+  const bundle = await resolveFineNoticeBundleContext(notice);
+
+  const token = await fetchImsAccessToken();
+  let pdfSourceId = sourceId;
+  const pdf = sourceType === 'ims_insurance_claim'
+    ? await fetchImsInsuranceClaimContractPdf({ token, claimId: sourceId })
+    : await fetchImsNormalContractPdfWithResolution({ token, notice, sourceId });
+  if (sourceType === 'ims_normal_contract') {
+    pdfSourceId = pdf.sourceId || sourceId;
+  }
+  const firstPagePdf = await extractFirstPagePdf(pdf.buffer);
+  const file = await writeFineNoticeContractPdf({
+    fineNoticeId: payload.fineNoticeId,
+    bundle,
+    pdfBuffer: firstPagePdf.buffer,
+    contentType: pdf.contentType,
+    sourceType,
+    sourceId: pdfSourceId,
+    originalPageCount: firstPagePdf.originalPageCount,
+    storedPageCount: firstPagePdf.storedPageCount,
+  });
+  await replaceFineNoticeContractOriginalMetadata(payload.fineNoticeId, file);
+  return file;
+}
+
+function ensureFineNoticeContractPdfConfigured() {
+  const missing = [];
+  if (!config.supabaseUrl) missing.push('SUPABASE_URL');
+  if (!config.supabaseServiceRoleKey) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!config.fineNoticeStorageRoot) missing.push('FINE_NOTICE_STORAGE_ROOT');
+  if (missing.length > 0) {
+    throw new ApiError(503, 'fine_notice_contract_pdf_not_configured', `missing env: ${missing.join(', ')}`);
+  }
+}
+
+async function findFineNoticeForContractPdf(fineNoticeId) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${fineNoticeId}`);
+  url.searchParams.set(
+    'select',
+    'id,created_at,notice_profile,document_number,car_number,occurred_at_text,occurred_at,confirmed_contract_source_type,ims_contract_id,ims_claim_id,renter_snapshot_json,document_list_group_key,source_batch_id',
+  );
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function fetchImsNormalContractPdfWithResolution({ token, notice, sourceId }) {
+  try {
+    const pdf = await fetchImsNormalContractPdf({ token, contractId: sourceId });
+    return { ...pdf, sourceId };
+  } catch (error) {
+    if (!isNormalContractPdfIdResolutionError(error)) throw error;
+    const resolvedId = await resolveImsNormalContractPdfId({ token, notice, sourceId });
+    if (!resolvedId || resolvedId === sourceId) throw error;
+    const pdf = await fetchImsNormalContractPdf({ token, contractId: resolvedId });
+    return { ...pdf, sourceId: resolvedId };
+  }
+}
+
+function isNormalContractPdfIdResolutionError(error) {
+  return [
+    'ims_contract_pdf_download_failed',
+    'ims_contract_pdf_empty',
+    'ims_contract_pdf_invalid',
+  ].includes(error?.code);
+}
+
+async function resolveImsNormalContractPdfId({ token, notice, sourceId }) {
+  const snapshotId = resolveImsNormalContractPdfIdFromSnapshot(notice);
+  if (snapshotId && snapshotId !== sourceId) return snapshotId;
+
+  const matches = await findImsNormalContractMatchesForFineNotice({
+    token,
+    payload: {
+      carNumber: stringifyNullable(notice?.car_number),
+      rentalDate: extractDate(notice?.occurred_at_text || notice?.occurred_at),
+    },
+  });
+  if (matches.length === 0) return '';
+
+  const byDetailId = matches.find(({ detail }) =>
+    stringifyNullable(detail?.id) === sourceId ||
+    stringifyNullable(detail?.normal_contract_id) === sourceId,
+  );
+  const match = byDetailId || (matches.length === 1 ? matches[0] : null);
+  return stringifyNullable(match?.detail?.normal_contract_id || match?.contract?.id);
+}
+
+function resolveImsNormalContractPdfIdFromSnapshot(notice) {
+  const snapshot = notice?.renter_snapshot_json && typeof notice.renter_snapshot_json === 'object'
+    ? notice.renter_snapshot_json
+    : {};
+  const raw = snapshot?.raw && typeof snapshot.raw === 'object' ? snapshot.raw : {};
+  return stringifyNullable(
+    raw?.contractId ||
+    raw?.normalContractId ||
+    snapshot?.contractId ||
+    snapshot?.normalContractId,
+  );
+}
+
+async function fetchImsNormalContractPdf({ token, contractId }) {
+  const response = await fetch(
+    `https://api.rencar.co.kr/normal_contract/get_contract_pdf_from_list/${encodeURIComponent(contractId)}`,
+    { headers: buildImsApiHeaders(token) },
+  );
+  return readPdfResponse(response, 'IMS normal contract PDF download failed');
+}
+
+async function fetchImsInsuranceClaimContractPdf({ token, claimId }) {
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/rencar-claims/${encodeURIComponent(claimId)}/contracts/pdf`,
+    { headers: buildImsApiHeaders(token) },
+  );
+  return readPdfResponse(response, 'IMS insurance contract PDF download failed');
+}
+
+async function readPdfResponse(response, fallbackMessage) {
+  const contentType = response.headers.get('content-type') || 'application/pdf';
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!response.ok) {
+    const preview = buffer.toString('utf8', 0, Math.min(buffer.length, 500));
+    throw new ApiError(502, 'ims_contract_pdf_download_failed', preview || `${fallbackMessage} (${response.status})`);
+  }
+  if (buffer.length === 0) {
+    throw new ApiError(502, 'ims_contract_pdf_empty', 'IMS contract PDF response was empty');
+  }
+  if (!contentType.toLowerCase().includes('pdf') && buffer.subarray(0, 4).toString('utf8') !== '%PDF') {
+    throw new ApiError(502, 'ims_contract_pdf_invalid', 'IMS contract response was not a PDF');
+  }
+  return { buffer, contentType };
+}
+
+async function extractFirstPagePdf(pdfBuffer) {
+  const sourcePdf = await PDFDocument.load(pdfBuffer);
+  const originalPageCount = sourcePdf.getPageCount();
+  if (originalPageCount < 1) {
+    throw new ApiError(502, 'ims_contract_pdf_invalid', 'IMS contract PDF had no pages');
+  }
+
+  const outputPdf = await PDFDocument.create();
+  const [firstPage] = await outputPdf.copyPages(sourcePdf, [0]);
+  outputPdf.addPage(firstPage);
+  const outputBytes = await outputPdf.save();
+  return {
+    buffer: Buffer.from(outputBytes),
+    originalPageCount,
+    storedPageCount: 1,
+  };
+}
+
+async function writeFineNoticeContractPdf({
+  fineNoticeId,
+  bundle,
+  pdfBuffer,
+  contentType,
+  sourceType,
+  sourceId,
+  originalPageCount = null,
+  storedPageCount = null,
+}) {
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const contractDir = path.join(storageRoot, bundle?.baseRelativeDir || path.join('cases', fineNoticeId), 'contract');
+  const localPath = path.join(contractDir, 'contract_original.pdf');
+  const resolvedPath = path.resolve(localPath);
+  if (!resolvedPath.startsWith(`${storageRoot}${path.sep}`)) {
+    throw new ApiError(400, 'invalid_storage_path', 'resolved contract path escaped storage root');
+  }
+
+  await fs.mkdir(contractDir, { recursive: true });
+  await fs.writeFile(resolvedPath, pdfBuffer);
+
+  return {
+    fileRole: 'contract_original',
+    localPath: resolvedPath,
+    sha256: crypto.createHash('sha256').update(pdfBuffer).digest('hex'),
+    mimeType: contentType || 'application/pdf',
+    sizeBytes: pdfBuffer.length,
+    sourceType,
+    backupStatus: 'pending',
+    metadataJson: {
+      imsSourceType: sourceType,
+      imsSourceId: sourceId,
+      savedAt: new Date().toISOString(),
+      pagePolicy: 'first_page_only',
+      originalPageCount,
+      storedPageCount,
+      bundleId: bundle?.bundleId || null,
+      noticeDate: bundle?.noticeDate || null,
+    },
+  };
+}
+
+async function replaceFineNoticeContractOriginalMetadata(fineNoticeId, file) {
+  await deleteFineNoticeFileMetadata(fineNoticeId, file.fileRole);
+  await insertSupabaseRow('rc00_ops_fine_notice_files', {
+    fine_notice_id: fineNoticeId,
+    file_role: file.fileRole,
+    local_path: file.localPath,
+    sha256: file.sha256,
+    mime_type: file.mimeType,
+    size_bytes: file.sizeBytes,
+    source_type: file.sourceType,
+    parser_request_id: null,
+    backup_status: file.backupStatus,
+    metadata_json: file.metadataJson,
+  }, 'id');
+  await updateFineNoticeRow(fineNoticeId, {
+    contract_pdf_saved_at: file.metadataJson?.savedAt || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function generateFineNoticeDocumentPackage(payload) {
+  ensureFineNoticeContractPdfConfigured();
+  const notice = await findFineNoticeForDocumentPackage(payload.fineNoticeId);
+  if (!notice) {
+    throw new ApiError(404, 'fine_notice_not_found', 'fine notice not found');
+  }
+  if (notice.status !== 'contract_confirmed' && notice.status !== 'document_ready') {
+    throw new ApiError(409, 'contract_not_confirmed', 'contract must be confirmed before document generation');
+  }
+
+  const contractOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'contract_original');
+  if (!contractOriginal?.local_path) {
+    throw new ApiError(409, 'contract_original_missing', 'contract_original PDF must be saved first');
+  }
+  const noticeOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'notice_original');
+  if (!noticeOriginal?.local_path) {
+    throw new ApiError(409, 'notice_original_missing', 'notice original file must exist before document generation');
+  }
+
+  const siblings = await findFineNoticeDocumentListRows(notice);
+  const bundle = await resolveFineNoticeBundleContext(notice, siblings);
+  const renter = await resolveFineNoticeRenterSnapshot(notice);
+  const generatedAt = new Date().toISOString();
+  const packageFiles = [];
+
+  const bundledNoticeOriginal = await copyNoticeOriginalIntoBundle({
+    fineNoticeId: payload.fineNoticeId,
+    noticeOriginal,
+    bundle,
+    generatedAt,
+  });
+  await replaceFineNoticeFileMetadata(payload.fineNoticeId, bundledNoticeOriginal);
+  packageFiles.push(bundledNoticeOriginal);
+
+  const bundledContractOriginal = await copyContractOriginalIntoBundle({
+    fineNoticeId: payload.fineNoticeId,
+    contractOriginal,
+    bundle,
+    generatedAt,
+  });
+  await replaceFineNoticeFileMetadata(payload.fineNoticeId, bundledContractOriginal);
+  packageFiles.push(bundledContractOriginal);
+
+  const stampedContract = await generateStampedContractPdf({
+    fineNoticeId: payload.fineNoticeId,
+    bundle,
+    contractOriginalPath: bundledContractOriginal.localPath,
+    generatedAt,
+  });
+  await replaceFineNoticeFileMetadata(payload.fineNoticeId, stampedContract);
+  packageFiles.push(stampedContract);
+
+  const application = await generateRenterChangeApplicationPdf({
+    fineNoticeId: payload.fineNoticeId,
+    bundle,
+    notice,
+    renter,
+    generatedAt,
+  });
+  await replaceFineNoticeFileMetadata(payload.fineNoticeId, application);
+  packageFiles.push(application);
+
+  if (siblings.length > 1) {
+    const vehicleList = await generateVehicleApplicationListPdf({
+      fineNoticeId: payload.fineNoticeId,
+      bundle,
+      notice,
+      rows: siblings,
+      renter,
+      generatedAt,
+    });
+    await replaceFineNoticeFileMetadata(payload.fineNoticeId, vehicleList);
+    packageFiles.push(vehicleList);
+  } else {
+    await deleteFineNoticeFileMetadata(payload.fineNoticeId, 'vehicle_application_list');
+  }
+
+  await updateFineNoticeRow(payload.fineNoticeId, {
+    status: 'document_ready',
+    renter_name: renter.name || null,
+    renter_phone: renter.phone || null,
+    renter_address: renter.address || null,
+    renter_identity_type: renter.identityType || 'unknown',
+    renter_identity_no: renter.identityNo || null,
+    renter_driver_license_no: renter.driverLicenseNo || null,
+    renter_birth_date: renter.birthDate || null,
+    renter_snapshot_source: renter.source || 'ims_contract_candidate',
+    renter_snapshot_confirmed_at: generatedAt,
+    document_package_generated_at: generatedAt,
+    updated_at: generatedAt,
+  });
+
+	  return {
+	    fineNoticeId: payload.fineNoticeId,
+	    bundle,
+	    generatedAt,
+	    files: packageFiles.map(toFineNoticeGeneratedFileResponse),
+	    warnings: buildDocumentGenerationWarnings(renter),
+	  };
+	}
+
+async function findFineNoticeForDocumentPackage(fineNoticeId) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${fineNoticeId}`);
+  url.searchParams.set(
+    'select',
+    [
+	      'id',
+	      'created_at',
+	      'status',
+      'notice_profile',
+      'notice_type',
+      'issuer',
+      'document_number',
+      'car_number',
+      'occurred_at_text',
+      'occurred_at',
+      'location',
+      'total_amount_text',
+      'total_amount',
+      'due_date_text',
+      'memo',
+      'raw_candidate_json',
+      'confirmed_contract_source_type',
+      'ims_contract_id',
+      'ims_claim_id',
+      'renter_snapshot_json',
+      'renter_name',
+      'renter_phone',
+      'renter_address',
+      'renter_identity_type',
+      'renter_identity_no',
+	      'renter_driver_license_no',
+	      'renter_birth_date',
+	      'document_list_group_key',
+	      'source_batch_id',
+	    ].join(','),
+  );
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function findFineNoticeFileByRole(fineNoticeId, fileRole) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
+  url.searchParams.set('file_role', `eq.${fileRole}`);
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function findFineNoticeDocumentListRows(notice) {
+  const raw = notice?.raw_candidate_json && typeof notice.raw_candidate_json === 'object'
+    ? notice.raw_candidate_json
+    : {};
+  const selected = raw?.selectedItem && typeof raw.selectedItem === 'object' ? raw.selectedItem : {};
+  const rowCount = Number(selected?.rowCount || raw?.rawCandidate?.items?.length || 0);
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('select', 'id,created_at,document_number,car_number,occurred_at_text,location,total_amount_text,total_amount,notice_profile,document_list_group_key,source_batch_id');
+  url.searchParams.set('car_number', `eq.${notice.car_number}`);
+  url.searchParams.set('notice_profile', `eq.${notice.notice_profile}`);
+  if (notice.document_number) url.searchParams.set('document_number', `eq.${notice.document_number}`);
+  url.searchParams.set('order', 'occurred_at_text.asc');
+  url.searchParams.set('limit', rowCount > 0 ? String(Math.max(rowCount, 10)) : '20');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_document_rows_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice rows lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json : [notice];
+}
+
+async function resolveFineNoticeBundleContext(notice, rows = null) {
+  const relatedRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
+  const existingGroupKey = relatedRows
+    .map((row) => stringifyNullable(row.document_list_group_key || row.source_batch_id).trim())
+    .find(Boolean);
+  const bundleId = sanitizePathSegment(
+    existingGroupKey,
+  ) || buildFineNoticeBundleId(notice);
+  const noticeDate = resolveFineNoticeBundleDate(notice);
+  const baseRelativeDir = path.join('notices', noticeDate, bundleId);
+  const missingGroupRows = relatedRows.filter((row) =>
+    stringifyNullable(row.document_list_group_key).trim() !== bundleId,
+  );
+  if (missingGroupRows.length > 0) {
+    await updateFineNoticeRows(
+      missingGroupRows.map((row) => stringifyNullable(row.id)).filter(Boolean),
+      {
+        document_list_group_key: bundleId,
+        updated_at: new Date().toISOString(),
+      },
+    );
+  }
+  return { bundleId, noticeDate, baseRelativeDir };
+}
+
+function buildFineNoticeBundleId(notice) {
+  const seed = [
+    stringifyNullable(notice.notice_profile),
+    stringifyNullable(notice.document_number),
+    stringifyNullable(notice.car_number),
+    resolveFineNoticeBundleDate(notice),
+  ].join('|');
+  const digest = crypto.createHash('sha256').update(seed).digest('hex').slice(0, 16);
+  return `bundle-${digest}`;
+}
+
+function resolveFineNoticeBundleDate(notice) {
+  const candidates = [
+    stringifyNullable(notice.created_at),
+    stringifyNullable(notice.occurred_at_text),
+    stringifyNullable(notice.occurred_at),
+    new Date().toISOString(),
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeBundleDate(candidate);
+    if (normalized) return normalized;
+  }
+  return formatKstDate(new Date().toISOString());
+}
+
+function normalizeBundleDate(value) {
+  const text = stringifyNullable(value).trim();
+  if (!text) return '';
+  const match = text.match(/(\d{4})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})/);
+  if (match) {
+    return `${match[1]}-${String(Number(match[2])).padStart(2, '0')}-${String(Number(match[3])).padStart(2, '0')}`;
+  }
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return formatKstDate(date.toISOString());
+  return '';
+}
+
+function sanitizePathSegment(value) {
+  return stringifyNullable(value)
+    .trim()
+    .replace(/[^0-9A-Za-z._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+async function listFineNoticeFilePackage({ fineNoticeId }) {
+  ensureFineNoticeContractPdfConfigured();
+  if (!fineNoticeId) {
+    throw new ApiError(400, 'fine_notice_id_required', 'fineNoticeId is required');
+  }
+  const notice = await findFineNoticeForDocumentPackage(fineNoticeId);
+  if (!notice) {
+    throw new ApiError(404, 'fine_notice_not_found', 'fine notice not found');
+  }
+  const siblings = await findFineNoticeDocumentListRows(notice);
+  const bundle = await resolveFineNoticeBundleContext(notice, siblings);
+  const files = await findFineNoticeFilesInsideBundle(bundle);
+  return {
+    fineNoticeId,
+    bundle,
+    files: files.map(toFineNoticeFileResponse),
+  };
+}
+
+async function prepareFineNoticeFileDownload({ fileId }) {
+  ensureFineNoticeContractPdfConfigured();
+  if (!fileId) {
+    throw new ApiError(400, 'file_id_required', 'fileId is required');
+  }
+  const file = await findFineNoticeFileById(fileId);
+  if (!file) {
+    throw new ApiError(404, 'fine_notice_file_not_found', 'fine notice file not found');
+  }
+  const localPath = assertPathInsideStorage(file.local_path);
+  await fs.access(localPath);
+  const mimeType = stringifyNullable(file.mime_type) || guessMimeTypeFromExtension(path.extname(localPath));
+  if (!isAllowedFineNoticeDownloadMime(mimeType)) {
+    throw new ApiError(415, 'unsupported_fine_notice_file_type', 'file type is not downloadable');
+  }
+  const notice = await findFineNoticeForDocumentPackage(file.fine_notice_id);
+  if (!notice) {
+    throw new ApiError(404, 'fine_notice_not_found', 'fine notice not found');
+  }
+  const bundle = await resolveFineNoticeBundleContext(notice);
+  const bundleRoot = assertPathInsideStorage(path.join(config.fineNoticeStorageRoot, bundle.baseRelativeDir));
+  if (!localPath.startsWith(`${bundleRoot}${path.sep}`)) {
+    throw new ApiError(403, 'file_outside_bundle', 'file is outside the approved fine notice bundle');
+  }
+  return {
+    localPath,
+    mimeType,
+    downloadName: `${toFineNoticeFileLabel(file)}${normalizeFileExtension(path.extname(localPath), mimeType)}`,
+  };
+}
+
+async function findFineNoticeFilesInsideBundle(bundle) {
+  const bundleRoot = assertPathInsideStorage(path.join(config.fineNoticeStorageRoot, bundle.baseRelativeDir));
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json,created_at');
+  url.searchParams.set('order', 'created_at.asc');
+  url.searchParams.set('limit', '100');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_files_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice files lookup failed'));
+  }
+  return (Array.isArray(json) ? json : []).filter((file) => {
+    const localPath = stringifyNullable(file.local_path);
+    if (!localPath) return false;
+    const resolved = path.resolve(localPath);
+    return resolved.startsWith(`${bundleRoot}${path.sep}`);
+  });
+}
+
+async function findFineNoticeFileById(fileId) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${fileId}`);
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+function toFineNoticeFileResponse(file) {
+  const metadataJson = sanitizeFineNoticeFileMetadataForResponse(file.metadata_json);
+  return {
+    id: stringifyNullable(file.id),
+    fineNoticeId: stringifyNullable(file.fine_notice_id),
+    fileRole: stringifyNullable(file.file_role),
+    localPath: '',
+    sha256: stringifyNullable(file.sha256) || null,
+    mimeType: stringifyNullable(file.mime_type) || guessMimeTypeFromExtension(path.extname(stringifyNullable(file.local_path))),
+    sizeBytes: Number(file.size_bytes || 0) || null,
+    sourceType: stringifyNullable(file.source_type) || null,
+    backupStatus: 'pending',
+    metadataJson: {
+      ...metadataJson,
+      displayName: toFineNoticeFileLabel(file),
+    },
+  };
+}
+
+function toFineNoticeGeneratedFileResponse(file) {
+  return {
+    id: stringifyNullable(file.id) || null,
+    fineNoticeId: stringifyNullable(file.fineNoticeId) || null,
+    fileRole: stringifyNullable(file.fileRole),
+    localPath: '',
+    sha256: stringifyNullable(file.sha256) || null,
+    mimeType: stringifyNullable(file.mimeType) || null,
+    sizeBytes: Number(file.sizeBytes || 0) || null,
+    sourceType: stringifyNullable(file.sourceType) || null,
+    backupStatus: stringifyNullable(file.backupStatus) || 'pending',
+    metadataJson: sanitizeFineNoticeFileMetadataForResponse(file.metadataJson),
+  };
+}
+
+function sanitizeFineNoticeFileMetadataForResponse(metadata) {
+  const source = metadata && typeof metadata === 'object' ? metadata : {};
+  const blocked = new Set(['sourcePath', 'localPath', 'absolutePath', 'resolvedPath']);
+  return Object.fromEntries(Object.entries(source).filter(([key]) => !blocked.has(key)));
+}
+
+function toFineNoticeFileLabel(file) {
+  const role = stringifyNullable(file.file_role);
+  const meta = file.metadata_json && typeof file.metadata_json === 'object' ? file.metadata_json : {};
+  return stringifyNullable(meta.displayName || meta.label) || ({
+    notice_original: '고지서 원본',
+    contract_original: '계약서 원본',
+    contract_with_stamps: '계약서 사본',
+    renter_change_application: '임차인 변경 신청서',
+    vehicle_application_list: '통행 목록',
+    submission_receipt: '발송 확인',
+  }[role] || role || 'fine_notice_file');
+}
+
+async function resolveFineNoticeRenterSnapshot(notice) {
+  const snapshot = notice?.renter_snapshot_json && typeof notice.renter_snapshot_json === 'object'
+    ? notice.renter_snapshot_json
+    : {};
+  const renter = {
+    name: stringifyNullable(notice.renter_name || snapshot.customerName),
+    phone: stringifyNullable(notice.renter_phone || snapshot.customerPhone),
+    address: stringifyNullable(notice.renter_address || findFirstNestedValue(snapshot, ['address', 'customerAddress', 'renterAddress'])),
+    identityType: stringifyNullable(notice.renter_identity_type),
+    identityNo: stringifyNullable(notice.renter_identity_no),
+    driverLicenseNo: stringifyNullable(notice.renter_driver_license_no),
+    birthDate: stringifyNullable(notice.renter_birth_date || findFirstNestedValue(snapshot, ['birthDate', 'birthday'])),
+    source: 'stored_snapshot',
+  };
+
+  if (renter.name && renter.phone) return renter;
+
+  const result = await searchFineNoticeContracts({
+    carNumber: stringifyNullable(notice.car_number),
+    rentalDate: extractDate(notice.occurred_at_text || notice.occurred_at),
+    endDate: '',
+  });
+  const sourceId = notice.confirmed_contract_source_type === 'ims_insurance_claim'
+    ? stringifyNullable(notice.ims_claim_id)
+    : stringifyNullable(notice.ims_contract_id);
+  const match = (result.items || []).find((item) =>
+    stringifyNullable(item.sourceId || item.contractId || item.claimId || item.normalContractId) === sourceId,
+  );
+
+  if (match) {
+    renter.name = renter.name || stringifyNullable(match.customerName);
+    renter.phone = renter.phone || stringifyNullable(match.customerPhone);
+    renter.address = renter.address || stringifyNullable(match.customerAddress || match.address || match.pickupLocation);
+    renter.birthDate = renter.birthDate || stringifyNullable(match.birthDate);
+    renter.source = 'ims_contract_candidate';
+  }
+  return renter;
+}
+
+function buildDocumentGenerationWarnings(renter) {
+  return [
+    ...(!renter.name ? ['renter_name_missing'] : []),
+    ...(!renter.phone ? ['renter_phone_missing'] : []),
+    ...(!renter.address ? ['renter_address_missing'] : []),
+    ...(!renter.identityNo && !renter.driverLicenseNo && !renter.birthDate ? ['renter_identity_missing'] : []),
+  ];
+}
+
+async function copyNoticeOriginalIntoBundle({ fineNoticeId, noticeOriginal, bundle, generatedAt }) {
+  const sourcePath = assertPathInsideStorage(noticeOriginal.local_path);
+  const bytes = await fs.readFile(sourcePath);
+  const ext = normalizeFileExtension(path.extname(sourcePath), noticeOriginal.mime_type || noticeOriginal.mimeType);
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: `notice/notice_original${ext}`,
+    fileRole: 'notice_original',
+    bytes,
+    mimeType: noticeOriginal.mime_type || noticeOriginal.mimeType || guessMimeTypeFromExtension(ext),
+    sourceType: 'document_generator',
+    metadataJson: {
+	      generatedAt,
+	      sourceRole: 'notice_original',
+	      bundleId: bundle?.bundleId || null,
+      noticeDate: bundle?.noticeDate || null,
+      displayName: '고지서 원본',
+    },
+  });
+}
+
+async function copyContractOriginalIntoBundle({ fineNoticeId, contractOriginal, bundle, generatedAt }) {
+  const sourcePath = assertPathInsideStorage(contractOriginal.local_path);
+  const bytes = await fs.readFile(sourcePath);
+  const sourceMetadata = contractOriginal.metadata_json && typeof contractOriginal.metadata_json === 'object'
+    ? contractOriginal.metadata_json
+    : {};
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: 'contract/contract_original.pdf',
+    fileRole: 'contract_original',
+    bytes,
+    mimeType: contractOriginal.mime_type || contractOriginal.mimeType || 'application/pdf',
+    sourceType: contractOriginal.source_type || contractOriginal.sourceType || 'ims_contract_pdf',
+    metadataJson: {
+      ...sourceMetadata,
+      generatedAt,
+      copiedIntoBundleAt: generatedAt,
+      bundleId: bundle?.bundleId || null,
+      noticeDate: bundle?.noticeDate || null,
+      displayName: '계약서 원본',
+    },
+  });
+}
+
+async function generateStampedContractPdf({ fineNoticeId, bundle, contractOriginalPath, generatedAt }) {
+  const inputPath = assertPathInsideStorage(contractOriginalPath);
+  const pdfBytes = await fs.readFile(inputPath);
+  const sourcePdf = await PDFDocument.load(pdfBytes);
+  const originalPageCount = sourcePdf.getPageCount();
+  if (originalPageCount < 1) {
+    throw new ApiError(502, 'contract_original_invalid', 'contract_original PDF had no pages');
+  }
+
+  const pdfDoc = await PDFDocument.create();
+  const [copiedFirstPage] = await pdfDoc.copyPages(sourcePdf, [0]);
+  pdfDoc.addPage(copiedFirstPage);
+  const stampRoot = resolveStampAssetRoot();
+  const originalTruePng = await fs.readFile(path.join(stampRoot, 'stamp_original_true.png'));
+  const companySealPng = await fs.readFile(path.join(stampRoot, 'stamp_company_seal.png'));
+  const originalTrueImage = await pdfDoc.embedPng(originalTruePng);
+  const companySealImage = await pdfDoc.embedPng(companySealPng);
+  const firstPage = pdfDoc.getPage(0);
+  const { width, height } = firstPage.getSize();
+  firstPage.drawImage(originalTrueImage, {
+    x: width - 210,
+    y: height - 95,
+    width: 130,
+    height: 28,
+  });
+  firstPage.drawImage(companySealImage, {
+    x: width - 92,
+    y: height - 118,
+    width: 58,
+    height: 58,
+  });
+  const outputBytes = await pdfDoc.save();
+	  return writeFineNoticeGeneratedFile({
+	    fineNoticeId,
+	    bundle,
+	    relativePath: 'contract/contract_with_stamps.pdf',
+    fileRole: 'contract_with_stamps',
+    bytes: Buffer.from(outputBytes),
+    mimeType: 'application/pdf',
+    sourceType: 'document_generator',
+    metadataJson: {
+      generatedAt,
+      sourceRole: 'contract_original',
+      pagePolicy: 'first_page_only',
+      sourcePageCount: originalPageCount,
+      generatedPageCount: 1,
+      stampOriginalTrue: 'assets/stamps/stamp_original_true.png',
+      stampCompanySeal: 'assets/stamps/stamp_company_seal.png',
+      reviewRequired: true,
+    },
+  });
+}
+
+async function generateRenterChangeApplicationPdf({ fineNoticeId, bundle, notice, renter, generatedAt }) {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+  const font = await embedKoreanFont(pdfDoc);
+  const page = pdfDoc.addPage([595.28, 841.89]);
+  const lines = buildRenterChangeApplicationLines({ notice, renter, generatedAt });
+  drawTextLines(page, lines, { font, x: 48, y: 790, size: 10, lineHeight: 16 });
+
+  const stampRoot = resolveStampAssetRoot();
+  const companySealPng = await fs.readFile(path.join(stampRoot, 'stamp_company_seal.png'));
+  const companySealImage = await pdfDoc.embedPng(companySealPng);
+  page.drawImage(companySealImage, {
+    x: 142,
+    y: 744,
+    width: 52,
+    height: 52,
+  });
+
+  const outputBytes = await pdfDoc.save();
+	  return writeFineNoticeGeneratedFile({
+	    fineNoticeId,
+	    bundle,
+	    relativePath: 'documents/renter_change_application.pdf',
+    fileRole: 'renter_change_application',
+    bytes: Buffer.from(outputBytes),
+    mimeType: 'application/pdf',
+    sourceType: 'document_generator',
+    metadataJson: {
+      generatedAt,
+      templateKey: 'generic_toll_fee_renter_change_application',
+      reviewRequired: true,
+      missingFields: buildDocumentGenerationWarnings(renter),
+    },
+  });
+}
+
+async function generateVehicleApplicationListPdf({ fineNoticeId, bundle, notice, rows, renter, generatedAt }) {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+  const font = await embedKoreanFont(pdfDoc);
+  const page = pdfDoc.addPage([595.28, 841.89]);
+  const safeRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
+  const lines = [
+    '임차인 변경 신청 차량/통행 목록',
+    '',
+    `발행처: ${stringifyNullable(notice.issuer) || '확인 필요'}`,
+    `차량번호: ${stringifyNullable(notice.car_number) || '확인 필요'}`,
+    `계약자: ${renter.name || '확인 필요'}`,
+    `연락처: ${maskPhoneForDocument(renter.phone) || '확인 필요'}`,
+    '',
+    '번호 | 통행일시 | 통행장소 | 금액',
+    '---------------------------------------------',
+    ...safeRows.map((row, index) =>
+      `${index + 1} | ${stringifyNullable(row.occurred_at_text) || '확인 필요'} | ${stringifyNullable(row.location) || '확인 필요'} | ${stringifyNullable(row.total_amount_text || row.total_amount) || '확인 필요'}`,
+    ),
+    '',
+    `생성일시: ${formatKstDateTime(generatedAt)}`,
+    '주의: 제출 전 계약자 정보와 첨부서류를 사람이 확인해야 합니다.',
+  ];
+  drawTextLines(page, lines, { font, x: 48, y: 790, size: 10, lineHeight: 16 });
+  const outputBytes = await pdfDoc.save();
+	  return writeFineNoticeGeneratedFile({
+	    fineNoticeId,
+	    bundle,
+	    relativePath: 'documents/vehicle_application_list.pdf',
+    fileRole: 'vehicle_application_list',
+    bytes: Buffer.from(outputBytes),
+    mimeType: 'application/pdf',
+    sourceType: 'document_generator',
+    metadataJson: {
+      generatedAt,
+      rowCount: safeRows.length,
+      reviewRequired: true,
+    },
+  });
+}
+
+function buildRenterChangeApplicationLines({ notice, renter, generatedAt }) {
+  const documentNumber = `FN-${formatCompactDate(generatedAt)}-${String(stringifyNullable(notice.id).slice(0, 8)).toUpperCase()}`;
+  return [
+    '빵빵카(주)   (rentcar00.com)',
+    '"(우) 06510 서울특별시 서초구 신반포로23길 78-9, 빵빵카(주)"',
+    'Tel : (02)592-0079  Fax : (02)592-7900  mail : rentcar00@daum.net',
+    '',
+    `문 서 번 호  : ${documentNumber}`,
+    `시 행 일 자  : ${formatKstDate(generatedAt)}`,
+    '발신 - 담당  : 빵빵카(주)',
+    `수신 - 참조  : ${stringifyNullable(notice.issuer) || '확인 필요'}`,
+    '제      목  : 유료도로 미납통행료 임차인 변경 신청.',
+    '',
+    '1. 귀 기관의 무궁한 발전을 기원합니다.',
+    '',
+    `2. 귀 기관에서 발행한 미납통행료 안내문(지로번호/문서번호: ${stringifyNullable(notice.document_number) || '확인 필요'})`,
+    `   차량 ${stringifyNullable(notice.car_number) || '확인 필요'}의 미납통행료 건에 대하여,`,
+    '   당사는 자동차대여 사업체로서 해당 통행시점의 임차인을 아래와 같이 통보하오니',
+    '   납부의무자/임차인 변경 처리를 검토하여 주시기 바랍니다.',
+    '',
+    '------   다           음  ------',
+    '',
+    `1 위 반 차 량 : ${stringifyNullable(notice.car_number) || '확인 필요'}`,
+    `2 통 행 일 시 : ${stringifyNullable(notice.occurred_at_text) || '확인 필요'}`,
+    `3 통 행 장 소 : ${stringifyNullable(notice.location) || '확인 필요'}`,
+    `4 통 행 금 액 : ${stringifyNullable(notice.total_amount_text || notice.total_amount) || '확인 필요'}`,
+    `5 임  차  인 : ${renter.name || '확인 필요'}`,
+    `6 식 별 정 보 : ${formatRenterIdentityForDocument(renter)}`,
+    `7 연  락  처 : ${maskPhoneForDocument(renter.phone) || '확인 필요'}`,
+    `8 주      소 : ${renter.address || '확인 필요'}`,
+    '',
+    '*별 첨 :',
+    '1. 차량임대차 계약서 사본 1부',
+    '2. 미납통행료 안내문 사본 1부',
+    '3. 통행 목록 1부',
+    '',
+    '※ 본 문서는 MVP 자동생성 초안입니다. 제출 전 담당자가 값, 도장 위치, 첨부서류를 확인해야 합니다.',
+  ];
+}
+
+function drawTextLines(page, lines, { font, x, y, size, lineHeight }) {
+  let cursorY = y;
+  for (const rawLine of lines) {
+    const wrapped = wrapText(String(rawLine), 72);
+    for (const line of wrapped) {
+      page.drawText(line, { x, y: cursorY, size, font, color: rgb(0, 0, 0) });
+      cursorY -= lineHeight;
+    }
+  }
+}
+
+function wrapText(text, maxChars) {
+  if (!text) return [''];
+  const lines = [];
+  let current = '';
+  for (const token of text.split(/(\s+)/)) {
+    if ((current + token).length > maxChars && current.trim()) {
+      lines.push(current.trimEnd());
+      current = token.trimStart();
+    } else {
+      current += token;
+    }
+  }
+  lines.push(current.trimEnd());
+  return lines;
+}
+
+async function embedKoreanFont(pdfDoc) {
+  const candidates = [
+    '/System/Library/Fonts/Supplemental/AppleGothic.ttf',
+    '/Library/Fonts/AppleGothic.ttf',
+  ];
+  for (const candidate of candidates) {
+    try {
+      const bytes = await fs.readFile(candidate);
+      return pdfDoc.embedFont(bytes);
+    } catch {
+      // Try next candidate.
+    }
+  }
+  throw new ApiError(503, 'korean_font_missing', 'Korean font file not found');
+}
+
+function resolveStampAssetRoot() {
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const candidates = [
+    process.env.FINE_NOTICE_STAMP_ASSET_ROOT,
+    path.join(storageRoot, 'assets', 'stamps'),
+    '/Volumes/MAC_MINI_SSD/projects/rentcar00_OPS/storage/fine-notices/assets/stamps',
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    try {
+      if (resolved.startsWith(`${storageRoot}${path.sep}`) || resolved.startsWith('/Volumes/MAC_MINI_SSD/projects/rentcar00_OPS/storage/fine-notices/assets/stamps')) {
+        return resolved;
+      }
+    } catch {
+      // Continue to next candidate.
+    }
+  }
+  throw new ApiError(503, 'stamp_assets_missing', 'stamp asset root is not configured');
+}
+
+async function writeFineNoticeGeneratedFile({ fineNoticeId, bundle, relativePath, fileRole, bytes, mimeType, sourceType, metadataJson }) {
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const baseRelativeDir = bundle?.baseRelativeDir || path.join('cases', fineNoticeId);
+  const outputPath = assertPathInsideStorage(path.join(storageRoot, baseRelativeDir, relativePath));
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, bytes);
+  return {
+    fileRole,
+    localPath: outputPath,
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    mimeType,
+    sizeBytes: bytes.length,
+    sourceType,
+    backupStatus: 'pending',
+    metadataJson: {
+      ...metadataJson,
+      bundleId: bundle?.bundleId || metadataJson?.bundleId || null,
+      noticeDate: bundle?.noticeDate || metadataJson?.noticeDate || null,
+    },
+  };
+}
+
+function assertPathInsideStorage(candidatePath) {
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const resolvedPath = path.resolve(candidatePath);
+  if (resolvedPath !== storageRoot && !resolvedPath.startsWith(`${storageRoot}${path.sep}`)) {
+    throw new ApiError(400, 'invalid_storage_path', 'resolved path escaped storage root');
+  }
+  return resolvedPath;
+}
+
+async function replaceFineNoticeFileMetadata(fineNoticeId, file) {
+  await deleteFineNoticeFileMetadata(fineNoticeId, file.fileRole);
+  await insertSupabaseRow('rc00_ops_fine_notice_files', {
+    fine_notice_id: fineNoticeId,
+    file_role: file.fileRole,
+    local_path: file.localPath,
+    sha256: file.sha256,
+    mime_type: file.mimeType,
+    size_bytes: file.sizeBytes,
+    source_type: file.sourceType,
+    parser_request_id: null,
+    backup_status: file.backupStatus,
+    metadata_json: file.metadataJson,
+  }, 'id');
+}
+
+async function updateFineNoticeRow(fineNoticeId, patch) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${fineNoticeId}`);
+  const body = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_update_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice update failed'));
+  }
+}
+
+async function updateFineNoticeRows(fineNoticeIds, patch) {
+  const ids = [...new Set((fineNoticeIds || []).map(stringifyNullable).filter(Boolean))];
+  if (ids.length === 0) return;
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `in.(${ids.join(',')})`);
+  const body = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_bulk_update_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice bulk update failed'));
+  }
+}
+
+function normalizeFileExtension(ext, mimeType = '') {
+  const clean = stringifyNullable(ext).toLowerCase();
+  if (clean && clean.length <= 6 && /^\.[a-z0-9]+$/.test(clean)) return clean;
+  const mime = stringifyNullable(mimeType).toLowerCase();
+  if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg';
+  if (mime.includes('png')) return '.png';
+  return '.pdf';
+}
+
+function guessMimeTypeFromExtension(ext) {
+  const clean = stringifyNullable(ext).toLowerCase();
+  if (clean === '.jpg' || clean === '.jpeg') return 'image/jpeg';
+  if (clean === '.png') return 'image/png';
+  return 'application/pdf';
+}
+
+function isAllowedFineNoticeDownloadMime(mimeType) {
+  const mime = stringifyNullable(mimeType).toLowerCase();
+  return mime.includes('pdf') || mime.includes('jpeg') || mime.includes('jpg') || mime.includes('png');
+}
+
+function formatRenterIdentityForDocument(renter) {
+  if (renter.identityNo) return maskSensitiveId(renter.identityNo);
+  if (renter.driverLicenseNo) return `면허번호 ${maskSensitiveId(renter.driverLicenseNo)}`;
+  if (renter.birthDate) return `생년월일 ${renter.birthDate}`;
+  return '확인 필요';
+}
+
+function maskSensitiveId(value) {
+  const text = stringifyNullable(value);
+  if (!text) return '';
+  if (text.length <= 6) return text;
+  return `${text.slice(0, 6)}-${'*'.repeat(Math.max(4, text.length - 7))}`;
+}
+
+function maskPhoneForDocument(value) {
+  const text = stringifyNullable(value);
+  if (!text) return '';
+  const digits = text.replace(/\D/g, '');
+  if (digits.length < 7) return text;
+  return `${digits.slice(0, 3)}-${'*'.repeat(Math.max(3, digits.length - 7))}-${digits.slice(-4)}`;
+}
+
+function formatCompactDate(value) {
+  const date = new Date(value);
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${kst.getUTCFullYear()}${String(kst.getUTCMonth() + 1).padStart(2, '0')}${String(kst.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatKstDate(value) {
+  const date = new Date(value);
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatKstDateTime(value) {
+  const date = new Date(value);
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${formatKstDate(value)} ${String(kst.getUTCHours()).padStart(2, '0')}:${String(kst.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+async function deleteFineNoticeFileMetadata(fineNoticeId, fileRole) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
+  url.searchParams.set('file_role', `eq.${fileRole}`);
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      Prefer: 'return=minimal',
+    },
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_metadata_delete_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file metadata delete failed'));
+  }
 }
 
 
@@ -1248,6 +2605,7 @@ function toImsReservationImportItem(schedule) {
 
 function toImsInsuranceClaimImportItem(claim) {
   return {
+    sourceType: 'ims_insurance_claim',
     claimId: stringifyNullable(claim?.id),
     status: stringifyNullable(claim?.claim_state),
     carNumber: stringifyNullable(claim?.rent_car_number),
