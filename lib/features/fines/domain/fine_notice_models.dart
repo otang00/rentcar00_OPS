@@ -269,14 +269,14 @@ class FineNoticeCase {
     required this.memo,
     required this.warnings,
     this.rawCandidateJson = const {},
-	    this.confirmedContractSourceType,
-	    this.imsContractId,
-	    this.imsClaimId,
-	    this.contractPdfSavedAt,
-	    this.documentPackageGeneratedAt,
-	    this.renterSnapshotJson = const {},
-	    this.files = const [],
-	  });
+    this.confirmedContractSourceType,
+    this.imsContractId,
+    this.imsClaimId,
+    this.contractPdfSavedAt,
+    this.documentPackageGeneratedAt,
+    this.renterSnapshotJson = const {},
+    this.files = const [],
+  });
 
   final String id;
   final DateTime createdAt;
@@ -293,18 +293,18 @@ class FineNoticeCase {
   final String memo;
   final List<String> warnings;
   final Map<String, dynamic> rawCandidateJson;
-	  final String? confirmedContractSourceType;
-	  final String? imsContractId;
-	  final String? imsClaimId;
-	  final DateTime? contractPdfSavedAt;
-	  final DateTime? documentPackageGeneratedAt;
-	  final Map<String, dynamic> renterSnapshotJson;
-	  final List<FineNoticeFileMetadata> files;
+  final String? confirmedContractSourceType;
+  final String? imsContractId;
+  final String? imsClaimId;
+  final DateTime? contractPdfSavedAt;
+  final DateTime? documentPackageGeneratedAt;
+  final Map<String, dynamic> renterSnapshotJson;
+  final List<FineNoticeFileMetadata> files;
 
-	  factory FineNoticeCase.fromRow(
-	    Map<String, dynamic> row, {
-	    List<FineNoticeFileMetadata> files = const [],
-	  }) {
+  factory FineNoticeCase.fromRow(
+    Map<String, dynamic> row, {
+    List<FineNoticeFileMetadata> files = const [],
+  }) {
     return FineNoticeCase(
       id: _string(row['id']) ?? '',
       createdAt:
@@ -325,17 +325,17 @@ class FineNoticeCase {
       rawCandidateJson: _map(row['raw_candidate_json']),
       confirmedContractSourceType: _string(
         row['confirmed_contract_source_type'],
-	      ),
-	      imsContractId: _string(row['ims_contract_id']),
-	      imsClaimId: _string(row['ims_claim_id']),
-	      contractPdfSavedAt: _dateTime(row['contract_pdf_saved_at']),
-	      documentPackageGeneratedAt: _dateTime(
-	        row['document_package_generated_at'],
-	      ),
-	      renterSnapshotJson: _map(row['renter_snapshot_json']),
-	      files: files,
-	    );
-	  }
+      ),
+      imsContractId: _string(row['ims_contract_id']),
+      imsClaimId: _string(row['ims_claim_id']),
+      contractPdfSavedAt: _dateTime(row['contract_pdf_saved_at']),
+      documentPackageGeneratedAt: _dateTime(
+        row['document_package_generated_at'],
+      ),
+      renterSnapshotJson: _map(row['renter_snapshot_json']),
+      files: files,
+    );
+  }
 
   Map<String, dynamic> toInsertRow() {
     return {
@@ -355,84 +355,84 @@ class FineNoticeCase {
       'memo': _nullIfEmpty(memo),
       'raw_candidate_json': rawCandidateJson,
       'review_warnings': warnings,
-	      'confirmed_contract_source_type': confirmedContractSourceType,
-	      'ims_contract_id': imsContractId,
-	      'ims_claim_id': imsClaimId,
-	      'contract_pdf_saved_at': contractPdfSavedAt?.toUtc().toIso8601String(),
-	      'document_package_generated_at': documentPackageGeneratedAt
-	          ?.toUtc()
-	          .toIso8601String(),
-	      'renter_snapshot_json': renterSnapshotJson,
-	    };
-	  }
+      'confirmed_contract_source_type': confirmedContractSourceType,
+      'ims_contract_id': imsContractId,
+      'ims_claim_id': imsClaimId,
+      'contract_pdf_saved_at': contractPdfSavedAt?.toUtc().toIso8601String(),
+      'document_package_generated_at': documentPackageGeneratedAt
+          ?.toUtc()
+          .toIso8601String(),
+      'renter_snapshot_json': renterSnapshotJson,
+    };
+  }
 
-	  FineNoticeCase copyWith({
-	    String? status,
-	    String? noticeProfile,
-	    String? noticeType,
-	    String? issuer,
-	    String? documentNumber,
-	    String? carNumber,
-	    String? occurredAt,
-	    String? location,
-	    String? totalAmount,
-	    String? dueDate,
-	    String? memo,
-	    List<String>? warnings,
-	    Map<String, dynamic>? rawCandidateJson,
-	    String? confirmedContractSourceType,
-	    String? imsContractId,
-	    String? imsClaimId,
-	    DateTime? contractPdfSavedAt,
-	    DateTime? documentPackageGeneratedAt,
-	    Map<String, dynamic>? renterSnapshotJson,
-	    List<FineNoticeFileMetadata>? files,
-	    bool clearConfirmedContract = false,
-	    bool clearDocumentState = false,
-	  }) {
-	    return FineNoticeCase(
-	      id: id,
-	      createdAt: createdAt,
-	      status: status ?? this.status,
-	      noticeProfile: noticeProfile ?? this.noticeProfile,
-	      noticeType: noticeType ?? this.noticeType,
-	      issuer: issuer ?? this.issuer,
-	      documentNumber: documentNumber ?? this.documentNumber,
-	      carNumber: carNumber ?? this.carNumber,
-	      occurredAt: occurredAt ?? this.occurredAt,
-	      location: location ?? this.location,
-	      totalAmount: totalAmount ?? this.totalAmount,
-	      dueDate: dueDate ?? this.dueDate,
-	      memo: memo ?? this.memo,
-	      warnings: warnings ?? this.warnings,
-	      rawCandidateJson: rawCandidateJson ?? this.rawCandidateJson,
-	      confirmedContractSourceType: clearConfirmedContract
-	          ? null
-	          : confirmedContractSourceType ?? this.confirmedContractSourceType,
-	      imsContractId: clearConfirmedContract
-	          ? null
-	          : imsContractId ?? this.imsContractId,
-	      imsClaimId: clearConfirmedContract ? null : imsClaimId ?? this.imsClaimId,
-	      contractPdfSavedAt: clearDocumentState
-	          ? null
-	          : contractPdfSavedAt ?? this.contractPdfSavedAt,
-	      documentPackageGeneratedAt: clearDocumentState
-	          ? null
-	          : documentPackageGeneratedAt ?? this.documentPackageGeneratedAt,
-	      renterSnapshotJson: clearConfirmedContract
-	          ? const {}
-	          : renterSnapshotJson ?? this.renterSnapshotJson,
-	      files: files ?? this.files,
-	    );
-	  }
-	}
+  FineNoticeCase copyWith({
+    String? status,
+    String? noticeProfile,
+    String? noticeType,
+    String? issuer,
+    String? documentNumber,
+    String? carNumber,
+    String? occurredAt,
+    String? location,
+    String? totalAmount,
+    String? dueDate,
+    String? memo,
+    List<String>? warnings,
+    Map<String, dynamic>? rawCandidateJson,
+    String? confirmedContractSourceType,
+    String? imsContractId,
+    String? imsClaimId,
+    DateTime? contractPdfSavedAt,
+    DateTime? documentPackageGeneratedAt,
+    Map<String, dynamic>? renterSnapshotJson,
+    List<FineNoticeFileMetadata>? files,
+    bool clearConfirmedContract = false,
+    bool clearDocumentState = false,
+  }) {
+    return FineNoticeCase(
+      id: id,
+      createdAt: createdAt,
+      status: status ?? this.status,
+      noticeProfile: noticeProfile ?? this.noticeProfile,
+      noticeType: noticeType ?? this.noticeType,
+      issuer: issuer ?? this.issuer,
+      documentNumber: documentNumber ?? this.documentNumber,
+      carNumber: carNumber ?? this.carNumber,
+      occurredAt: occurredAt ?? this.occurredAt,
+      location: location ?? this.location,
+      totalAmount: totalAmount ?? this.totalAmount,
+      dueDate: dueDate ?? this.dueDate,
+      memo: memo ?? this.memo,
+      warnings: warnings ?? this.warnings,
+      rawCandidateJson: rawCandidateJson ?? this.rawCandidateJson,
+      confirmedContractSourceType: clearConfirmedContract
+          ? null
+          : confirmedContractSourceType ?? this.confirmedContractSourceType,
+      imsContractId: clearConfirmedContract
+          ? null
+          : imsContractId ?? this.imsContractId,
+      imsClaimId: clearConfirmedContract ? null : imsClaimId ?? this.imsClaimId,
+      contractPdfSavedAt: clearDocumentState
+          ? null
+          : contractPdfSavedAt ?? this.contractPdfSavedAt,
+      documentPackageGeneratedAt: clearDocumentState
+          ? null
+          : documentPackageGeneratedAt ?? this.documentPackageGeneratedAt,
+      renterSnapshotJson: clearConfirmedContract
+          ? const {}
+          : renterSnapshotJson ?? this.renterSnapshotJson,
+      files: files ?? this.files,
+    );
+  }
+}
 
 class FineNoticeFileMetadata {
-	  const FineNoticeFileMetadata({
-	    this.id,
-	    this.fineNoticeId,
-	    required this.fileRole,
-	    required this.localPath,
+  const FineNoticeFileMetadata({
+    this.id,
+    this.fineNoticeId,
+    required this.fileRole,
+    required this.localPath,
     this.sha256,
     this.mimeType,
     this.sizeBytes,
@@ -440,12 +440,12 @@ class FineNoticeFileMetadata {
     this.parserRequestId,
     this.backupStatus = 'pending',
     this.metadataJson = const {},
-	  });
+  });
 
-	  final String? id;
-	  final String? fineNoticeId;
-	  final String fileRole;
-	  final String localPath;
+  final String? id;
+  final String? fineNoticeId;
+  final String fileRole;
+  final String localPath;
   final String? sha256;
   final String? mimeType;
   final int? sizeBytes;
@@ -454,11 +454,11 @@ class FineNoticeFileMetadata {
   final String backupStatus;
   final Map<String, dynamic> metadataJson;
 
-	  factory FineNoticeFileMetadata.fromParserJson(Map<String, dynamic> json) {
-	    return FineNoticeFileMetadata(
-	      id: _string(json['id'] ?? json['fileId']),
-	      fineNoticeId: _string(json['fineNoticeId'] ?? json['fine_notice_id']),
-	      fileRole: _string(json['fileRole']) ?? 'notice_original',
+  factory FineNoticeFileMetadata.fromParserJson(Map<String, dynamic> json) {
+    return FineNoticeFileMetadata(
+      id: _string(json['id'] ?? json['fileId']),
+      fineNoticeId: _string(json['fineNoticeId'] ?? json['fine_notice_id']),
+      fileRole: _string(json['fileRole']) ?? 'notice_original',
       localPath: _string(json['localPath']) ?? '',
       sha256: _string(json['sha256']),
       mimeType: _string(json['mimeType']),
@@ -467,26 +467,26 @@ class FineNoticeFileMetadata {
       parserRequestId: _string(json['requestId'] ?? json['parserRequestId']),
       backupStatus: _string(json['backupStatus']) ?? 'pending',
       metadataJson: _map(json['metadataJson']),
-	    );
-	  }
+    );
+  }
 
-	  factory FineNoticeFileMetadata.fromRow(Map<String, dynamic> row) {
-	    return FineNoticeFileMetadata(
-	      id: _string(row['id']),
-	      fineNoticeId: _string(row['fine_notice_id']),
-	      fileRole: _string(row['file_role']) ?? 'unknown',
-	      localPath: _string(row['local_path']) ?? '',
-	      sha256: _string(row['sha256']),
-	      mimeType: _string(row['mime_type']),
-	      sizeBytes: _int(row['size_bytes']),
-	      sourceType: _string(row['source_type']),
-	      parserRequestId: _string(row['parser_request_id']),
-	      backupStatus: _string(row['backup_status']) ?? 'pending',
-	      metadataJson: _map(row['metadata_json']),
-	    );
-	  }
+  factory FineNoticeFileMetadata.fromRow(Map<String, dynamic> row) {
+    return FineNoticeFileMetadata(
+      id: _string(row['id']),
+      fineNoticeId: _string(row['fine_notice_id']),
+      fileRole: _string(row['file_role']) ?? 'unknown',
+      localPath: _string(row['local_path']) ?? '',
+      sha256: _string(row['sha256']),
+      mimeType: _string(row['mime_type']),
+      sizeBytes: _int(row['size_bytes']),
+      sourceType: _string(row['source_type']),
+      parserRequestId: _string(row['parser_request_id']),
+      backupStatus: _string(row['backup_status']) ?? 'pending',
+      metadataJson: _map(row['metadata_json']),
+    );
+  }
 
-	  Map<String, dynamic> toInsertRow(String fineNoticeId) {
+  Map<String, dynamic> toInsertRow(String fineNoticeId) {
     return {
       'fine_notice_id': fineNoticeId,
       'file_role': fileRole,
@@ -498,33 +498,35 @@ class FineNoticeFileMetadata {
       'parser_request_id': parserRequestId,
       'backup_status': backupStatus,
       'metadata_json': metadataJson,
-	    };
-	  }
+    };
+  }
 
-	  String get displayName {
-	    final name = _string(metadataJson['displayName'] ?? metadataJson['label']);
-	    if (name != null) return name;
-	    return switch (fileRole) {
-	      'notice_original' => '고지서 원본',
-	      'contract_original' => '계약서 원본',
-	      'contract_with_stamps' => '계약서 사본',
-	      'renter_change_application' => '임차인 변경 신청서',
-	      'vehicle_application_list' => '통행 목록',
-	      'submission_receipt' => '발송 확인',
-	      _ => fileRole,
-	    };
-	  }
+  String get displayName {
+    final name = _string(metadataJson['displayName'] ?? metadataJson['label']);
+    if (name != null) return name;
+    return switch (fileRole) {
+      'notice_original' => '고지서 원본',
+      'contract_original' => '계약서 원본',
+      'contract_with_stamps' => '계약서 사본',
+      'renter_change_application' => '임차인 변경 신청서',
+      'vehicle_application_list' => '통행 목록',
+      'submission_receipt' => '발송 확인',
+      _ => fileRole,
+    };
+  }
 
-	  bool get isPackageDocument {
-	    return const {
-	      'notice_original',
-	      'contract_original',
-	      'contract_with_stamps',
-	      'renter_change_application',
-	      'vehicle_application_list',
-	    }.contains(fileRole);
-	  }
-	}
+  bool get isPackageDocument {
+    final folderKind = _string(metadataJson['folderKind']);
+    final sharePackage = metadataJson['sharePackage'] == true;
+    if (folderKind != 'share' && !sharePackage) return false;
+    return const {
+      'notice_original',
+      'contract_with_stamps',
+      'renter_change_application',
+      'vehicle_application_list',
+    }.contains(fileRole);
+  }
+}
 
 class FineNoticeContractCandidate {
   const FineNoticeContractCandidate({
@@ -609,12 +611,22 @@ class FineNoticeContractCandidate {
   }
 
   Map<String, dynamic> toRenterSnapshotJson() {
+    final residentRegistrationNo =
+        _string(rawJson['residentRegistrationNo']) ??
+        _string(rawJson['identityNo']) ??
+        _string(rawJson['customerIdNumber']);
+    final driverLicenseNo =
+        _string(rawJson['driverLicenseNo']) ??
+        _string(rawJson['licenseNumber']) ??
+        _string(rawJson['driver_license_number']);
     return {
       'sourceType': sourceType,
       'sourceId': sourceId,
       'sourceLabel': sourceLabel,
       'customerName': customerName,
       'customerPhone': customerPhone,
+      'residentRegistrationNo': residentRegistrationNo,
+      'driverLicenseNo': driverLicenseNo,
       'carNumber': carNumber,
       'rentalAt': rentalAt,
       'returnAt': returnAt,
@@ -638,12 +650,12 @@ num? _number(Object? value) {
 }
 
 int? _int(Object? value) {
-	  if (value is int) return value;
-	  if (value is num) return value.toInt();
-	  final text = _string(value);
-	  if (text == null) return null;
-	  return int.tryParse(text);
-	}
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  final text = _string(value);
+  if (text == null) return null;
+  return int.tryParse(text);
+}
 
 DateTime? _dateTime(Object? value) {
   final text = _string(value);

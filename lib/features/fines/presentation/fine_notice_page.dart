@@ -44,11 +44,11 @@ class FineNoticePage extends ConsumerWidget {
           );
         }
 
-	        return _FineNoticeTable(items: cases);
-	      },
-	    );
-	  }
-	}
+        return _FineNoticeTable(items: cases);
+      },
+    );
+  }
+}
 
 class _FineNoticeTable extends StatelessWidget {
   const _FineNoticeTable({required this.items});
@@ -57,47 +57,83 @@ class _FineNoticeTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scrollbar(
-      thumbVisibility: true,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-        scrollDirection: Axis.horizontal,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 980),
-          child: SingleChildScrollView(
-            child: DataTable(
-              headingRowHeight: 38,
-              dataRowMinHeight: 52,
-              dataRowMaxHeight: 64,
-              columnSpacing: 18,
-              showCheckboxColumn: false,
-              columns: const [
-                DataColumn(label: Text('차량')),
-                DataColumn(label: Text('고지서')),
-                DataColumn(label: Text('통행일')),
-                DataColumn(label: Text('장소')),
-                DataColumn(label: Text('금액')),
-                DataColumn(label: Text('계약서확정')),
-                DataColumn(label: Text('문서작성')),
-                DataColumn(label: Text('발송완료')),
-              ],
-              rows: [
-                for (final item in items)
-                  DataRow(
-                    onSelectChanged: (_) => _showFineNoticeDetail(context, item),
-                    cells: [
-                      DataCell(_TableText(item.carNumber.isEmpty ? '확인 필요' : item.carNumber)),
-                      DataCell(_TableText(_noticeTitle(item))),
-                      DataCell(_TableText(item.occurredAt)),
-                      DataCell(_TableText(item.location)),
-                      DataCell(_TableText(item.totalAmount.isEmpty ? '' : '${item.totalAmount}원')),
-                      DataCell(_CheckCell(checked: _hasConfirmedContract(item), label: _displayStatus(item.status))),
-                      DataCell(_CheckCell(checked: _hasDocumentPackage(item), label: _documentStatusLabel(item))),
-                      DataCell(_CheckCell(checked: item.status == 'submitted', label: item.status == 'submitted' ? '완료' : '대기')),
-                    ],
-                  ),
-              ],
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 20),
+      itemCount: items.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 6),
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return _FineNoticeCompactRow(
+          item: item,
+          onTap: () => _showFineNoticeDetail(context, item),
+        );
+      },
+    );
+  }
+}
+
+class _FineNoticeCompactRow extends StatelessWidget {
+  const _FineNoticeCompactRow({required this.item, required this.onTap});
+
+  final FineNoticeCase item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surface,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: theme.dividerColor.withValues(alpha: 0.7),
+              ),
             ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 88,
+                    child: Text(
+                      item.carNumber.isEmpty ? '확인 필요' : item.carNumber,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      item.issuer.isEmpty ? _noticeTitle(item) : item.issuer,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 104,
+                    child: Text(
+                      _shortNoticeDate(item.occurredAt),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              _FineNoticeStatusStrip(item: item),
+            ],
           ),
         ),
       ),
@@ -105,55 +141,101 @@ class _FineNoticeTable extends StatelessWidget {
   }
 }
 
-class _TableText extends StatelessWidget {
-  const _TableText(this.value);
+class _FineNoticeStatusStrip extends StatelessWidget {
+  const _FineNoticeStatusStrip({required this.item});
 
-  final String value;
+  final FineNoticeCase item;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 132,
-      child: Text(
-        value.trim().isEmpty ? '-' : value,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _TinyCheck(
+                label: '계약서확정',
+                checked: _hasConfirmedContract(item),
+              ),
+            ),
+            Expanded(
+              child: _TinyCheck(
+                label: '문서작성',
+                checked: _hasDocumentPackage(item),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        Row(
+          children: [
+            Expanded(
+              child: _TinyCheck(
+                label: '발송완료',
+                checked: item.status == 'submitted',
+              ),
+            ),
+            Expanded(
+              child: Text(
+                _documentStatusLabel(item),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
 
-class _CheckCell extends StatelessWidget {
-  const _CheckCell({required this.checked, required this.label});
+class _TinyCheck extends StatelessWidget {
+  const _TinyCheck({required this.label, required this.checked});
 
-  final bool checked;
   final String label;
+  final bool checked;
 
   @override
   Widget build(BuildContext context) {
-    final color = checked ? Colors.green.shade700 : Theme.of(context).disabledColor;
-    return SizedBox(
-      width: 96,
-      child: Row(
-        children: [
-          Icon(
-            checked ? Icons.check_circle : Icons.radio_button_unchecked,
-            size: 18,
-            color: color,
+    final color = checked
+        ? Colors.green.shade700
+        : Theme.of(context).disabledColor;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          checked ? Icons.check_circle : Icons.radio_button_unchecked,
+          size: 14,
+          color: color,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: color),
           ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
+}
+
+String _shortNoticeDate(String value) {
+  final match = RegExp(
+    r'(\d{4})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})',
+  ).firstMatch(value);
+  if (match == null) return value.trim().isEmpty ? '-' : value.trim();
+  return [
+    match.group(1),
+    match.group(2)!.padLeft(2, '0'),
+    match.group(3)!.padLeft(2, '0'),
+  ].join('-');
 }
 
 Future<void> _showFineNoticeDetail(
@@ -288,7 +370,7 @@ String _displayWarning(String warning) {
     'noticeType_missing' => '고지서 유형 확인 필요',
     'carNumber_missing' => '차량번호 확인 필요',
     'occurredAt_missing' => '위반/통행일시 확인 필요',
-    'amount_missing' => '금액 확인 필요',
+    'amount_missing' => '추가 확인 필요',
     'contract_research_required' => '수정 후 계약서 재검색 필요',
     _ => warning,
   };
@@ -344,8 +426,6 @@ class _FineNoticeCardState extends ConsumerState<_FineNoticeCard> {
               children: [
                 _InfoChip(label: item.noticeProfile),
                 if (item.issuer.isNotEmpty) _InfoChip(label: item.issuer),
-                if (item.totalAmount.isNotEmpty)
-                  _InfoChip(label: '${item.totalAmount}원'),
               ],
             ),
             if (item.occurredAt.isNotEmpty || item.location.isNotEmpty) ...[
@@ -383,43 +463,45 @@ class _FineNoticeCardState extends ConsumerState<_FineNoticeCard> {
                 runSpacing: 8,
                 alignment: WrapAlignment.end,
                 children: [
-	                  OutlinedButton.icon(
-	                    onPressed: _working
-	                        ? null
-	                        : () => _showFineNoticeEditDialog(context, ref, item),
-	                    icon: const Icon(Icons.edit_note),
-	                    label: const Text('고지서수정'),
-	                  ),
-	                  OutlinedButton.icon(
-	                    onPressed:
-	                        _working ||
-	                            item.carNumber.trim().isEmpty ||
-	                            item.occurredAt.trim().isEmpty ||
-	                            item.status == 'not_our_vehicle'
-	                        ? null
-	                        : () => _searchAndConfirmContract(context, ref, item),
-	                    icon: const Icon(Icons.manage_search),
-	                    label: const Text('계약서 재검색'),
-	                  ),
-	                  if (item.confirmedContractSourceType != null)
-	                    FilledButton.icon(
-	                      onPressed: _working
-	                          ? null
-	                          : () => _generateDocuments(context, ref, item),
-	                      icon: const Icon(Icons.description),
-	                      label: const Text('문서생성'),
-	                    ),
-	                  OutlinedButton.icon(
-	                    onPressed: (_working ||
-	                            (!_documentReadyOverride && !_hasDocumentPackage(item)))
-	                        ? null
-	                        : () => _shareDocuments(context, ref, item),
-	                    icon: const Icon(Icons.ios_share),
-	                    label: const Text('공유'),
-	                  ),
-	                ],
-	              ),
-	            ),
+                  OutlinedButton.icon(
+                    onPressed: _working
+                        ? null
+                        : () => _showFineNoticeEditDialog(context, ref, item),
+                    icon: const Icon(Icons.edit_note),
+                    label: const Text('고지서수정'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _working ||
+                            item.carNumber.trim().isEmpty ||
+                            item.occurredAt.trim().isEmpty ||
+                            item.status == 'not_our_vehicle'
+                        ? null
+                        : () => _searchAndConfirmContract(context, ref, item),
+                    icon: const Icon(Icons.manage_search),
+                    label: const Text('계약서 재검색'),
+                  ),
+                  if (item.confirmedContractSourceType != null)
+                    FilledButton.icon(
+                      onPressed: _working
+                          ? null
+                          : () => _generateDocuments(context, ref, item),
+                      icon: const Icon(Icons.description),
+                      label: const Text('문서생성'),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        (_working ||
+                            (!_documentReadyOverride &&
+                                !_hasDocumentPackage(item)))
+                        ? null
+                        : () => _shareDocuments(context, ref, item),
+                    icon: const Icon(Icons.ios_share),
+                    label: const Text('공유'),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -446,17 +528,15 @@ class _FineNoticeCardState extends ConsumerState<_FineNoticeCard> {
     FineNoticeCase item,
   ) async {
     if (!_hasConfirmedContract(item)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('계약서 확정 전에는 문서생성이 불가능합니다.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('계약서 확정 전에는 문서생성이 불가능합니다.')));
       return;
     }
     setState(() => _working = true);
     final appEnv = ref.read(appEnvProvider);
     final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      const SnackBar(content: Text('문서생성을 시작합니다.')),
-    );
+    messenger.showSnackBar(const SnackBar(content: Text('문서생성을 시작합니다.')));
     try {
       if (!_hasContractOriginal(item)) {
         await FineNoticeContractPdfClient(
@@ -506,7 +586,7 @@ class _FineNoticeCardState extends ConsumerState<_FineNoticeCard> {
       if (mounted) setState(() => _working = false);
     }
   }
-	}
+}
 
 Future<void> _searchAndConfirmContract(
   BuildContext context,
@@ -561,8 +641,8 @@ Future<void> _searchAndConfirmContract(
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('계약자 확정 저장 실패\n$error')));
-	  }
-	}
+  }
+}
 
 Future<void> _showFineNoticeEditDialog(
   BuildContext context,
@@ -653,7 +733,9 @@ class _FineNoticeEditDialogState extends State<_FineNoticeEditDialog> {
     _profileController = TextEditingController(text: item.noticeProfile);
     _typeController = TextEditingController(text: item.noticeType);
     _issuerController = TextEditingController(text: item.issuer);
-    _documentNumberController = TextEditingController(text: item.documentNumber);
+    _documentNumberController = TextEditingController(
+      text: item.documentNumber,
+    );
     _carNumberController = TextEditingController(text: item.carNumber);
     _occurredAtController = TextEditingController(text: item.occurredAt);
     _locationController = TextEditingController(text: item.location);
@@ -708,11 +790,6 @@ class _FineNoticeEditDialogState extends State<_FineNoticeEditDialog> {
                   required: true,
                 ),
                 _DialogTextField(controller: _locationController, label: '장소'),
-                _DialogTextField(
-                  controller: _amountController,
-                  label: '금액',
-                  keyboardType: TextInputType.number,
-                ),
                 _DialogTextField(
                   controller: _memoController,
                   label: '메모',
@@ -1057,11 +1134,6 @@ class _FineNoticeCreateDialogState extends State<_FineNoticeCreateDialog> {
                 ),
                 _DialogTextField(controller: _locationController, label: '장소'),
                 _DialogTextField(
-                  controller: _amountController,
-                  label: '금액',
-                  keyboardType: TextInputType.number,
-                ),
-                _DialogTextField(
                   controller: _memoController,
                   label: '메모',
                   maxLines: 3,
@@ -1211,7 +1283,6 @@ class _DialogTextField extends StatelessWidget {
     this.hintText,
     this.maxLines = 1,
     this.required = false,
-    this.keyboardType,
   });
 
   final TextEditingController controller;
@@ -1219,7 +1290,6 @@ class _DialogTextField extends StatelessWidget {
   final String? hintText;
   final int maxLines;
   final bool required;
-  final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) {
@@ -1228,7 +1298,6 @@ class _DialogTextField extends StatelessWidget {
       child: TextFormField(
         controller: controller,
         maxLines: maxLines,
-        keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,
           hintText: hintText,

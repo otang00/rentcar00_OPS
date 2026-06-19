@@ -1010,6 +1010,8 @@ function toImsNormalContractGroupImportItem(contract, detail) {
     customerName: stringifyNullable(detail?.customer_name || contract?.customer_name),
     customerPhone: digitsOnly(detail?.customer_contact || contract?.customer_contact),
     birthDate: stringifyNullable(detail?.customer_id_number1 || contract?.customer_id_number1),
+    residentRegistrationNo: stringifyNullable(detail?.customer_id_number || contract?.customer_id_number),
+    driverLicenseNo: stringifyNullable(detail?.driver_license_number || detail?.license_number || contract?.driver_license_number || contract?.license_number),
     price: stringifyNullable(contract?.total_cost || detail?.total_cost || detail?.cost),
     rentalAt: normalizeImsDateTime(detail?.delivered_date || detail?.delivered_at || contract?.delivered_at),
     returnAt: normalizeImsDateTime(detail?.returned_at || detail?.expect_return_date || contract?.returned_at || contract?.expect_return_date),
@@ -1247,15 +1249,13 @@ async function writeFineNoticeContractPdf({
   originalPageCount = null,
   storedPageCount = null,
 }) {
-  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
-  const contractDir = path.join(storageRoot, bundle?.baseRelativeDir || path.join('cases', fineNoticeId), 'contract');
-  const localPath = path.join(contractDir, 'contract_original.pdf');
-  const resolvedPath = path.resolve(localPath);
-  if (!resolvedPath.startsWith(`${storageRoot}${path.sep}`)) {
-    throw new ApiError(400, 'invalid_storage_path', 'resolved contract path escaped storage root');
-  }
+  const resolvedPath = buildFineNoticeBundleFilePath(
+    bundle,
+    'original/contract_original.pdf',
+    fineNoticeId,
+  );
 
-  await fs.mkdir(contractDir, { recursive: true });
+  await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
   await fs.writeFile(resolvedPath, pdfBuffer);
 
   return {
@@ -1275,24 +1275,15 @@ async function writeFineNoticeContractPdf({
       storedPageCount,
       bundleId: bundle?.bundleId || null,
       noticeDate: bundle?.noticeDate || null,
+      folderKind: 'original',
+      sharePackage: false,
+      displayName: '계약서 원본',
     },
   };
 }
 
 async function replaceFineNoticeContractOriginalMetadata(fineNoticeId, file) {
-  await deleteFineNoticeFileMetadata(fineNoticeId, file.fileRole);
-  await insertSupabaseRow('rc00_ops_fine_notice_files', {
-    fine_notice_id: fineNoticeId,
-    file_role: file.fileRole,
-    local_path: file.localPath,
-    sha256: file.sha256,
-    mime_type: file.mimeType,
-    size_bytes: file.sizeBytes,
-    source_type: file.sourceType,
-    parser_request_id: null,
-    backup_status: file.backupStatus,
-    metadata_json: file.metadataJson,
-  }, 'id');
+  await upsertFineNoticeFileMetadata(fineNoticeId, file);
   await updateFineNoticeRow(fineNoticeId, {
     contract_pdf_saved_at: file.metadataJson?.savedAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -1309,29 +1300,42 @@ async function generateFineNoticeDocumentPackage(payload) {
     throw new ApiError(409, 'contract_not_confirmed', 'contract must be confirmed before document generation');
   }
 
-  const contractOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'contract_original');
+  const siblings = await findFineNoticeDocumentListRows(notice);
+  const bundle = await resolveFineNoticeBundleContext(notice, siblings);
+  const contractOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'contract_original', {
+    preferredFolderKind: 'original',
+    excludedFolderKind: 'share',
+  });
   if (!contractOriginal?.local_path) {
     throw new ApiError(409, 'contract_original_missing', 'contract_original PDF must be saved first');
   }
-  const noticeOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'notice_original');
+  const noticeOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'notice_original', {
+    preferredFolderKind: 'original',
+    excludedFolderKind: 'share',
+  });
   if (!noticeOriginal?.local_path) {
     throw new ApiError(409, 'notice_original_missing', 'notice original file must exist before document generation');
   }
 
-  const siblings = await findFineNoticeDocumentListRows(notice);
-  const bundle = await resolveFineNoticeBundleContext(notice, siblings);
   const renter = await resolveFineNoticeRenterSnapshot(notice);
   const generatedAt = new Date().toISOString();
   const packageFiles = [];
 
-  const bundledNoticeOriginal = await copyNoticeOriginalIntoBundle({
+  await copyNoticeOriginalIntoBundle({
     fineNoticeId: payload.fineNoticeId,
     noticeOriginal,
     bundle,
     generatedAt,
+    folderKind: 'original',
   });
-  await replaceFineNoticeFileMetadata(payload.fineNoticeId, bundledNoticeOriginal);
-  packageFiles.push(bundledNoticeOriginal);
+  const shareNoticeOriginal = await copyNoticeOriginalIntoBundle({
+    fineNoticeId: payload.fineNoticeId,
+    noticeOriginal,
+    bundle,
+    generatedAt,
+    folderKind: 'share',
+  });
+  packageFiles.push(shareNoticeOriginal);
 
   const bundledContractOriginal = await copyContractOriginalIntoBundle({
     fineNoticeId: payload.fineNoticeId,
@@ -1339,8 +1343,7 @@ async function generateFineNoticeDocumentPackage(payload) {
     bundle,
     generatedAt,
   });
-  await replaceFineNoticeFileMetadata(payload.fineNoticeId, bundledContractOriginal);
-  packageFiles.push(bundledContractOriginal);
+  await upsertFineNoticeFileMetadata(payload.fineNoticeId, bundledContractOriginal);
 
   const stampedContract = await generateStampedContractPdf({
     fineNoticeId: payload.fineNoticeId,
@@ -1348,7 +1351,7 @@ async function generateFineNoticeDocumentPackage(payload) {
     contractOriginalPath: bundledContractOriginal.localPath,
     generatedAt,
   });
-  await replaceFineNoticeFileMetadata(payload.fineNoticeId, stampedContract);
+  await upsertFineNoticeFileMetadata(payload.fineNoticeId, stampedContract);
   packageFiles.push(stampedContract);
 
   const application = await generateRenterChangeApplicationPdf({
@@ -1358,7 +1361,7 @@ async function generateFineNoticeDocumentPackage(payload) {
     renter,
     generatedAt,
   });
-  await replaceFineNoticeFileMetadata(payload.fineNoticeId, application);
+  await upsertFineNoticeFileMetadata(payload.fineNoticeId, application);
   packageFiles.push(application);
 
   if (siblings.length > 1) {
@@ -1370,10 +1373,14 @@ async function generateFineNoticeDocumentPackage(payload) {
       renter,
       generatedAt,
     });
-    await replaceFineNoticeFileMetadata(payload.fineNoticeId, vehicleList);
+    await upsertFineNoticeFileMetadata(payload.fineNoticeId, vehicleList);
     packageFiles.push(vehicleList);
   } else {
-    await deleteFineNoticeFileMetadata(payload.fineNoticeId, 'vehicle_application_list');
+    await deleteFineNoticeFileMetadataForPath(
+      payload.fineNoticeId,
+      'vehicle_application_list',
+      buildFineNoticeBundleFilePath(bundle, 'share/vehicle_application_list.pdf'),
+    );
   }
 
   await updateFineNoticeRow(payload.fineNoticeId, {
@@ -1446,18 +1453,34 @@ async function findFineNoticeForDocumentPackage(fineNoticeId) {
   return Array.isArray(json) && json.length > 0 ? json[0] : null;
 }
 
-async function findFineNoticeFileByRole(fineNoticeId, fileRole) {
+async function findFineNoticeFileByRole(fineNoticeId, fileRole, options = {}) {
+  const rows = await findFineNoticeFilesByRole(fineNoticeId, fileRole, options);
+  return rows[0] || null;
+}
+
+async function findFineNoticeFilesByRole(fineNoticeId, fileRole, options = {}) {
   const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
   url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
   url.searchParams.set('file_role', `eq.${fileRole}`);
-  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json');
-  url.searchParams.set('limit', '1');
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json,created_at');
+  url.searchParams.set('order', 'created_at.desc');
+  url.searchParams.set('limit', '20');
   const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
   const json = await readJsonResponse(response);
   if (!response.ok) {
     throw new ApiError(502, 'fine_notice_file_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file lookup failed'));
   }
-  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+  const rows = Array.isArray(json) ? json : [];
+  const excludedFolderKind = stringifyNullable(options.excludedFolderKind);
+  const filtered = excludedFolderKind
+    ? rows.filter((file) => resolveFineNoticeFileFolderKind(file) !== excludedFolderKind)
+    : rows;
+  const preferredFolderKind = stringifyNullable(options.preferredFolderKind);
+  if (!preferredFolderKind) return filtered;
+  return [
+    ...filtered.filter((file) => resolveFineNoticeFileFolderKind(file) === preferredFolderKind),
+    ...filtered.filter((file) => resolveFineNoticeFileFolderKind(file) !== preferredFolderKind),
+  ];
 }
 
 async function findFineNoticeDocumentListRows(notice) {
@@ -1591,8 +1614,12 @@ async function prepareFineNoticeFileDownload({ fileId }) {
   }
   const bundle = await resolveFineNoticeBundleContext(notice);
   const bundleRoot = assertPathInsideStorage(path.join(config.fineNoticeStorageRoot, bundle.baseRelativeDir));
+  const shareRoot = buildFineNoticeBundleFolderPath(bundle, 'share');
   if (!localPath.startsWith(`${bundleRoot}${path.sep}`)) {
     throw new ApiError(403, 'file_outside_bundle', 'file is outside the approved fine notice bundle');
+  }
+  if (!localPath.startsWith(`${shareRoot}${path.sep}`) || !isFineNoticeSharePackageFile(file)) {
+    throw new ApiError(403, 'file_not_share_package', 'file is not part of the approved share package');
   }
   return {
     localPath,
@@ -1603,6 +1630,7 @@ async function prepareFineNoticeFileDownload({ fileId }) {
 
 async function findFineNoticeFilesInsideBundle(bundle) {
   const bundleRoot = assertPathInsideStorage(path.join(config.fineNoticeStorageRoot, bundle.baseRelativeDir));
+  const shareRoot = buildFineNoticeBundleFolderPath(bundle, 'share');
   const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
   url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json,created_at');
   url.searchParams.set('order', 'created_at.asc');
@@ -1612,12 +1640,15 @@ async function findFineNoticeFilesInsideBundle(bundle) {
   if (!response.ok) {
     throw new ApiError(502, 'fine_notice_files_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice files lookup failed'));
   }
-  return (Array.isArray(json) ? json : []).filter((file) => {
+  const files = (Array.isArray(json) ? json : []).filter((file) => {
     const localPath = stringifyNullable(file.local_path);
     if (!localPath) return false;
     const resolved = path.resolve(localPath);
-    return resolved.startsWith(`${bundleRoot}${path.sep}`);
+    return resolved.startsWith(`${bundleRoot}${path.sep}`) &&
+      resolved.startsWith(`${shareRoot}${path.sep}`) &&
+      isFineNoticeSharePackageFile(file);
   });
+  return dedupeFineNoticeFiles(files).sort(compareFineNoticeShareFiles);
 }
 
 async function findFineNoticeFileById(fileId) {
@@ -1695,8 +1726,8 @@ async function resolveFineNoticeRenterSnapshot(notice) {
     phone: stringifyNullable(notice.renter_phone || snapshot.customerPhone),
     address: stringifyNullable(notice.renter_address || findFirstNestedValue(snapshot, ['address', 'customerAddress', 'renterAddress'])),
     identityType: stringifyNullable(notice.renter_identity_type),
-    identityNo: stringifyNullable(notice.renter_identity_no),
-    driverLicenseNo: stringifyNullable(notice.renter_driver_license_no),
+    identityNo: stringifyNullable(notice.renter_identity_no || findFirstNestedValue(snapshot, ['residentRegistrationNo', 'identityNo', 'renterIdentityNo', 'customerIdNumber', 'customer_id_number'])),
+    driverLicenseNo: stringifyNullable(notice.renter_driver_license_no || findFirstNestedValue(snapshot, ['driverLicenseNo', 'driver_license_number', 'licenseNumber', 'license_number'])),
     birthDate: stringifyNullable(notice.renter_birth_date || findFirstNestedValue(snapshot, ['birthDate', 'birthday'])),
     source: 'stored_snapshot',
   };
@@ -1719,6 +1750,8 @@ async function resolveFineNoticeRenterSnapshot(notice) {
     renter.name = renter.name || stringifyNullable(match.customerName);
     renter.phone = renter.phone || stringifyNullable(match.customerPhone);
     renter.address = renter.address || stringifyNullable(match.customerAddress || match.address || match.pickupLocation);
+    renter.identityNo = renter.identityNo || stringifyNullable(match.residentRegistrationNo || match.identityNo);
+    renter.driverLicenseNo = renter.driverLicenseNo || stringifyNullable(match.driverLicenseNo);
     renter.birthDate = renter.birthDate || stringifyNullable(match.birthDate);
     renter.source = 'ims_contract_candidate';
   }
@@ -1734,26 +1767,31 @@ function buildDocumentGenerationWarnings(renter) {
   ];
 }
 
-async function copyNoticeOriginalIntoBundle({ fineNoticeId, noticeOriginal, bundle, generatedAt }) {
+async function copyNoticeOriginalIntoBundle({ fineNoticeId, noticeOriginal, bundle, generatedAt, folderKind }) {
   const sourcePath = assertPathInsideStorage(noticeOriginal.local_path);
   const bytes = await fs.readFile(sourcePath);
   const ext = normalizeFileExtension(path.extname(sourcePath), noticeOriginal.mime_type || noticeOriginal.mimeType);
-  return writeFineNoticeGeneratedFile({
+  const isShare = folderKind === 'share';
+  const file = await writeFineNoticeGeneratedFile({
     fineNoticeId,
     bundle,
-    relativePath: `notice/notice_original${ext}`,
+    relativePath: `${folderKind}/notice_original${ext}`,
     fileRole: 'notice_original',
     bytes,
     mimeType: noticeOriginal.mime_type || noticeOriginal.mimeType || guessMimeTypeFromExtension(ext),
     sourceType: 'document_generator',
     metadataJson: {
-	      generatedAt,
-	      sourceRole: 'notice_original',
-	      bundleId: bundle?.bundleId || null,
+      generatedAt,
+      sourceRole: 'notice_original',
+      bundleId: bundle?.bundleId || null,
       noticeDate: bundle?.noticeDate || null,
-      displayName: '고지서 원본',
+      folderKind,
+      sharePackage: isShare,
+      displayName: isShare ? '고지서' : '고지서 원본',
     },
   });
+  await upsertFineNoticeFileMetadata(fineNoticeId, file);
+  return file;
 }
 
 async function copyContractOriginalIntoBundle({ fineNoticeId, contractOriginal, bundle, generatedAt }) {
@@ -1765,7 +1803,7 @@ async function copyContractOriginalIntoBundle({ fineNoticeId, contractOriginal, 
   return writeFineNoticeGeneratedFile({
     fineNoticeId,
     bundle,
-    relativePath: 'contract/contract_original.pdf',
+    relativePath: 'original/contract_original.pdf',
     fileRole: 'contract_original',
     bytes,
     mimeType: contractOriginal.mime_type || contractOriginal.mimeType || 'application/pdf',
@@ -1776,6 +1814,8 @@ async function copyContractOriginalIntoBundle({ fineNoticeId, contractOriginal, 
       copiedIntoBundleAt: generatedAt,
       bundleId: bundle?.bundleId || null,
       noticeDate: bundle?.noticeDate || null,
+      folderKind: 'original',
+      sharePackage: false,
       displayName: '계약서 원본',
     },
   });
@@ -1801,22 +1841,22 @@ async function generateStampedContractPdf({ fineNoticeId, bundle, contractOrigin
   const firstPage = pdfDoc.getPage(0);
   const { width, height } = firstPage.getSize();
   firstPage.drawImage(originalTrueImage, {
-    x: width - 210,
-    y: height - 95,
+    x: width / 2 - 50,
+    y: 142,
     width: 130,
     height: 28,
   });
   firstPage.drawImage(companySealImage, {
-    x: width - 92,
-    y: height - 118,
-    width: 58,
-    height: 58,
+    x: width / 2 + 92,
+    y: 126,
+    width: 54,
+    height: 54,
   });
   const outputBytes = await pdfDoc.save();
-	  return writeFineNoticeGeneratedFile({
-	    fineNoticeId,
-	    bundle,
-	    relativePath: 'contract/contract_with_stamps.pdf',
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: 'share/contract_with_stamps.pdf',
     fileRole: 'contract_with_stamps',
     bytes: Buffer.from(outputBytes),
     mimeType: 'application/pdf',
@@ -1829,6 +1869,9 @@ async function generateStampedContractPdf({ fineNoticeId, bundle, contractOrigin
       generatedPageCount: 1,
       stampOriginalTrue: 'assets/stamps/stamp_original_true.png',
       stampCompanySeal: 'assets/stamps/stamp_company_seal.png',
+      folderKind: 'share',
+      sharePackage: true,
+      displayName: '계약서',
       reviewRequired: true,
     },
   });
@@ -1839,24 +1882,23 @@ async function generateRenterChangeApplicationPdf({ fineNoticeId, bundle, notice
   pdfDoc.registerFontkit(fontkit);
   const font = await embedKoreanFont(pdfDoc);
   const page = pdfDoc.addPage([595.28, 841.89]);
-  const lines = buildRenterChangeApplicationLines({ notice, renter, generatedAt });
-  drawTextLines(page, lines, { font, x: 48, y: 790, size: 10, lineHeight: 16 });
 
   const stampRoot = resolveStampAssetRoot();
   const companySealPng = await fs.readFile(path.join(stampRoot, 'stamp_company_seal.png'));
   const companySealImage = await pdfDoc.embedPng(companySealPng);
-  page.drawImage(companySealImage, {
-    x: 142,
-    y: 744,
-    width: 52,
-    height: 52,
+  drawRenterChangeApplicationPage(page, {
+    font,
+    notice,
+    renter,
+    generatedAt,
+    companySealImage,
   });
 
   const outputBytes = await pdfDoc.save();
-	  return writeFineNoticeGeneratedFile({
-	    fineNoticeId,
-	    bundle,
-	    relativePath: 'documents/renter_change_application.pdf',
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: 'share/renter_change_application.pdf',
     fileRole: 'renter_change_application',
     bytes: Buffer.from(outputBytes),
     mimeType: 'application/pdf',
@@ -1864,6 +1906,9 @@ async function generateRenterChangeApplicationPdf({ fineNoticeId, bundle, notice
     metadataJson: {
       generatedAt,
       templateKey: 'generic_toll_fee_renter_change_application',
+      folderKind: 'share',
+      sharePackage: true,
+      displayName: '신청서',
       reviewRequired: true,
       missingFields: buildDocumentGenerationWarnings(renter),
     },
@@ -1875,30 +1920,23 @@ async function generateVehicleApplicationListPdf({ fineNoticeId, bundle, notice,
   pdfDoc.registerFontkit(fontkit);
   const font = await embedKoreanFont(pdfDoc);
   const page = pdfDoc.addPage([595.28, 841.89]);
+  const stampRoot = resolveStampAssetRoot();
+  const companySealPng = await fs.readFile(path.join(stampRoot, 'stamp_company_seal.png'));
+  const companySealImage = await pdfDoc.embedPng(companySealPng);
   const safeRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
-  const lines = [
-    '임차인 변경 신청 차량/통행 목록',
-    '',
-    `발행처: ${stringifyNullable(notice.issuer) || '확인 필요'}`,
-    `차량번호: ${stringifyNullable(notice.car_number) || '확인 필요'}`,
-    `계약자: ${renter.name || '확인 필요'}`,
-    `연락처: ${maskPhoneForDocument(renter.phone) || '확인 필요'}`,
-    '',
-    '번호 | 통행일시 | 통행장소 | 금액',
-    '---------------------------------------------',
-    ...safeRows.map((row, index) =>
-      `${index + 1} | ${stringifyNullable(row.occurred_at_text) || '확인 필요'} | ${stringifyNullable(row.location) || '확인 필요'} | ${stringifyNullable(row.total_amount_text || row.total_amount) || '확인 필요'}`,
-    ),
-    '',
-    `생성일시: ${formatKstDateTime(generatedAt)}`,
-    '주의: 제출 전 계약자 정보와 첨부서류를 사람이 확인해야 합니다.',
-  ];
-  drawTextLines(page, lines, { font, x: 48, y: 790, size: 10, lineHeight: 16 });
+  drawVehicleApplicationListPage(page, {
+    font,
+    notice,
+    rows: safeRows,
+    renter,
+    generatedAt,
+    companySealImage,
+  });
   const outputBytes = await pdfDoc.save();
-	  return writeFineNoticeGeneratedFile({
-	    fineNoticeId,
-	    bundle,
-	    relativePath: 'documents/vehicle_application_list.pdf',
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: 'share/vehicle_application_list.pdf',
     fileRole: 'vehicle_application_list',
     bytes: Buffer.from(outputBytes),
     mimeType: 'application/pdf',
@@ -1906,55 +1944,230 @@ async function generateVehicleApplicationListPdf({ fineNoticeId, bundle, notice,
     metadataJson: {
       generatedAt,
       rowCount: safeRows.length,
+      folderKind: 'share',
+      sharePackage: true,
+      displayName: '통행목록',
       reviewRequired: true,
     },
   });
 }
 
-function buildRenterChangeApplicationLines({ notice, renter, generatedAt }) {
-  const documentNumber = `FN-${formatCompactDate(generatedAt)}-${String(stringifyNullable(notice.id).slice(0, 8)).toUpperCase()}`;
-  return [
-    '빵빵카(주)   (rentcar00.com)',
-    '"(우) 06510 서울특별시 서초구 신반포로23길 78-9, 빵빵카(주)"',
-    'Tel : (02)592-0079  Fax : (02)592-7900  mail : rentcar00@daum.net',
-    '',
-    `문 서 번 호  : ${documentNumber}`,
-    `시 행 일 자  : ${formatKstDate(generatedAt)}`,
-    '발신 - 담당  : 빵빵카(주)',
-    `수신 - 참조  : ${stringifyNullable(notice.issuer) || '확인 필요'}`,
-    '제      목  : 유료도로 미납통행료 임차인 변경 신청.',
-    '',
+function drawRenterChangeApplicationPage(page, { font, notice, renter, generatedAt, companySealImage }) {
+  drawDocumentFrame(page);
+  drawCompanyHeader(page, { font, generatedAt, documentKey: buildFineNoticeDocumentNumber(notice, generatedAt) });
+  drawCenteredTitle(page, font, '유료도로 미납통행료 임차인 변경 신청서', 684);
+
+  drawInfoRows(page, font, 62, 632, 470, [
+    ['수신', stringifyNullable(notice.issuer) || '확인 필요'],
+    ['참조', '미납통행료 담당자'],
+    ['제목', '미납통행료 납부의무자 및 임차인 변경 신청'],
+  ]);
+
+  drawParagraphBlock(page, font, 66, 548, [
     '1. 귀 기관의 무궁한 발전을 기원합니다.',
-    '',
-    `2. 귀 기관에서 발행한 미납통행료 안내문(지로번호/문서번호: ${stringifyNullable(notice.document_number) || '확인 필요'})`,
-    `   차량 ${stringifyNullable(notice.car_number) || '확인 필요'}의 미납통행료 건에 대하여,`,
-    '   당사는 자동차대여 사업체로서 해당 통행시점의 임차인을 아래와 같이 통보하오니',
-    '   납부의무자/임차인 변경 처리를 검토하여 주시기 바랍니다.',
-    '',
-    '------   다           음  ------',
-    '',
-    `1 위 반 차 량 : ${stringifyNullable(notice.car_number) || '확인 필요'}`,
-    `2 통 행 일 시 : ${stringifyNullable(notice.occurred_at_text) || '확인 필요'}`,
-    `3 통 행 장 소 : ${stringifyNullable(notice.location) || '확인 필요'}`,
-    `4 통 행 금 액 : ${stringifyNullable(notice.total_amount_text || notice.total_amount) || '확인 필요'}`,
-    `5 임  차  인 : ${renter.name || '확인 필요'}`,
-    `6 식 별 정 보 : ${formatRenterIdentityForDocument(renter)}`,
-    `7 연  락  처 : ${maskPhoneForDocument(renter.phone) || '확인 필요'}`,
-    `8 주      소 : ${renter.address || '확인 필요'}`,
-    '',
-    '*별 첨 :',
+    `2. 귀 기관에서 발행한 미납통행료 안내문의 차량 ${stringifyNullable(notice.car_number) || '확인 필요'} 건에 대하여,`,
+    '   당사는 자동차대여 사업자로서 해당 통행 시점의 임차인 정보를 아래와 같이 제출합니다.',
+    '3. 첨부 계약서 및 고지서 사본을 확인하시어 납부의무자 변경 처리를 검토하여 주시기 바랍니다.',
+  ]);
+
+  drawSectionTitle(page, font, '신청 대상', 66, 456);
+  drawInfoRows(page, font, 66, 430, 464, [
+    ['고지서번호', stringifyNullable(notice.document_number) || '확인 필요'],
+    ['차량번호', stringifyNullable(notice.car_number) || '확인 필요'],
+    ['통행일시', stringifyNullable(notice.occurred_at_text) || '확인 필요'],
+    ['통행장소', stringifyNullable(notice.location) || '확인 필요'],
+  ], { labelWidth: 84, rowHeight: 24, fontSize: 9.5 });
+
+  drawSectionTitle(page, font, '임차인 정보', 66, 278);
+  drawInfoRows(page, font, 66, 252, 464, [
+    ['성명', renter.name || '확인 필요'],
+    ['주민등록번호', renter.identityNo || '확인 필요'],
+    ['운전면허번호', renter.driverLicenseNo || '확인 필요'],
+    ['연락처', stringifyNullable(renter.phone) || '확인 필요'],
+    ['주소', renter.address || '확인 필요'],
+  ], { labelWidth: 92, rowHeight: 22, fontSize: 9.2 });
+
+  drawSectionTitle(page, font, '첨부 서류', 66, 128);
+  drawTextLines(page, [
     '1. 차량임대차 계약서 사본 1부',
     '2. 미납통행료 안내문 사본 1부',
     '3. 통행 목록 1부',
-    '',
-    '※ 본 문서는 MVP 자동생성 초안입니다. 제출 전 담당자가 값, 도장 위치, 첨부서류를 확인해야 합니다.',
-  ];
+  ], { font, x: 72, y: 108, size: 9.2, lineHeight: 15, maxChars: 64 });
+
+  drawCompanySignature(page, { font, companySealImage, x: 316, y: 72 });
+  drawReviewNotice(page, font);
 }
 
-function drawTextLines(page, lines, { font, x, y, size, lineHeight }) {
+function drawVehicleApplicationListPage(page, { font, notice, rows, renter, generatedAt, companySealImage }) {
+  drawDocumentFrame(page);
+  drawCompanyHeader(page, { font, generatedAt, documentKey: buildFineNoticeDocumentNumber(notice, generatedAt, 'LIST') });
+  drawCenteredTitle(page, font, '임차인 변경 신청 통행 목록', 686);
+
+  drawInfoRows(page, font, 62, 636, 470, [
+    ['발행처', stringifyNullable(notice.issuer) || '확인 필요'],
+    ['차량번호', stringifyNullable(notice.car_number) || '확인 필요'],
+    ['임차인', renter.name || '확인 필요'],
+    ['연락처', stringifyNullable(renter.phone) || '확인 필요'],
+  ], { labelWidth: 76, rowHeight: 24, fontSize: 9.5 });
+
+  const tableTop = 500;
+  const tableLeft = 54;
+  const rowHeight = 28;
+  const columns = [
+    { label: '번호', width: 42 },
+    { label: '통행일시', width: 166 },
+    { label: '통행장소', width: 228 },
+    { label: '비고', width: 52 },
+  ];
+  drawTableHeader(page, font, tableLeft, tableTop, columns, rowHeight);
+  const safeRows = rows.slice(0, 10);
+  for (const [index, row] of safeRows.entries()) {
+    drawTableRow(page, font, tableLeft, tableTop - rowHeight * (index + 1), columns, rowHeight, [
+      String(index + 1),
+      stringifyNullable(row.occurred_at_text) || '확인 필요',
+      stringifyNullable(row.location) || '확인 필요',
+      '',
+    ]);
+  }
+  if (rows.length > safeRows.length) {
+    drawSmallText(page, font, `외 ${rows.length - safeRows.length}건은 별도 확인 필요`, tableLeft, tableTop - rowHeight * (safeRows.length + 1) - 12);
+  }
+
+  drawInfoRows(page, font, 62, 142, 470, [
+    ['작성일시', formatKstDateTime(generatedAt)],
+    ['확인사항', '제출 전 계약자 정보와 첨부서류를 담당자가 확인해야 합니다.'],
+  ], { labelWidth: 76, rowHeight: 24, fontSize: 9 });
+
+  drawCompanySignature(page, { font, companySealImage, x: 326, y: 236 });
+  drawReviewNotice(page, font);
+}
+
+function drawDocumentFrame(page) {
+  const { width, height } = page.getSize();
+  page.drawRectangle({
+    x: 36,
+    y: 36,
+    width: width - 72,
+    height: height - 72,
+    borderWidth: 1,
+    borderColor: rgb(0.25, 0.25, 0.25),
+  });
+}
+
+function drawCompanyHeader(page, { font, generatedAt, documentKey }) {
+  drawText(page, font, '빵빵카(주)', 54, 780, 17, { bold: true });
+  drawText(page, font, '서울특별시 서초구 신반포로23길 78-9', 54, 758, 9.2);
+  drawText(page, font, 'Tel. 02-592-0079  Fax. 02-592-7900  rentcar00@daum.net', 54, 743, 8.8);
+  drawText(page, font, `문서번호  ${documentKey}`, 390, 778, 8.8);
+  drawText(page, font, `시행일자  ${formatKstDate(generatedAt)}`, 390, 762, 8.8);
+  page.drawLine({ start: { x: 54, y: 728 }, end: { x: 542, y: 728 }, thickness: 1.2, color: rgb(0.1, 0.1, 0.1) });
+}
+
+function drawCenteredTitle(page, font, text, y) {
+  const size = 17;
+  const width = font.widthOfTextAtSize(text, size);
+  page.drawText(text, { x: (595.28 - width) / 2, y, size, font, color: rgb(0, 0, 0) });
+  page.drawLine({ start: { x: 178, y: y - 10 }, end: { x: 417, y: y - 10 }, thickness: 0.8, color: rgb(0.25, 0.25, 0.25) });
+}
+
+function drawSectionTitle(page, font, text, x, y) {
+  page.drawRectangle({ x, y: y - 4, width: 7, height: 14, color: rgb(0.1, 0.1, 0.1) });
+  drawText(page, font, text, x + 13, y, 11, { bold: true });
+}
+
+function drawInfoRows(page, font, x, y, width, rows, options = {}) {
+  const labelWidth = options.labelWidth || 64;
+  const rowHeight = options.rowHeight || 25;
+  const fontSize = options.fontSize || 9.5;
+  for (const [index, row] of rows.entries()) {
+    const currentY = y - rowHeight * index;
+    page.drawRectangle({
+      x,
+      y: currentY - rowHeight + 5,
+      width,
+      height: rowHeight,
+      borderWidth: 0.5,
+      borderColor: rgb(0.55, 0.55, 0.55),
+    });
+    page.drawRectangle({
+      x,
+      y: currentY - rowHeight + 5,
+      width: labelWidth,
+      height: rowHeight,
+      color: rgb(0.93, 0.94, 0.95),
+      borderWidth: 0.5,
+      borderColor: rgb(0.55, 0.55, 0.55),
+    });
+    drawText(page, font, row[0], x + 9, currentY - 12, fontSize, { bold: true });
+    drawWrappedText(page, font, row[1], x + labelWidth + 10, currentY - 12, fontSize, width - labelWidth - 18, 12);
+  }
+}
+
+function drawParagraphBlock(page, font, x, y, lines) {
+  drawTextLines(page, lines, { font, x, y, size: 10, lineHeight: 18, maxChars: 64 });
+}
+
+function drawTableHeader(page, font, x, y, columns, rowHeight) {
+  page.drawRectangle({
+    x,
+    y: y - rowHeight,
+    width: columns.reduce((sum, column) => sum + column.width, 0),
+    height: rowHeight,
+    color: rgb(0.9, 0.92, 0.95),
+    borderWidth: 0.6,
+    borderColor: rgb(0.35, 0.35, 0.35),
+  });
+  let cursorX = x;
+  for (const column of columns) {
+    page.drawRectangle({ x: cursorX, y: y - rowHeight, width: column.width, height: rowHeight, borderWidth: 0.5, borderColor: rgb(0.35, 0.35, 0.35) });
+    drawText(page, font, column.label, cursorX + 8, y - 18, 9.2, { bold: true });
+    cursorX += column.width;
+  }
+}
+
+function drawTableRow(page, font, x, y, columns, rowHeight, values) {
+  let cursorX = x;
+  for (const [index, column] of columns.entries()) {
+    page.drawRectangle({ x: cursorX, y: y - rowHeight, width: column.width, height: rowHeight, borderWidth: 0.5, borderColor: rgb(0.6, 0.6, 0.6) });
+    drawWrappedText(page, font, values[index] || '', cursorX + 6, y - 14, 8.5, column.width - 12, 10);
+    cursorX += column.width;
+  }
+}
+
+function drawCompanySignature(page, { font, companySealImage, x, y }) {
+  drawText(page, font, '위와 같이 신청합니다.', x - 8, y + 52, 10);
+  drawText(page, font, '빵빵카(주)', x + 34, y + 24, 13, { bold: true });
+  page.drawImage(companySealImage, { x: x + 104, y: y + 5, width: 58, height: 58 });
+}
+
+function drawReviewNotice(page, font) {
+  drawText(page, font, '※ 자동 생성 초안입니다. 제출 전 담당자가 계약자 정보, 첨부서류, 제출처를 확인해야 합니다.', 54, 48, 7.8);
+}
+
+function drawText(page, font, text, x, y, size, options = {}) {
+  page.drawText(String(text || ''), { x, y, size, font, color: options.color || rgb(0, 0, 0) });
+}
+
+function drawSmallText(page, font, text, x, y) {
+  drawText(page, font, text, x, y, 8.2, { color: rgb(0.25, 0.25, 0.25) });
+}
+
+function drawWrappedText(page, font, text, x, y, size, maxWidth, lineHeight) {
+  const maxChars = Math.max(8, Math.floor(maxWidth / Math.max(size * 0.62, 1)));
+  const wrapped = wrapText(String(text || ''), maxChars);
+  for (const [index, line] of wrapped.slice(0, 2).entries()) {
+    page.drawText(line, { x, y: y - lineHeight * index, size, font, color: rgb(0, 0, 0) });
+  }
+}
+
+function buildFineNoticeDocumentNumber(notice, generatedAt, suffix = 'APP') {
+  return `FN-${formatCompactDate(generatedAt)}-${String(stringifyNullable(notice.id).slice(0, 8)).toUpperCase()}-${suffix}`;
+}
+
+function drawTextLines(page, lines, { font, x, y, size, lineHeight, maxChars = 72 }) {
   let cursorY = y;
   for (const rawLine of lines) {
-    const wrapped = wrapText(String(rawLine), 72);
+    const wrapped = wrapText(String(rawLine), maxChars);
     for (const line of wrapped) {
       page.drawText(line, { x, y: cursorY, size, font, color: rgb(0, 0, 0) });
       cursorY -= lineHeight;
@@ -2014,10 +2227,87 @@ function resolveStampAssetRoot() {
   throw new ApiError(503, 'stamp_assets_missing', 'stamp asset root is not configured');
 }
 
-async function writeFineNoticeGeneratedFile({ fineNoticeId, bundle, relativePath, fileRole, bytes, mimeType, sourceType, metadataJson }) {
+function buildFineNoticeBundleFolderPath(bundle, folderKind, fineNoticeId = '') {
+  const normalizedFolderKind = stringifyNullable(folderKind).trim();
+  if (normalizedFolderKind !== 'original' && normalizedFolderKind !== 'share') {
+    throw new ApiError(500, 'invalid_fine_notice_folder_kind', 'fine notice folder kind must be original or share');
+  }
   const storageRoot = path.resolve(config.fineNoticeStorageRoot);
   const baseRelativeDir = bundle?.baseRelativeDir || path.join('cases', fineNoticeId);
-  const outputPath = assertPathInsideStorage(path.join(storageRoot, baseRelativeDir, relativePath));
+  return assertPathInsideStorage(path.join(storageRoot, baseRelativeDir, normalizedFolderKind));
+}
+
+function buildFineNoticeBundleFilePath(bundle, relativePath, fineNoticeId = '') {
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const baseRelativeDir = bundle?.baseRelativeDir || path.join('cases', fineNoticeId);
+  return assertPathInsideStorage(path.join(storageRoot, baseRelativeDir, relativePath));
+}
+
+function resolveFineNoticeFileFolderKind(file) {
+  const meta = file?.metadata_json && typeof file.metadata_json === 'object'
+    ? file.metadata_json
+    : file?.metadataJson && typeof file.metadataJson === 'object'
+      ? file.metadataJson
+      : {};
+  const explicit = stringifyNullable(meta.folderKind);
+  if (explicit === 'original' || explicit === 'share') return explicit;
+  const localPath = stringifyNullable(file?.local_path || file?.localPath);
+  if (localPath.split(path.sep).includes('share')) return 'share';
+  if (localPath.split(path.sep).includes('original')) return 'original';
+  return '';
+}
+
+function isFineNoticeSharePackageFile(file) {
+  const role = stringifyNullable(file?.file_role || file?.fileRole);
+  if (!new Set([
+    'notice_original',
+    'contract_with_stamps',
+    'renter_change_application',
+    'vehicle_application_list',
+  ]).has(role)) {
+    return false;
+  }
+  const meta = file?.metadata_json && typeof file.metadata_json === 'object'
+    ? file.metadata_json
+    : file?.metadataJson && typeof file.metadataJson === 'object'
+      ? file.metadataJson
+      : {};
+  return resolveFineNoticeFileFolderKind(file) === 'share' || meta.sharePackage === true;
+}
+
+function compareFineNoticeShareFiles(a, b) {
+  const order = {
+    renter_change_application: 1,
+    notice_original: 2,
+    contract_with_stamps: 3,
+    vehicle_application_list: 4,
+  };
+  const aRole = stringifyNullable(a?.file_role || a?.fileRole);
+  const bRole = stringifyNullable(b?.file_role || b?.fileRole);
+  return (order[aRole] || 99) - (order[bRole] || 99);
+}
+
+function dedupeFineNoticeFiles(files) {
+  const byKey = new Map();
+  for (const file of files) {
+    const key = [
+      stringifyNullable(file.file_role || file.fileRole),
+      path.resolve(stringifyNullable(file.local_path || file.localPath)),
+    ].join('|');
+    const previous = byKey.get(key);
+    if (!previous) {
+      byKey.set(key, file);
+      continue;
+    }
+    const previousCreated = Date.parse(stringifyNullable(previous.created_at || previous.createdAt)) || 0;
+    const currentCreated = Date.parse(stringifyNullable(file.created_at || file.createdAt)) || 0;
+    if (currentCreated >= previousCreated) byKey.set(key, file);
+  }
+  return [...byKey.values()];
+}
+
+async function writeFineNoticeGeneratedFile({ fineNoticeId, bundle, relativePath, fileRole, bytes, mimeType, sourceType, metadataJson }) {
+  const outputPath = buildFineNoticeBundleFilePath(bundle, relativePath, fineNoticeId);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await fs.writeFile(outputPath, bytes);
   return {
@@ -2059,6 +2349,48 @@ async function replaceFineNoticeFileMetadata(fineNoticeId, file) {
     backup_status: file.backupStatus,
     metadata_json: file.metadataJson,
   }, 'id');
+}
+
+async function upsertFineNoticeFileMetadata(fineNoticeId, file) {
+  const existing = await findFineNoticeFileMetadataByPath(fineNoticeId, file.fileRole, file.localPath);
+  if (existing && stringifyNullable(existing.sha256) === stringifyNullable(file.sha256)) {
+    file.id = stringifyNullable(existing.id) || file.id || null;
+    file.backupStatus = stringifyNullable(existing.backup_status) || file.backupStatus;
+    return file;
+  }
+  if (existing) {
+    await deleteFineNoticeFileMetadataForPath(fineNoticeId, file.fileRole, file.localPath);
+  }
+  const inserted = await insertSupabaseRow('rc00_ops_fine_notice_files', {
+    fine_notice_id: fineNoticeId,
+    file_role: file.fileRole,
+    local_path: file.localPath,
+    sha256: file.sha256,
+    mime_type: file.mimeType,
+    size_bytes: file.sizeBytes,
+    source_type: file.sourceType,
+    parser_request_id: null,
+    backup_status: file.backupStatus,
+    metadata_json: file.metadataJson,
+  }, 'id');
+  file.id = stringifyNullable(inserted?.id) || file.id || null;
+  return file;
+}
+
+async function findFineNoticeFileMetadataByPath(fineNoticeId, fileRole, localPath) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
+  url.searchParams.set('file_role', `eq.${fileRole}`);
+  url.searchParams.set('local_path', `eq.${localPath}`);
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,backup_status,metadata_json,created_at');
+  url.searchParams.set('order', 'created_at.desc');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
 }
 
 async function updateFineNoticeRow(fineNoticeId, patch) {
@@ -2122,28 +2454,6 @@ function isAllowedFineNoticeDownloadMime(mimeType) {
   return mime.includes('pdf') || mime.includes('jpeg') || mime.includes('jpg') || mime.includes('png');
 }
 
-function formatRenterIdentityForDocument(renter) {
-  if (renter.identityNo) return maskSensitiveId(renter.identityNo);
-  if (renter.driverLicenseNo) return `면허번호 ${maskSensitiveId(renter.driverLicenseNo)}`;
-  if (renter.birthDate) return `생년월일 ${renter.birthDate}`;
-  return '확인 필요';
-}
-
-function maskSensitiveId(value) {
-  const text = stringifyNullable(value);
-  if (!text) return '';
-  if (text.length <= 6) return text;
-  return `${text.slice(0, 6)}-${'*'.repeat(Math.max(4, text.length - 7))}`;
-}
-
-function maskPhoneForDocument(value) {
-  const text = stringifyNullable(value);
-  if (!text) return '';
-  const digits = text.replace(/\D/g, '');
-  if (digits.length < 7) return text;
-  return `${digits.slice(0, 3)}-${'*'.repeat(Math.max(3, digits.length - 7))}-${digits.slice(-4)}`;
-}
-
 function formatCompactDate(value) {
   const date = new Date(value);
   const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
@@ -2166,6 +2476,24 @@ async function deleteFineNoticeFileMetadata(fineNoticeId, fileRole) {
   const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
   url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
   url.searchParams.set('file_role', `eq.${fileRole}`);
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      Prefer: 'return=minimal',
+    },
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_metadata_delete_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file metadata delete failed'));
+  }
+}
+
+async function deleteFineNoticeFileMetadataForPath(fineNoticeId, fileRole, localPath) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
+  url.searchParams.set('file_role', `eq.${fileRole}`);
+  url.searchParams.set('local_path', `eq.${localPath}`);
   const response = await fetch(url, {
     method: 'DELETE',
     headers: {
@@ -2612,6 +2940,8 @@ function toImsInsuranceClaimImportItem(claim) {
     carName: stringifyNullable(claim?.car_model),
     customerName: stringifyNullable(claim?.customer_name),
     customerPhone: digitsOnly(claim?.customer_contact),
+    residentRegistrationNo: stringifyNullable(claim?.customer_id_number || claim?.registration_number),
+    driverLicenseNo: stringifyNullable(claim?.driver_license_number || claim?.license_number),
     rentalAt: normalizeImsDateTime(claim?.delivered_at),
     returnAt: normalizeImsDateTime(claim?.expect_return_date || claim?.return_date),
     pickupLocation: stringifyNullable(claim?.customer_address),

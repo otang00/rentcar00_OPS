@@ -17,11 +17,9 @@ class FineNoticeDocumentClient {
   Future<List<FineNoticeFileMetadata>> generateDocuments({
     required String fineNoticeId,
   }) async {
-    final json = await _postJson(
-      '/fine-notices/generate-documents',
-      {'fineNoticeId': fineNoticeId},
-      timeout: const Duration(seconds: 180),
-    );
+    final json = await _postJson('/fine-notices/generate-documents', {
+      'fineNoticeId': fineNoticeId,
+    }, timeout: const Duration(seconds: 180));
     final files = json['files'];
     if (files is! List) {
       throw const FineNoticeDocumentException('문서생성 응답에 파일 목록이 없습니다.');
@@ -56,7 +54,9 @@ class FineNoticeDocumentClient {
     }
     final uri = _uri('/fine-notice-files/download', {'fileId': fileId});
     final request = await _httpClient.getUrl(uri);
-    final response = await request.close().timeout(const Duration(seconds: 120));
+    final response = await request.close().timeout(
+      const Duration(seconds: 120),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final body = await utf8.decoder.bind(response).join();
       throw FineNoticeDocumentException(
@@ -81,14 +81,21 @@ class FineNoticeDocumentClient {
   }
 
   Future<void> sharePackageFiles(List<FineNoticeFileMetadata> files) async {
-    final packageFiles = files.where((file) => file.isPackageDocument).toList();
+    final packageFiles = files.where((file) => file.isPackageDocument).toList()
+      ..sort(_comparePackageFiles);
     if (packageFiles.isEmpty) {
       throw const FineNoticeDocumentException('공유할 문서가 아직 없습니다.');
     }
     final downloaded = <XFile>[];
     for (final file in packageFiles) {
       final saved = await downloadFile(file);
-      downloaded.add(XFile(saved.path, mimeType: file.mimeType, name: p.basename(saved.path)));
+      downloaded.add(
+        XFile(
+          saved.path,
+          mimeType: file.mimeType,
+          name: p.basename(saved.path),
+        ),
+      );
     }
     await SharePlus.instance.share(
       ShareParams(files: downloaded, text: '임차인 변경 신청 문서'),
@@ -106,10 +113,13 @@ class FineNoticeDocumentClient {
     final request = await _httpClient.postUrl(_uri(path));
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(body));
-    final response = await request.close().timeout(timeout, onTimeout: () {
-      request.abort();
-      throw const FineNoticeDocumentException('문서 처리 시간이 초과되었습니다.');
-    });
+    final response = await request.close().timeout(
+      timeout,
+      onTimeout: () {
+        request.abort();
+        throw const FineNoticeDocumentException('문서 처리 시간이 초과되었습니다.');
+      },
+    );
     final bodyText = await utf8.decoder.bind(response).join();
     final json = bodyText.isEmpty
         ? <String, dynamic>{}
@@ -145,8 +155,9 @@ class FineNoticeDocumentClient {
   }
 
   Uri _uri(String path, [Map<String, String>? query]) {
-    return Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path')
-        .replace(queryParameters: query);
+    return Uri.parse(
+      '${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path',
+    ).replace(queryParameters: query);
   }
 
   static String? _extractMessage(String body) {
@@ -160,9 +171,10 @@ class FineNoticeDocumentClient {
 
   static String _safeFileName(FineNoticeFileMetadata file) {
     final ext = _extensionFor(file);
-    final base = '${file.displayName}_${file.id ?? file.sha256 ?? file.fileRole}'
-        .replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_')
-        .replaceAll(RegExp(r'\s+'), '_');
+    final base =
+        '${file.displayName}_${file.id ?? file.sha256 ?? file.fileRole}'
+            .replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_')
+            .replaceAll(RegExp(r'\s+'), '_');
     return base.endsWith(ext) ? base : '$base$ext';
   }
 
@@ -173,6 +185,19 @@ class FineNoticeDocumentClient {
     if (mime.contains('jpeg') || mime.contains('jpg')) return '.jpg';
     if (mime.contains('png')) return '.png';
     return '.pdf';
+  }
+
+  static int _comparePackageFiles(
+    FineNoticeFileMetadata a,
+    FineNoticeFileMetadata b,
+  ) {
+    const order = {
+      'renter_change_application': 1,
+      'notice_original': 2,
+      'contract_with_stamps': 3,
+      'vehicle_application_list': 4,
+    };
+    return (order[a.fileRole] ?? 99).compareTo(order[b.fileRole] ?? 99);
   }
 }
 

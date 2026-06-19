@@ -98,6 +98,24 @@ void main() {
     });
   });
 
+  test('FineNoticeFileMetadata only shares approved share-folder files', () {
+    final shareContract = FineNoticeFileMetadata.fromParserJson({
+      'fileRole': 'contract_with_stamps',
+      'metadataJson': {'folderKind': 'share', 'sharePackage': true},
+    });
+    final originalContract = FineNoticeFileMetadata.fromParserJson({
+      'fileRole': 'contract_original',
+      'metadataJson': {'folderKind': 'original', 'sharePackage': false},
+    });
+    final oldNoticeWithoutFolder = FineNoticeFileMetadata.fromParserJson({
+      'fileRole': 'notice_original',
+    });
+
+    expect(shareContract.isPackageDocument, isTrue);
+    expect(originalContract.isPackageDocument, isFalse);
+    expect(oldNoticeWithoutFolder.isPackageDocument, isFalse);
+  });
+
   test('FineNoticeContractCandidate maps normal and insurance sources', () {
     final normal = FineNoticeContractCandidate.fromNormalContract({
       'sourceType': 'ims_normal_contract',
@@ -121,6 +139,24 @@ void main() {
     expect(insurance.sourceType, 'ims_insurance_claim');
     expect(insurance.sourceId, 'claim-1');
   });
+
+  test(
+    'FineNoticeContractCandidate keeps resident and driver identity fields',
+    () {
+      final normal = FineNoticeContractCandidate.fromNormalContract({
+        'sourceType': 'ims_normal_contract',
+        'contractId': 'contract-1',
+        'customerName': '일반고객',
+        'residentRegistrationNo': '900101-1234567',
+        'driverLicenseNo': '11-12-123456-78',
+      });
+
+      final snapshot = normal.toRenterSnapshotJson();
+
+      expect(snapshot['residentRegistrationNo'], '900101-1234567');
+      expect(snapshot['driverLicenseNo'], '11-12-123456-78');
+    },
+  );
 
   test('FineNoticeContractCandidate dispatches unified search payload', () {
     final normal = FineNoticeContractCandidate.fromContractSearchJson({

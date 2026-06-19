@@ -6,40 +6,44 @@ class FineNoticeRepository {
 
   final SupabaseClient _client;
 
-	  Future<List<FineNoticeCase>> fetchCases() async {
-	    final rows = await _client
-	        .from('rc00_ops_fine_notices')
-	        .select()
-	        .order('created_at', ascending: false);
+  Future<List<FineNoticeCase>> fetchCases() async {
+    final rows = await _client
+        .from('rc00_ops_fine_notices')
+        .select()
+        .order('created_at', ascending: false);
 
-	    final noticeRows = rows.map((row) => Map<String, dynamic>.from(row)).toList();
-	    if (noticeRows.isEmpty) return const [];
-	    final ids = noticeRows
-	        .map((row) => row['id']?.toString())
-	        .whereType<String>()
-	        .toList();
-	    final fileRows = await _client
-	        .from('rc00_ops_fine_notice_files')
-	        .select()
-	        .inFilter('fine_notice_id', ids);
-	    final filesByNoticeId = <String, List<FineNoticeFileMetadata>>{};
-	    for (final row in fileRows) {
-	      final file = FineNoticeFileMetadata.fromRow(Map<String, dynamic>.from(row));
-	      final fineNoticeId = file.fineNoticeId;
-	      if (fineNoticeId == null || fineNoticeId.isEmpty) continue;
-	      filesByNoticeId.putIfAbsent(fineNoticeId, () => []).add(file);
-	    }
+    final noticeRows = rows
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+    if (noticeRows.isEmpty) return const [];
+    final ids = noticeRows
+        .map((row) => row['id']?.toString())
+        .whereType<String>()
+        .toList();
+    final fileRows = await _client
+        .from('rc00_ops_fine_notice_files')
+        .select()
+        .inFilter('fine_notice_id', ids);
+    final filesByNoticeId = <String, List<FineNoticeFileMetadata>>{};
+    for (final row in fileRows) {
+      final file = FineNoticeFileMetadata.fromRow(
+        Map<String, dynamic>.from(row),
+      );
+      final fineNoticeId = file.fineNoticeId;
+      if (fineNoticeId == null || fineNoticeId.isEmpty) continue;
+      filesByNoticeId.putIfAbsent(fineNoticeId, () => []).add(file);
+    }
 
-	    return [
-	      for (final row in noticeRows)
-	        FineNoticeCase.fromRow(
-	          row,
-	          files: filesByNoticeId[row['id']?.toString()] ?? const [],
-	        ),
-	    ];
-	  }
+    return [
+      for (final row in noticeRows)
+        FineNoticeCase.fromRow(
+          row,
+          files: filesByNoticeId[row['id']?.toString()] ?? const [],
+        ),
+    ];
+  }
 
-	  Future<FineNoticeCase> createCase(FineNoticeCase draft) async {
+  Future<FineNoticeCase> createCase(FineNoticeCase draft) async {
     final row = await _client
         .from('rc00_ops_fine_notices')
         .insert(draft.toInsertRow())
@@ -54,18 +58,18 @@ class FineNoticeRepository {
     if (files.isNotEmpty) {
       await _client.from('rc00_ops_fine_notice_files').insert(files);
     }
-	    return item;
-	  }
+    return item;
+  }
 
-	  Future<void> updateCase(FineNoticeCase item) async {
-	    await _client
-	        .from('rc00_ops_fine_notices')
-	        .update({
-	          ...item.toInsertRow(),
-	          'updated_at': DateTime.now().toUtc().toIso8601String(),
-	        })
-	        .eq('id', item.id);
-	  }
+  Future<void> updateCase(FineNoticeCase item) async {
+    await _client
+        .from('rc00_ops_fine_notices')
+        .update({
+          ...item.toInsertRow(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', item.id);
+  }
 
   Future<bool> isManagedVehicleNumber(String carNumber) async {
     final normalized = _normalizeCarNumber(carNumber);
@@ -94,6 +98,7 @@ class FineNoticeRepository {
     required FineNoticeCase fineNotice,
     required FineNoticeContractCandidate candidate,
   }) async {
+    final renterSnapshot = candidate.toRenterSnapshotJson();
     await _client
         .from('rc00_ops_fine_notices')
         .update({
@@ -105,7 +110,7 @@ class FineNoticeRepository {
           'ims_claim_id': candidate.sourceType == 'ims_insurance_claim'
               ? candidate.sourceId
               : null,
-          'renter_snapshot_json': candidate.toRenterSnapshotJson(),
+          'renter_snapshot_json': renterSnapshot,
           'contract_confirmed_at': DateTime.now().toUtc().toIso8601String(),
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         })
@@ -121,7 +126,13 @@ class FineNoticeRepository {
       'message_text': '${candidate.sourceLabel} ${candidate.customerName}',
       'meta_json': {
         'fineNoticeId': fineNotice.id,
-        'candidate': candidate.toRenterSnapshotJson(),
+        'candidate': {
+          'sourceType': candidate.sourceType,
+          'sourceId': candidate.sourceId,
+          'sourceLabel': candidate.sourceLabel,
+          'customerName': candidate.customerName,
+          'carNumber': candidate.carNumber,
+        },
       },
     });
   }
