@@ -1964,7 +1964,7 @@ function drawRenterChangeApplicationPage(page, { font, notice, renter, generated
   const renterPhone = stringifyNullable(renter.phone) || '확인 필요';
 
   drawOfficialLetterHeader(page, { font });
-  drawOfficialMetaRows(page, font, 118, 652, [
+  drawOfficialMetaRows(page, font, 118, 704, [
     ['문 서 번 호', documentKey],
     ['시 행 일 자', formatKstDate(generatedAt)],
     ['발신 - 담당', '빵빵카(주) - 오연군'],
@@ -1972,14 +1972,14 @@ function drawRenterChangeApplicationPage(page, { font, notice, renter, generated
     ['제       목', `도로교통법(${violationContent})위반 과태료 명의변경통보.`],
   ]);
 
-  drawOfficialParagraphs(page, font, 92, 510, [
+  drawOfficialParagraphs(page, font, 92, 586, [
     '1. 귀 관청의 무궁한 발전을 진심으로 기원합니다.',
     `2. 귀 관청에서 발행한 위반 사실 통지서 (통지번호 : ${stringifyNullable(notice.document_number) || '확인 필요'}) 도로 교통법(${violationContent}) 적발 (${carNumber}) 차량의 과태료 부과 건에 대하여 당사는 자동차대여 사업체로서 당시 내용대로 위반 임차인을 다음과 같이 통보 하오니 조치하여 회신 주시기 바랍니다.`,
     '3. 운수사업법 제56조6, 시행규칙 제49조 준용 교통부 장관이 인가한 자동차 대여약관 제19조 2항(임차인은 교통법규 및 주,정차 위반 범칙금은 렌트카 반납 후에도 임차인이 부담한다.)및 자동차 운수 사업법 제31조 등에 관한 처분 요령 중 개정령 제7조 5항 신설내용(자동차 대여 사업자가 대여한 자동차로서 자동차만을 임대한 것이 명백한 경우에는 고용주에게 과태료에 처하지 아니한다.)을 참조하여 주시기 바랍니다.',
   ]);
 
-  drawCenteredText(page, font, '------   다              음   ------', 286, 276, 10);
-  drawOfficialList(page, font, 118, 240, [
+  drawCenteredText(page, font, '------   다              음   ------', 286, 306, 9.5);
+  drawOfficialList(page, font, 118, 270, [
     ['1 위 반 차 량', carNumber],
     ['2 위 반 일 시', occurredAt],
     ['3 위 반 장 소', location],
@@ -1989,11 +1989,11 @@ function drawRenterChangeApplicationPage(page, { font, notice, renter, generated
     ['7 연   락   처', renterPhone],
   ]);
 
-  drawOfficialAttachments(page, font, 150, 96, [
+  drawOfficialAttachments(page, font, 150, 108, [
     '1, 차량임대차 계약서  사본 1부',
     '2, 위반 사실통지  원본1부',
   ]);
-  page.drawImage(companySealImage, { x: 402, y: 54, width: 54, height: 54 });
+  page.drawImage(companySealImage, { x: 402, y: 58, width: 52, height: 52 });
   drawReviewNotice(page, font);
 }
 
@@ -2052,18 +2052,18 @@ function drawOfficialLetterHeader(page, { font }) {
 function drawOfficialMetaRows(page, font, x, y, rows) {
   let cursorY = y;
   for (const [label, value] of rows) {
-    drawText(page, font, `${label}  :`, x, cursorY, 10);
-    drawText(page, font, value, x + 84, cursorY, 9.6);
-    cursorY -= 23;
+    drawText(page, font, `${label}  :`, x, cursorY, 9.4);
+    drawText(page, font, value, x + 84, cursorY, 9.1);
+    cursorY -= 22;
   }
   page.drawLine({ start: { x, y: cursorY + 10 }, end: { x: 466, y: cursorY + 10 }, thickness: 0.9, color: rgb(0, 0, 0) });
 }
 
 function drawOfficialParagraphs(page, font, x, y, paragraphs) {
   let cursorY = y;
-  const gaps = [34, 88, 128];
+  const gaps = [40, 94, 126];
   for (const [index, paragraph] of paragraphs.entries()) {
-    drawWrappedTextLines(page, font, paragraph, x, cursorY, 9.7, 48, 14.5);
+    drawWrappedTextLines(page, font, paragraph, x, cursorY, 9.2, 51, 14);
     cursorY -= gaps[index] || 48;
   }
 }
@@ -2071,18 +2071,18 @@ function drawOfficialParagraphs(page, font, x, y, paragraphs) {
 function drawOfficialList(page, font, x, y, rows) {
   let cursorY = y;
   for (const [label, value] of rows) {
-    drawText(page, font, `${label} :`, x, cursorY, 10);
-    drawText(page, font, value, x + 116, cursorY, 9.8);
-    cursorY -= 22;
+    drawText(page, font, `${label} :`, x, cursorY, 9.4);
+    drawText(page, font, value, x + 116, cursorY, 9.2);
+    cursorY -= 20;
   }
 }
 
 function drawOfficialAttachments(page, font, x, y, attachments) {
-  drawText(page, font, '*별 첨 :', x, y, 10, { bold: true });
+  drawText(page, font, '*별 첨 :', x, y, 9.4, { bold: true });
   let cursorY = y;
   for (const attachment of attachments) {
-    drawText(page, font, attachment, x + 54, cursorY, 9.5);
-    cursorY -= 22;
+    drawText(page, font, attachment, x + 54, cursorY, 9.1);
+    cursorY -= 20;
   }
 }
 
@@ -2259,6 +2259,7 @@ function wrapText(text, maxChars) {
 
 async function embedKoreanFont(pdfDoc) {
   const candidates = [
+    '/System/Library/Fonts/Supplemental/AppleMyungjo.ttf',
     '/System/Library/Fonts/Supplemental/AppleGothic.ttf',
     '/Library/Fonts/AppleGothic.ttf',
   ];
