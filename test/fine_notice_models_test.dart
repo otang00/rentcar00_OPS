@@ -20,6 +20,11 @@ void main() {
         dueDate: '2026.07.22',
         memo: '수동 확인',
         warnings: const ['차량번호 확인 필요'],
+        renterName: '홍길동',
+        renterPhone: '01012345678',
+        renterAddress: '서울시 서초구',
+        renterIdentityNo: '900101-1234567',
+        renterDriverLicenseNo: '11-12-123456-78',
         rawCandidateJson: const {
           'rawCandidate': {'carNumber': '142호5688'},
         },
@@ -33,6 +38,11 @@ void main() {
       });
       expect(row['review_warnings'], ['차량번호 확인 필요']);
       expect(row['total_amount'], 2500);
+      expect(row['renter_name'], '홍길동');
+      expect(row['renter_phone'], '01012345678');
+      expect(row['renter_address'], '서울시 서초구');
+      expect(row['renter_identity_no'], '900101-1234567');
+      expect(row['renter_driver_license_no'], '11-12-123456-78');
     },
   );
 
@@ -59,6 +69,11 @@ void main() {
       'ims_contract_id': 'normal-1',
       'ims_claim_id': null,
       'renter_snapshot_json': {'name': '홍길동'},
+      'renter_name': '홍길동',
+      'renter_phone': '01012345678',
+      'renter_address': '서울시 서초구',
+      'renter_identity_no': '900101-1234567',
+      'renter_driver_license_no': '11-12-123456-78',
     });
 
     expect(item.carNumber, '101호4703');
@@ -66,6 +81,11 @@ void main() {
     expect(item.imsContractId, 'normal-1');
     expect(item.warnings, ['확인']);
     expect(item.renterSnapshotJson, {'name': '홍길동'});
+    expect(item.renterName, '홍길동');
+    expect(item.renterPhone, '01012345678');
+    expect(item.renterAddress, '서울시 서초구');
+    expect(item.renterIdentityNo, '900101-1234567');
+    expect(item.renterDriverLicenseNo, '11-12-123456-78');
   });
 
   test('FineNoticeFileMetadata maps parser file payload', () {

@@ -129,6 +129,7 @@ class FineNoticeDocumentClient {
         (json['message'] as String?)?.trim().isNotEmpty == true
             ? json['message'] as String
             : '문서 처리에 실패했습니다. (${response.statusCode})',
+        missingFields: _extractMissingFields(json),
       );
     }
     return json;
@@ -169,6 +170,16 @@ class FineNoticeDocumentClient {
     }
   }
 
+  static List<String> _extractMissingFields(Map<String, dynamic> json) {
+    final fields = json['missingFields'];
+    if (fields is! List) return const [];
+    return [
+      for (final field in fields)
+        if (field != null && field.toString().trim().isNotEmpty)
+          field.toString().trim(),
+    ];
+  }
+
   static String _safeFileName(FineNoticeFileMetadata file) {
     final ext = _extensionFor(file);
     final base =
@@ -202,9 +213,13 @@ class FineNoticeDocumentClient {
 }
 
 class FineNoticeDocumentException implements Exception {
-  const FineNoticeDocumentException(this.message);
+  const FineNoticeDocumentException(
+    this.message, {
+    this.missingFields = const [],
+  });
 
   final String message;
+  final List<String> missingFields;
 
   @override
   String toString() => message;

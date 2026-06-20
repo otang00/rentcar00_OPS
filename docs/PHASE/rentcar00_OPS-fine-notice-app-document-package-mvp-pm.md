@@ -153,9 +153,9 @@
 | 계약 확정됨, 계약서 원본 PDF 없음 | 문서 패키지 생성 불가. 대신 앱에서 먼저 계약서 저장을 유도하거나 자동으로 `계약서 저장 후 문서 생성`을 시도 | `계약서 저장 후 문서 생성` | first save `contract_original`; if save fails, stop | 계약서는 패키지 필수 파일. 없는데 신청서만 만들면 제출 착오 위험 |
 | 계약서 저장 실패 | 문서 생성 중단 | `계약서 저장 실패` | no application/stamped contract package | 잘못된 계약서/없는 계약서로 패키지를 만들지 않음 |
 | 고지서 원본 없음 | 문서 패키지 생성 불가 | `고지서 원본 필요` | generation reject or review-needed | 패키지 기본 구성이 `신청서+고지서+계약서`이므로 고지서 없이 제출 준비 불가 |
-| 계약자 이름/전화/주소 일부 없음 | 초안 생성은 가능하되 `검토 필요`로 표시. 제출 준비 완료로 표시하지 않음 | `검토 필요` badge and missing fields | generate draft with warning metadata | 실제 계약서/PDF 확인으로 보강할 수 있으므로 작업 초안은 만들 수 있음 |
+| 계약자 이름/전화/주소 일부 없음 | 문서 생성 불가. 수동수정 또는 계약 재확정으로 보강 후 다시 생성 | `확인 필요` / `고지서수정` | hard reject before file generation | 개인정보/연락처 누락 상태로 임차인 변경 문서를 보내면 접수 실패 위험이 큼 |
 | 계약자 이름 자체 없음 | 문서 생성 보류 | `계약자 정보 필요` | generation reject unless manually overridden later by a separate policy | 이름 없는 신청서는 제출 가치가 낮고 오제출 위험이 큼 |
-| 신분번호/면허번호 없음 | 초안 생성 가능, `검토 필요` | `신분정보 확인 필요` | generate warning | 기관마다 필수 여부가 달라 MVP에서는 초안 허용 |
+| 주민등록번호 또는 운전면허번호 없음 | 문서 생성 불가. 둘 다 수동수정/계약 재확정으로 채운 뒤 생성 | `확인 필요` / `고지서수정` | hard reject before file generation | 개인정보 전달이 없으면 임차인 변경 접수 실패 위험이 큼 |
 | 같은 묶음 안 계약자가 다름 | 한 패키지로 만들지 않음. 계약자별로 묶음 분리 또는 중단 | `묶음 분리 필요` | generation reject for one-contract package | 패키지 원칙이 계약서 1개이므로 계약자가 다르면 1개 패키지 불가 |
 | 같은 묶음 안 계약 source/id가 다름 | 한 패키지로 만들지 않음 | `계약서가 서로 다름` | generation reject | 계약서 1개 원칙 위반 |
 | 단일 row | 위반목록 생성 안 함 | `단일 제출` | no `vehicle_application_list` | 불필요한 파일을 줄임 |
@@ -171,6 +171,9 @@
   - 신청서 1개
   - 고지서 1개 또는 고지서 묶음 1개
   - 계약서 1개, 첫 페이지만
+- 신청서 본문이나 목록에 `확인 필요`로 출력될 값이 하나라도 있으면 정상 패키지를 만들지 않는다.
+  - 서버는 파일 복사, PDF 생성, metadata upsert, `document_ready` 상태 변경 전에 hard reject한다.
+  - 앱은 누락 목록을 보여주고 `고지서수정`으로 수동 보완을 유도한다.
 - 위반목록은 필수 구성에서 제외한다.
   - 단일: 만들지 않음
   - 묶음: 후보로 생성

@@ -195,10 +195,12 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 404, { ok: false, error: 'not_found' });
   } catch (error) {
     const status = resolveErrorStatus(error);
+    const details = error?.details && typeof error.details === 'object' ? error.details : {};
     return sendJson(res, status, {
       ok: false,
       error: resolveErrorCode(error),
-      message: error?.message || 'unknown error'
+      message: error?.message || 'unknown error',
+      ...details,
     });
   }
 });
@@ -639,10 +641,11 @@ function getHeader(req, name) {
 }
 
 class ApiError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details = {}) {
     super(message || code);
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -1301,7 +1304,6 @@ async function generateFineNoticeDocumentPackage(payload) {
   }
 
   const siblings = await findFineNoticeDocumentListRows(notice);
-  const bundle = await resolveFineNoticeBundleContext(notice, siblings);
   const contractOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'contract_original', {
     preferredFolderKind: 'original',
     excludedFolderKind: 'share',
@@ -1318,6 +1320,8 @@ async function generateFineNoticeDocumentPackage(payload) {
   }
 
   const renter = await resolveFineNoticeRenterSnapshot(notice);
+  assertFineNoticeDocumentPackageReady({ notice, rows: siblings, renter });
+  const bundle = await resolveFineNoticeBundleContext(notice, siblings);
   const generatedAt = new Date().toISOString();
   const packageFiles = [];
 
@@ -1491,7 +1495,7 @@ async function findFineNoticeDocumentListRows(notice) {
   const selected = raw?.selectedItem && typeof raw.selectedItem === 'object' ? raw.selectedItem : {};
   const rowCount = Number(selected?.rowCount || raw?.rawCandidate?.items?.length || 0);
   const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
-  url.searchParams.set('select', 'id,created_at,document_number,car_number,occurred_at_text,location,total_amount_text,total_amount,notice_profile,notice_type,document_list_group_key,source_batch_id');
+  url.searchParams.set('select', 'id,created_at,issuer,document_number,car_number,occurred_at_text,location,total_amount_text,total_amount,notice_profile,notice_type,document_list_group_key,source_batch_id');
   url.searchParams.set('car_number', `eq.${notice.car_number}`);
   url.searchParams.set('notice_profile', `eq.${notice.notice_profile}`);
   if (notice.document_number) url.searchParams.set('document_number', `eq.${notice.document_number}`);
@@ -1764,8 +1768,48 @@ function buildDocumentGenerationWarnings(renter) {
     ...(!renter.name ? ['renter_name_missing'] : []),
     ...(!renter.phone ? ['renter_phone_missing'] : []),
     ...(!renter.address ? ['renter_address_missing'] : []),
-    ...(!renter.identityNo && !renter.driverLicenseNo && !renter.birthDate ? ['renter_identity_missing'] : []),
+    ...(!renter.identityNo ? ['renter_identity_no_missing'] : []),
+    ...(!renter.driverLicenseNo ? ['renter_driver_license_no_missing'] : []),
   ];
+}
+
+function assertFineNoticeDocumentPackageReady({ notice, rows, renter }) {
+  const missingFields = buildFineNoticeDocumentRequiredFields({ notice, rows, renter });
+  if (missingFields.length === 0) return;
+  throw new ApiError(
+    409,
+    'document_required_fields_missing',
+    `문서 생성 불가: 확인 필요 항목을 먼저 수정하세요. (${missingFields.join(', ')})`,
+    { missingFields },
+  );
+}
+
+function buildFineNoticeDocumentRequiredFields({ notice, rows, renter }) {
+  const missing = [];
+  const safeRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
+
+  addRequiredField(missing, '발행기관', notice.issuer);
+  addRequiredField(missing, '임차인명', renter.name);
+  addRequiredField(missing, '임차인 전화번호', renter.phone);
+  addRequiredField(missing, '임차인 주소', renter.address);
+  addRequiredField(missing, '주민등록번호', renter.identityNo);
+  addRequiredField(missing, '운전면허번호', renter.driverLicenseNo);
+
+  for (const [index, row] of safeRows.entries()) {
+    const prefix = safeRows.length > 1 ? `${index + 1}번 ` : '';
+    addRequiredField(missing, `${prefix}고지서번호`, row.document_number);
+    addRequiredField(missing, `${prefix}차량번호`, row.car_number);
+    addRequiredField(missing, `${prefix}위반/통행일시`, row.occurred_at_text || row.occurred_at);
+    addRequiredField(missing, `${prefix}위반/통행장소`, row.location);
+    addRequiredField(missing, `${prefix}고지서 유형`, row.notice_type || row.notice_profile);
+  }
+
+  return [...new Set(missing)];
+}
+
+function addRequiredField(missing, label, value) {
+  const normalized = stringifyNullable(value).trim();
+  if (!normalized) missing.push(label);
 }
 
 async function copyNoticeOriginalIntoBundle({ fineNoticeId, noticeOriginal, bundle, generatedAt, folderKind }) {

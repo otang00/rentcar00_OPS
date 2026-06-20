@@ -274,6 +274,11 @@ class FineNoticeCase {
     this.imsClaimId,
     this.contractPdfSavedAt,
     this.documentPackageGeneratedAt,
+    this.renterName = '',
+    this.renterPhone = '',
+    this.renterAddress = '',
+    this.renterIdentityNo = '',
+    this.renterDriverLicenseNo = '',
     this.renterSnapshotJson = const {},
     this.files = const [],
   });
@@ -298,6 +303,11 @@ class FineNoticeCase {
   final String? imsClaimId;
   final DateTime? contractPdfSavedAt;
   final DateTime? documentPackageGeneratedAt;
+  final String renterName;
+  final String renterPhone;
+  final String renterAddress;
+  final String renterIdentityNo;
+  final String renterDriverLicenseNo;
   final Map<String, dynamic> renterSnapshotJson;
   final List<FineNoticeFileMetadata> files;
 
@@ -332,6 +342,29 @@ class FineNoticeCase {
       documentPackageGeneratedAt: _dateTime(
         row['document_package_generated_at'],
       ),
+      renterName:
+          _string(row['renter_name']) ??
+          _string(_map(row['renter_snapshot_json'])['customerName']) ??
+          '',
+      renterPhone:
+          _string(row['renter_phone']) ??
+          _string(_map(row['renter_snapshot_json'])['customerPhone']) ??
+          '',
+      renterAddress:
+          _string(row['renter_address']) ??
+          _string(_map(row['renter_snapshot_json'])['customerAddress']) ??
+          '',
+      renterIdentityNo:
+          _string(row['renter_identity_no']) ??
+          _string(
+            _map(row['renter_snapshot_json'])['residentRegistrationNo'],
+          ) ??
+          _string(_map(row['renter_snapshot_json'])['identityNo']) ??
+          '',
+      renterDriverLicenseNo:
+          _string(row['renter_driver_license_no']) ??
+          _string(_map(row['renter_snapshot_json'])['driverLicenseNo']) ??
+          '',
       renterSnapshotJson: _map(row['renter_snapshot_json']),
       files: files,
     );
@@ -362,6 +395,11 @@ class FineNoticeCase {
       'document_package_generated_at': documentPackageGeneratedAt
           ?.toUtc()
           .toIso8601String(),
+      'renter_name': _nullIfEmpty(renterName),
+      'renter_phone': _nullIfEmpty(renterPhone),
+      'renter_address': _nullIfEmpty(renterAddress),
+      'renter_identity_no': _nullIfEmpty(renterIdentityNo),
+      'renter_driver_license_no': _nullIfEmpty(renterDriverLicenseNo),
       'renter_snapshot_json': renterSnapshotJson,
     };
   }
@@ -385,6 +423,11 @@ class FineNoticeCase {
     String? imsClaimId,
     DateTime? contractPdfSavedAt,
     DateTime? documentPackageGeneratedAt,
+    String? renterName,
+    String? renterPhone,
+    String? renterAddress,
+    String? renterIdentityNo,
+    String? renterDriverLicenseNo,
     Map<String, dynamic>? renterSnapshotJson,
     List<FineNoticeFileMetadata>? files,
     bool clearConfirmedContract = false,
@@ -419,6 +462,19 @@ class FineNoticeCase {
       documentPackageGeneratedAt: clearDocumentState
           ? null
           : documentPackageGeneratedAt ?? this.documentPackageGeneratedAt,
+      renterName: clearConfirmedContract ? '' : renterName ?? this.renterName,
+      renterPhone: clearConfirmedContract
+          ? ''
+          : renterPhone ?? this.renterPhone,
+      renterAddress: clearConfirmedContract
+          ? ''
+          : renterAddress ?? this.renterAddress,
+      renterIdentityNo: clearConfirmedContract
+          ? ''
+          : renterIdentityNo ?? this.renterIdentityNo,
+      renterDriverLicenseNo: clearConfirmedContract
+          ? ''
+          : renterDriverLicenseNo ?? this.renterDriverLicenseNo,
       renterSnapshotJson: clearConfirmedContract
           ? const {}
           : renterSnapshotJson ?? this.renterSnapshotJson,

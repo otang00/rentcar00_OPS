@@ -56,6 +56,8 @@
   - 과태료 intake 정책/롤백 기준.
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_gangnam_multi_parser_micro_pm.md`
   - 강남순환도로 4건 다중 row parser 5/5 검증.
+- `docs/COMPLETED/COMPLETE_20260620_rentcar00_OPS_fine_notice_required_fields_gate_pm.md`
+  - `확인 필요` 항목이 남은 문서 패키지 생성을 서버에서 차단하고 앱에서 수동수정으로 유도.
 
 ## 다음 세션 handoff
 - `rentcar00_OPS-fine-notice-mvp-handoff-20260619.md`

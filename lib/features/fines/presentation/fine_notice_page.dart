@@ -557,7 +557,19 @@ class _FineNoticeCardState extends ConsumerState<_FineNoticeCard> {
       messenger.showSnackBar(SnackBar(content: Text(error.message)));
     } on FineNoticeDocumentException catch (error) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      final missingFields = error.missingFields;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            missingFields.isEmpty
+                ? error.message
+                : '${error.message}\n누락: ${missingFields.join(', ')}',
+          ),
+        ),
+      );
+      if (missingFields.isNotEmpty && context.mounted) {
+        await _showFineNoticeEditDialog(context, ref, item);
+      }
     } catch (error) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('문서생성 실패\n$error')));
@@ -725,6 +737,11 @@ class _FineNoticeEditDialogState extends State<_FineNoticeEditDialog> {
   late final TextEditingController _locationController;
   late final TextEditingController _amountController;
   late final TextEditingController _memoController;
+  late final TextEditingController _renterNameController;
+  late final TextEditingController _renterPhoneController;
+  late final TextEditingController _renterAddressController;
+  late final TextEditingController _renterIdentityNoController;
+  late final TextEditingController _renterDriverLicenseNoController;
 
   @override
   void initState() {
@@ -741,6 +758,15 @@ class _FineNoticeEditDialogState extends State<_FineNoticeEditDialog> {
     _locationController = TextEditingController(text: item.location);
     _amountController = TextEditingController(text: item.totalAmount);
     _memoController = TextEditingController(text: item.memo);
+    _renterNameController = TextEditingController(text: item.renterName);
+    _renterPhoneController = TextEditingController(text: item.renterPhone);
+    _renterAddressController = TextEditingController(text: item.renterAddress);
+    _renterIdentityNoController = TextEditingController(
+      text: item.renterIdentityNo,
+    );
+    _renterDriverLicenseNoController = TextEditingController(
+      text: item.renterDriverLicenseNo,
+    );
   }
 
   @override
@@ -754,6 +780,11 @@ class _FineNoticeEditDialogState extends State<_FineNoticeEditDialog> {
     _locationController.dispose();
     _amountController.dispose();
     _memoController.dispose();
+    _renterNameController.dispose();
+    _renterPhoneController.dispose();
+    _renterAddressController.dispose();
+    _renterIdentityNoController.dispose();
+    _renterDriverLicenseNoController.dispose();
     super.dispose();
   }
 
@@ -795,6 +826,35 @@ class _FineNoticeEditDialogState extends State<_FineNoticeEditDialog> {
                   label: '메모',
                   maxLines: 3,
                 ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '임차인 정보',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _DialogTextField(
+                  controller: _renterNameController,
+                  label: '임차인명',
+                ),
+                _DialogTextField(
+                  controller: _renterPhoneController,
+                  label: '임차인 전화번호',
+                ),
+                _DialogTextField(
+                  controller: _renterAddressController,
+                  label: '임차인 주소',
+                ),
+                _DialogTextField(
+                  controller: _renterIdentityNoController,
+                  label: '주민등록번호',
+                ),
+                _DialogTextField(
+                  controller: _renterDriverLicenseNoController,
+                  label: '운전면허번호',
+                ),
               ],
             ),
           ),
@@ -823,6 +883,12 @@ class _FineNoticeEditDialogState extends State<_FineNoticeEditDialog> {
                 location: _locationController.text.trim(),
                 totalAmount: _amountController.text.trim(),
                 memo: _memoController.text.trim(),
+                renterName: _renterNameController.text.trim(),
+                renterPhone: _renterPhoneController.text.trim(),
+                renterAddress: _renterAddressController.text.trim(),
+                renterIdentityNo: _renterIdentityNoController.text.trim(),
+                renterDriverLicenseNo: _renterDriverLicenseNoController.text
+                    .trim(),
               ),
             );
           },
