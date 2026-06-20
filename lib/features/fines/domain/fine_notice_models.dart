@@ -274,6 +274,8 @@ class FineNoticeCase {
     this.imsClaimId,
     this.contractPdfSavedAt,
     this.documentPackageGeneratedAt,
+    this.documentListGroupKey = '',
+    this.sourceBatchId = '',
     this.renterName = '',
     this.renterPhone = '',
     this.renterAddress = '',
@@ -303,6 +305,8 @@ class FineNoticeCase {
   final String? imsClaimId;
   final DateTime? contractPdfSavedAt;
   final DateTime? documentPackageGeneratedAt;
+  final String documentListGroupKey;
+  final String sourceBatchId;
   final String renterName;
   final String renterPhone;
   final String renterAddress;
@@ -342,6 +346,8 @@ class FineNoticeCase {
       documentPackageGeneratedAt: _dateTime(
         row['document_package_generated_at'],
       ),
+      documentListGroupKey: _string(row['document_list_group_key']) ?? '',
+      sourceBatchId: _string(row['source_batch_id']) ?? '',
       renterName:
           _string(row['renter_name']) ??
           _string(_map(row['renter_snapshot_json'])['customerName']) ??
@@ -395,6 +401,8 @@ class FineNoticeCase {
       'document_package_generated_at': documentPackageGeneratedAt
           ?.toUtc()
           .toIso8601String(),
+      'document_list_group_key': _nullIfEmpty(documentListGroupKey),
+      'source_batch_id': _nullIfEmpty(sourceBatchId),
       'renter_name': _nullIfEmpty(renterName),
       'renter_phone': _nullIfEmpty(renterPhone),
       'renter_address': _nullIfEmpty(renterAddress),
@@ -423,6 +431,8 @@ class FineNoticeCase {
     String? imsClaimId,
     DateTime? contractPdfSavedAt,
     DateTime? documentPackageGeneratedAt,
+    String? documentListGroupKey,
+    String? sourceBatchId,
     String? renterName,
     String? renterPhone,
     String? renterAddress,
@@ -462,6 +472,8 @@ class FineNoticeCase {
       documentPackageGeneratedAt: clearDocumentState
           ? null
           : documentPackageGeneratedAt ?? this.documentPackageGeneratedAt,
+      documentListGroupKey: documentListGroupKey ?? this.documentListGroupKey,
+      sourceBatchId: sourceBatchId ?? this.sourceBatchId,
       renterName: clearConfirmedContract ? '' : renterName ?? this.renterName,
       renterPhone: clearConfirmedContract
           ? ''

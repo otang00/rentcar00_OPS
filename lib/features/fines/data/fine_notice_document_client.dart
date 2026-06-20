@@ -47,6 +47,19 @@ class FineNoticeDocumentClient {
     ];
   }
 
+  Future<FineNoticeBundleMergeResult> mergeBundle({
+    required List<String> fineNoticeIds,
+    bool dryRun = true,
+    bool forceRebundle = false,
+  }) async {
+    final json = await _postJson('/fine-notices/merge-bundle', {
+      'fineNoticeIds': fineNoticeIds,
+      'dryRun': dryRun,
+      'forceRebundle': forceRebundle,
+    }, timeout: const Duration(seconds: 60));
+    return FineNoticeBundleMergeResult.fromJson(json);
+  }
+
   Future<File> downloadFile(FineNoticeFileMetadata file) async {
     final fileId = file.id;
     if (fileId == null || fileId.trim().isEmpty) {
@@ -223,4 +236,97 @@ class FineNoticeDocumentException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class FineNoticeBundleMergeResult {
+  const FineNoticeBundleMergeResult({
+    required this.dryRun,
+    required this.eligible,
+    required this.bundleId,
+    required this.noticeDate,
+    required this.warnings,
+    required this.blockedReasons,
+    required this.rows,
+  });
+
+  final bool dryRun;
+  final bool eligible;
+  final String bundleId;
+  final String noticeDate;
+  final List<String> warnings;
+  final List<String> blockedReasons;
+  final List<FineNoticeBundleMergeRow> rows;
+
+  factory FineNoticeBundleMergeResult.fromJson(Map<String, dynamic> json) {
+    final bundle = json['bundle'] is Map
+        ? (json['bundle'] as Map).cast<String, dynamic>()
+        : const <String, dynamic>{};
+    final rows = json['rows'];
+    return FineNoticeBundleMergeResult(
+      dryRun: json['dryRun'] == true,
+      eligible: json['eligible'] == true,
+      bundleId: _string(bundle['bundleId']),
+      noticeDate: _string(bundle['noticeDate']),
+      warnings: _stringList(json['warnings']),
+      blockedReasons: _stringList(json['blockedReasons']),
+      rows: [
+        if (rows is List)
+          for (final row in rows)
+            if (row is Map)
+              FineNoticeBundleMergeRow.fromJson(row.cast<String, dynamic>()),
+      ],
+    );
+  }
+}
+
+class FineNoticeBundleMergeRow {
+  const FineNoticeBundleMergeRow({
+    required this.id,
+    required this.issuer,
+    required this.documentNumber,
+    required this.carNumber,
+    required this.occurredAt,
+    required this.location,
+    required this.contractSourceType,
+    required this.contractSourceId,
+    required this.renterName,
+    required this.documentListGroupKey,
+  });
+
+  final String id;
+  final String issuer;
+  final String documentNumber;
+  final String carNumber;
+  final String occurredAt;
+  final String location;
+  final String contractSourceType;
+  final String contractSourceId;
+  final String renterName;
+  final String documentListGroupKey;
+
+  factory FineNoticeBundleMergeRow.fromJson(Map<String, dynamic> json) {
+    return FineNoticeBundleMergeRow(
+      id: _string(json['id']),
+      issuer: _string(json['issuer']),
+      documentNumber: _string(json['documentNumber']),
+      carNumber: _string(json['carNumber']),
+      occurredAt: _string(json['occurredAt']),
+      location: _string(json['location']),
+      contractSourceType: _string(json['contractSourceType']),
+      contractSourceId: _string(json['contractSourceId']),
+      renterName: _string(json['renterName']),
+      documentListGroupKey: _string(json['documentListGroupKey']),
+    );
+  }
+}
+
+String _string(Object? value) => value?.toString().trim() ?? '';
+
+List<String> _stringList(Object? value) {
+  if (value is! List) return const [];
+  return [
+    for (final item in value)
+      if (item != null && item.toString().trim().isNotEmpty)
+        item.toString().trim(),
+  ];
 }

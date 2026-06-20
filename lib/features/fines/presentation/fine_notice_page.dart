@@ -50,33 +50,335 @@ class FineNoticePage extends ConsumerWidget {
   }
 }
 
-class _FineNoticeTable extends StatelessWidget {
+class _FineNoticeTable extends ConsumerStatefulWidget {
   const _FineNoticeTable({required this.items});
 
   final List<FineNoticeCase> items;
 
   @override
+  ConsumerState<_FineNoticeTable> createState() => _FineNoticeTableState();
+}
+
+class _FineNoticeTableState extends ConsumerState<_FineNoticeTable> {
+  final Set<String> _selectedIds = {};
+  bool _selectionMode = false;
+  bool _merging = false;
+
+  @override
   Widget build(BuildContext context) {
-    return ListView.separated(
+    return ListView(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 20),
-      itemCount: items.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 6),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return _FineNoticeCompactRow(
-          item: item,
-          onTap: () => _showFineNoticeDetail(context, item),
+      children: [
+        _BundleSelectionToolbar(
+          selectionMode: _selectionMode,
+          selectedCount: _selectedIds.length,
+          working: _merging,
+          onStart: () => setState(() => _selectionMode = true),
+          onCancel: _clearSelection,
+          onMerge: () => _mergeSelected(context),
+        ),
+        const SizedBox(height: 6),
+        for (final item in widget.items) ...[
+          _FineNoticeCompactRow(
+            item: item,
+            selectionMode: _selectionMode,
+            selected: _selectedIds.contains(item.id),
+            onSelectionChanged: (selected) => _setSelected(item.id, selected),
+            onTap: _selectionMode
+                ? () => _setSelected(item.id, !_selectedIds.contains(item.id))
+                : () => _showFineNoticeDetail(context, item),
+          ),
+          const SizedBox(height: 6),
+        ],
+      ],
+    );
+  }
+
+  void _setSelected(String id, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedIds.add(id);
+      } else {
+        _selectedIds.remove(id);
+      }
+    });
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _mergeSelected(BuildContext context) async {
+    if (_selectedIds.length < 2) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('묶기는 2건 이상 선택해야 합니다.')));
+      return;
+    }
+
+    setState(() => _merging = true);
+    final appEnv = ref.read(appEnvProvider);
+    final client = FineNoticeDocumentClient(baseUrl: appEnv.aiParserBaseUrl);
+    try {
+      var dryRun = await client.mergeBundle(
+        fineNoticeIds: _selectedIds.toList(),
+      );
+      if (!context.mounted) return;
+      final forceRebundle = await _showBundleMergeReviewDialog(
+        context,
+        result: dryRun,
+      );
+      if (forceRebundle == null) return;
+      if (forceRebundle) {
+        dryRun = await client.mergeBundle(
+          fineNoticeIds: _selectedIds.toList(),
+          forceRebundle: true,
         );
-      },
+        if (!context.mounted) return;
+        final confirmed = await _showBundleMergeReviewDialog(
+          context,
+          result: dryRun,
+          forcePreview: true,
+        );
+        if (confirmed != true) return;
+      } else if (!dryRun.eligible) {
+        return;
+      }
+
+      await client.mergeBundle(
+        fineNoticeIds: _selectedIds.toList(),
+        dryRun: false,
+        forceRebundle: forceRebundle,
+      );
+      ref.invalidate(fineNoticeCasesProvider);
+      if (!context.mounted) return;
+      _clearSelection();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${dryRun.rows.length}건을 묶었습니다.')));
+    } on FineNoticeDocumentException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('묶기 실패\n$error')));
+    } finally {
+      if (mounted) setState(() => _merging = false);
+    }
+  }
+}
+
+class _BundleSelectionToolbar extends StatelessWidget {
+  const _BundleSelectionToolbar({
+    required this.selectionMode,
+    required this.selectedCount,
+    required this.working,
+    required this.onStart,
+    required this.onCancel,
+    required this.onMerge,
+  });
+
+  final bool selectionMode;
+  final int selectedCount;
+  final bool working;
+  final VoidCallback onStart;
+  final VoidCallback onCancel;
+  final VoidCallback onMerge;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!selectionMode) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: OutlinedButton.icon(
+          onPressed: working ? null : onStart,
+          icon: const Icon(Icons.link),
+          label: const Text('묶기'),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: Text('선택 $selectedCount건')),
+          TextButton(
+            onPressed: working ? null : onCancel,
+            child: const Text('취소'),
+          ),
+          const SizedBox(width: 6),
+          FilledButton.icon(
+            onPressed: working || selectedCount < 2 ? null : onMerge,
+            icon: working
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.link),
+            label: const Text('선택 묶기'),
+          ),
+        ],
+      ),
     );
   }
 }
 
+Future<bool?> _showBundleMergeReviewDialog(
+  BuildContext context, {
+  required FineNoticeBundleMergeResult result,
+  bool forcePreview = false,
+}) {
+  final canForce =
+      !result.eligible &&
+      result.blockedReasons.any((reason) => reason.contains('이미 서로 다른 묶음'));
+  return showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(result.eligible ? '묶기 확인' : '묶기 불가'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MergeSummaryLine(label: '묶음ID', value: result.bundleId),
+              _MergeSummaryLine(label: '고지서 날짜', value: result.noticeDate),
+              _MergeSummaryLine(label: '선택건수', value: '${result.rows.length}건'),
+              if (result.rows.isNotEmpty) ...[
+                _MergeSummaryLine(
+                  label: '차량번호',
+                  value: result.rows.first.carNumber,
+                ),
+                _MergeSummaryLine(
+                  label: '발송처',
+                  value: result.rows.first.issuer,
+                ),
+                _MergeSummaryLine(
+                  label: '계약',
+                  value: [
+                    result.rows.first.contractSourceType,
+                    result.rows.first.contractSourceId,
+                  ].where((value) => value.trim().isNotEmpty).join(' / '),
+                ),
+                _MergeSummaryLine(
+                  label: '위반일시',
+                  value: _bundleOccurredAtRange(result.rows),
+                ),
+              ],
+              if (result.warnings.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  result.warnings.join('\n'),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+              if (result.blockedReasons.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  result.blockedReasons.join('\n'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 10),
+              for (final row in result.rows)
+                Text(
+                  '${row.carNumber} · ${row.issuer} · ${_shortNoticeDate(row.occurredAt)} · ${row.location}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text('취소'),
+        ),
+        if (canForce && !forcePreview)
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('재묶음 확인'),
+          )
+        else if (result.eligible)
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(forcePreview),
+            child: const Text('묶기'),
+          ),
+      ],
+    ),
+  );
+}
+
+class _MergeSummaryLine extends StatelessWidget {
+  const _MergeSummaryLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 74,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          Expanded(child: Text(value.trim().isEmpty ? '-' : value)),
+        ],
+      ),
+    );
+  }
+}
+
+String _bundleOccurredAtRange(List<FineNoticeBundleMergeRow> rows) {
+  final values =
+      rows
+          .map((row) => row.occurredAt.trim())
+          .where((value) => value.isNotEmpty)
+          .toList()
+        ..sort();
+  if (values.isEmpty) return '-';
+  if (values.length == 1) return values.first;
+  return '${values.first} ~ ${values.last}';
+}
+
 class _FineNoticeCompactRow extends StatelessWidget {
-  const _FineNoticeCompactRow({required this.item, required this.onTap});
+  const _FineNoticeCompactRow({
+    required this.item,
+    required this.onTap,
+    required this.selectionMode,
+    required this.selected,
+    required this.onSelectionChanged,
+  });
 
   final FineNoticeCase item;
   final VoidCallback onTap;
+  final bool selectionMode;
+  final bool selected;
+  final ValueChanged<bool> onSelectionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -99,8 +401,16 @@ class _FineNoticeCompactRow extends StatelessWidget {
             children: [
               Row(
                 children: [
+                  if (selectionMode) ...[
+                    Checkbox(
+                      value: selected,
+                      onChanged: (value) => onSelectionChanged(value == true),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    const SizedBox(width: 2),
+                  ],
                   SizedBox(
-                    width: 88,
+                    width: selectionMode ? 74 : 88,
                     child: Text(
                       item.carNumber.isEmpty ? '확인 필요' : item.carNumber,
                       maxLines: 1,
@@ -112,10 +422,26 @@ class _FineNoticeCompactRow extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      item.issuer.isEmpty ? _noticeTitle(item) : item.issuer,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.issuer.isEmpty
+                                ? _noticeTitle(item)
+                                : item.issuer,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (item.documentListGroupKey.isNotEmpty) ...[
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.link,
+                            size: 14,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   const SizedBox(width: 8),

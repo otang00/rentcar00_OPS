@@ -141,6 +141,16 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, ...result });
     }
 
+    if (req.url === '/fine-notices/merge-bundle') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeFineNoticeBundleMergePayload(body);
+      const result = await mergeFineNoticeBundle(payload);
+      return sendJson(res, 200, { ok: true, ...result });
+    }
+
     if (pathname === '/fine-notice-file-packages') {
       if (req.method !== 'GET') {
         return sendMethodNotAllowed(res, ['GET']);
@@ -769,6 +779,25 @@ function normalizeFineNoticeDocumentPackagePayload(body = {}) {
     throw new ApiError(400, 'missing_fine_notice_id', 'fineNoticeId is required');
   }
   return payload;
+}
+
+function normalizeFineNoticeBundleMergePayload(body = {}) {
+  const rawIds = Array.isArray(body?.fineNoticeIds)
+    ? body.fineNoticeIds
+    : Array.isArray(body?.fine_notice_ids)
+      ? body.fine_notice_ids
+      : [];
+  const fineNoticeIds = [
+    ...new Set(rawIds.map((value) => stringifyNullable(value).trim()).filter(Boolean)),
+  ];
+  if (fineNoticeIds.length < 2) {
+    throw new ApiError(400, 'fine_notice_bundle_minimum_required', '묶기는 고지서 2건 이상을 선택해야 합니다.');
+  }
+  return {
+    fineNoticeIds,
+    dryRun: body?.dryRun !== false && body?.dry_run !== false,
+    forceRebundle: body?.forceRebundle === true || body?.force_rebundle === true,
+  };
 }
 
 function normalizeImsCompleteReturnPayload(body = {}) {
@@ -1409,8 +1438,167 @@ async function generateFineNoticeDocumentPackage(payload) {
 	    generatedAt,
 	    files: packageFiles.map(toFineNoticeGeneratedFileResponse),
 	    warnings: buildDocumentGenerationWarnings(renter),
-	  };
-	}
+		  };
+		}
+
+async function mergeFineNoticeBundle(payload) {
+  const rows = await findFineNoticeRowsByIds(payload.fineNoticeIds);
+  const foundIds = new Set(rows.map((row) => stringifyNullable(row.id)));
+  const missingIds = payload.fineNoticeIds.filter((id) => !foundIds.has(id));
+  if (missingIds.length > 0) {
+    throw new ApiError(404, 'fine_notice_rows_not_found', '선택한 고지서 일부를 찾을 수 없습니다.', { missingIds });
+  }
+
+  rows.sort((left, right) => compareFineNoticeOccurredAt(
+    left.occurred_at_text || left.occurred_at || left.created_at,
+    right.occurred_at_text || right.occurred_at || right.created_at,
+  ));
+
+  const validation = validateFineNoticeBundleMergeRows(rows, {
+    forceRebundle: payload.forceRebundle,
+  });
+  const bundleId = validation.bundleId || buildManualFineNoticeBundleId(rows);
+  const noticeDate = resolveFineNoticeBundleDate(rows[0]);
+  const bundle = {
+    bundleId,
+    noticeDate,
+    baseRelativeDir: path.join('notices', noticeDate, bundleId),
+  };
+
+  if (validation.blockedReasons.length > 0) {
+    return {
+      dryRun: payload.dryRun,
+      eligible: false,
+      bundle,
+      warnings: validation.warnings,
+      blockedReasons: validation.blockedReasons,
+      rows: rows.map(toFineNoticeBundleMergeRowResponse),
+    };
+  }
+
+  if (!payload.dryRun) {
+    await updateFineNoticeRows(payload.fineNoticeIds, {
+      document_list_group_key: bundleId,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  return {
+    dryRun: payload.dryRun,
+    eligible: true,
+    bundle,
+    warnings: validation.warnings,
+    blockedReasons: [],
+    rows: rows.map(toFineNoticeBundleMergeRowResponse),
+  };
+}
+
+async function findFineNoticeRowsByIds(fineNoticeIds) {
+  const ids = [...new Set((fineNoticeIds || []).map(stringifyNullable).filter(Boolean))];
+  if (ids.length === 0) return [];
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `in.(${ids.join(',')})`);
+  url.searchParams.set(
+    'select',
+    [
+      'id',
+      'created_at',
+      'status',
+      'notice_profile',
+      'notice_type',
+      'issuer',
+      'document_number',
+      'car_number',
+      'occurred_at_text',
+      'occurred_at',
+      'location',
+      'confirmed_contract_source_type',
+      'ims_contract_id',
+      'ims_claim_id',
+      'renter_snapshot_json',
+      'renter_name',
+      'document_list_group_key',
+      'source_batch_id',
+    ].join(','),
+  );
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_bundle_rows_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice bundle rows lookup failed'));
+  }
+  return Array.isArray(json) ? json : [];
+}
+
+function validateFineNoticeBundleMergeRows(rows, { forceRebundle = false } = {}) {
+  const blockedReasons = [];
+  const warnings = [];
+  addMergeDistinctBlock(blockedReasons, rows, 'car_number', '차량번호가 다른 고지서는 묶을 수 없습니다.');
+  addMergeDistinctBlock(blockedReasons, rows, 'issuer', '발송처가 다른 고지서는 묶을 수 없습니다.');
+  addMergeDistinctBlock(blockedReasons, rows, 'confirmed_contract_source_type', '계약 유형이 다른 고지서는 묶을 수 없습니다.');
+
+  const contractIds = uniqueNonEmptyValues(rows.map(resolveFineNoticeConfirmedContractId));
+  if (contractIds.length !== 1) {
+    blockedReasons.push('계약서가 서로 다르거나 확정되지 않은 고지서는 묶을 수 없습니다.');
+  }
+
+  const blockedStatuses = rows
+    .filter((row) => stringifyNullable(row.status) === 'not_our_vehicle')
+    .map((row) => stringifyNullable(row.document_number || row.id));
+  if (blockedStatuses.length > 0) {
+    blockedReasons.push(`외부/지사 차량 고지서는 묶을 수 없습니다. (${blockedStatuses.join(', ')})`);
+  }
+
+  const existingGroupKeys = uniqueNonEmptyValues(rows.map((row) => row.document_list_group_key));
+  if (existingGroupKeys.length > 1 && !forceRebundle) {
+    blockedReasons.push('이미 서로 다른 묶음에 들어간 고지서는 확인 후 다시 묶어야 합니다.');
+  }
+  if (existingGroupKeys.length > 0) {
+    warnings.push(`기존 묶음 ${existingGroupKeys.join(', ')} 기준을 사용하거나 재묶음합니다.`);
+  }
+
+  return {
+    blockedReasons: [...new Set(blockedReasons)],
+    warnings,
+    bundleId: existingGroupKeys.length === 1 ? sanitizePathSegment(existingGroupKeys[0]) : '',
+  };
+}
+
+function addMergeDistinctBlock(blockedReasons, rows, key, message) {
+  const values = uniqueNonEmptyValues(rows.map((row) => row[key]));
+  if (values.length !== 1) blockedReasons.push(message);
+}
+
+function resolveFineNoticeConfirmedContractId(row) {
+  return stringifyNullable(row.confirmed_contract_source_type) === 'ims_insurance_claim'
+    ? row.ims_claim_id
+    : row.ims_contract_id;
+}
+
+function buildManualFineNoticeBundleId(rows) {
+  const seed = rows
+    .map((row) => stringifyNullable(row.id))
+    .filter(Boolean)
+    .sort()
+    .join('|');
+  const digest = crypto.createHash('sha256').update(seed).digest('hex').slice(0, 16);
+  return `bundle-${digest}`;
+}
+
+function toFineNoticeBundleMergeRowResponse(row) {
+  return {
+    id: stringifyNullable(row.id),
+    status: stringifyNullable(row.status),
+    issuer: stringifyNullable(row.issuer),
+    documentNumber: stringifyNullable(row.document_number),
+    carNumber: stringifyNullable(row.car_number),
+    occurredAt: stringifyNullable(row.occurred_at_text || row.occurred_at),
+    location: stringifyNullable(row.location),
+    contractSourceType: stringifyNullable(row.confirmed_contract_source_type),
+    contractSourceId: stringifyNullable(resolveFineNoticeConfirmedContractId(row)),
+    renterName: stringifyNullable(row.renter_name || row.renter_snapshot_json?.customerName),
+    documentListGroupKey: stringifyNullable(row.document_list_group_key),
+  };
+}
 
 async function findFineNoticeForDocumentPackage(fineNoticeId) {
   const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));

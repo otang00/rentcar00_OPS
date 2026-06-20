@@ -25,6 +25,8 @@ void main() {
         renterAddress: '서울시 서초구',
         renterIdentityNo: '900101-1234567',
         renterDriverLicenseNo: '11-12-123456-78',
+        documentListGroupKey: 'bundle-a',
+        sourceBatchId: 'batch-a',
         rawCandidateJson: const {
           'rawCandidate': {'carNumber': '142호5688'},
         },
@@ -43,6 +45,8 @@ void main() {
       expect(row['renter_address'], '서울시 서초구');
       expect(row['renter_identity_no'], '900101-1234567');
       expect(row['renter_driver_license_no'], '11-12-123456-78');
+      expect(row['document_list_group_key'], 'bundle-a');
+      expect(row['source_batch_id'], 'batch-a');
     },
   );
 
@@ -74,6 +78,8 @@ void main() {
       'renter_address': '서울시 서초구',
       'renter_identity_no': '900101-1234567',
       'renter_driver_license_no': '11-12-123456-78',
+      'document_list_group_key': 'bundle-a',
+      'source_batch_id': 'batch-a',
     });
 
     expect(item.carNumber, '101호4703');
@@ -86,6 +92,8 @@ void main() {
     expect(item.renterAddress, '서울시 서초구');
     expect(item.renterIdentityNo, '900101-1234567');
     expect(item.renterDriverLicenseNo, '11-12-123456-78');
+    expect(item.documentListGroupKey, 'bundle-a');
+    expect(item.sourceBatchId, 'batch-a');
   });
 
   test('FineNoticeFileMetadata maps parser file payload', () {
