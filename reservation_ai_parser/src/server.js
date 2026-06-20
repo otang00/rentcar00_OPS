@@ -1964,7 +1964,7 @@ function drawRenterChangeApplicationPage(page, { font, notice, renter, generated
   const renterPhone = stringifyNullable(renter.phone) || '확인 필요';
 
   drawOfficialLetterHeader(page, { font });
-  drawOfficialMetaRows(page, font, 118, 704, [
+  drawOfficialMetaRows(page, font, 118, 716, [
     ['문 서 번 호', documentKey],
     ['시 행 일 자', formatKstDate(generatedAt)],
     ['발신 - 담당', '빵빵카(주) - 오연군'],
@@ -1972,14 +1972,14 @@ function drawRenterChangeApplicationPage(page, { font, notice, renter, generated
     ['제       목', `도로교통법(${violationContent})위반 과태료 명의변경통보.`],
   ]);
 
-  drawOfficialParagraphs(page, font, 92, 586, [
+  drawOfficialParagraphs(page, font, 92, 598, [
     '1. 귀 관청의 무궁한 발전을 진심으로 기원합니다.',
     `2. 귀 관청에서 발행한 위반 사실 통지서 (통지번호 : ${stringifyNullable(notice.document_number) || '확인 필요'}) 도로 교통법(${violationContent}) 적발 (${carNumber}) 차량의 과태료 부과 건에 대하여 당사는 자동차대여 사업체로서 당시 내용대로 위반 임차인을 다음과 같이 통보 하오니 조치하여 회신 주시기 바랍니다.`,
     '3. 운수사업법 제56조6, 시행규칙 제49조 준용 교통부 장관이 인가한 자동차 대여약관 제19조 2항(임차인은 교통법규 및 주,정차 위반 범칙금은 렌트카 반납 후에도 임차인이 부담한다.)및 자동차 운수 사업법 제31조 등에 관한 처분 요령 중 개정령 제7조 5항 신설내용(자동차 대여 사업자가 대여한 자동차로서 자동차만을 임대한 것이 명백한 경우에는 고용주에게 과태료에 처하지 아니한다.)을 참조하여 주시기 바랍니다.',
   ]);
 
-  drawCenteredText(page, font, '------   다              음   ------', 286, 306, 9.5);
-  drawOfficialList(page, font, 118, 270, [
+  drawCenteredText(page, font, '------   다              음   ------', 286, 336, 9.5);
+  drawOfficialList(page, font, 118, 300, [
     ['1 위 반 차 량', carNumber],
     ['2 위 반 일 시', occurredAt],
     ['3 위 반 장 소', location],
@@ -1989,11 +1989,11 @@ function drawRenterChangeApplicationPage(page, { font, notice, renter, generated
     ['7 연   락   처', renterPhone],
   ]);
 
-  drawOfficialAttachments(page, font, 150, 108, [
+  drawOfficialAttachments(page, font, 150, 122, [
     '1, 차량임대차 계약서  사본 1부',
     '2, 위반 사실통지  원본1부',
   ]);
-  page.drawImage(companySealImage, { x: 402, y: 58, width: 52, height: 52 });
+  page.drawImage(companySealImage, { x: 408, y: 76, width: 52, height: 52 });
   drawReviewNotice(page, font);
 }
 
@@ -2042,11 +2042,11 @@ function drawVehicleApplicationListPage(page, { font, notice, rows, renter, gene
 }
 
 function drawOfficialLetterHeader(page, { font }) {
-  drawCenteredText(page, font, '빵 빵 카 (주)', 288, 794, 16);
-  drawText(page, font, '(rentcar00.com)', 364, 795, 8.8);
-  drawText(page, font, '(우) 137-070 서울시 서초구 신반포로 23길 78-9, 빵빵카(주)', 118, 764, 7.8);
-  drawText(page, font, 'Tel : (02)592-0079  Fax : (02)592-7900  mail : rentcar00@daum.net', 118, 752, 7.8);
-  page.drawLine({ start: { x: 118, y: 746 }, end: { x: 466, y: 746 }, thickness: 1.2, color: rgb(0, 0, 0) });
+  drawCenteredText(page, font, '빵 빵 카 (주)', 288, 806, 16);
+  drawText(page, font, '(rentcar00.com)', 364, 807, 8.8);
+  drawText(page, font, '(우) 137-070 서울시 서초구 신반포로 23길 78-9, 빵빵카(주)', 118, 776, 7.8);
+  drawText(page, font, 'Tel : (02)592-0079  Fax : (02)592-7900  mail : rentcar00@daum.net', 118, 764, 7.8);
+  page.drawLine({ start: { x: 118, y: 758 }, end: { x: 466, y: 758 }, thickness: 1.2, color: rgb(0, 0, 0) });
 }
 
 function drawOfficialMetaRows(page, font, x, y, rows) {
