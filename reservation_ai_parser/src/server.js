@@ -1358,6 +1358,7 @@ async function generateFineNoticeDocumentPackage(payload) {
     fineNoticeId: payload.fineNoticeId,
     bundle,
     notice,
+    rows: siblings,
     renter,
     generatedAt,
   });
@@ -1490,7 +1491,7 @@ async function findFineNoticeDocumentListRows(notice) {
   const selected = raw?.selectedItem && typeof raw.selectedItem === 'object' ? raw.selectedItem : {};
   const rowCount = Number(selected?.rowCount || raw?.rawCandidate?.items?.length || 0);
   const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
-  url.searchParams.set('select', 'id,created_at,document_number,car_number,occurred_at_text,location,total_amount_text,total_amount,notice_profile,document_list_group_key,source_batch_id');
+  url.searchParams.set('select', 'id,created_at,document_number,car_number,occurred_at_text,location,total_amount_text,total_amount,notice_profile,notice_type,document_list_group_key,source_batch_id');
   url.searchParams.set('car_number', `eq.${notice.car_number}`);
   url.searchParams.set('notice_profile', `eq.${notice.notice_profile}`);
   if (notice.document_number) url.searchParams.set('document_number', `eq.${notice.document_number}`);
@@ -1877,7 +1878,7 @@ async function generateStampedContractPdf({ fineNoticeId, bundle, contractOrigin
   });
 }
 
-async function generateRenterChangeApplicationPdf({ fineNoticeId, bundle, notice, renter, generatedAt }) {
+async function generateRenterChangeApplicationPdf({ fineNoticeId, bundle, notice, rows, renter, generatedAt }) {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
   const font = await embedKoreanFont(pdfDoc);
@@ -1889,6 +1890,7 @@ async function generateRenterChangeApplicationPdf({ fineNoticeId, bundle, notice
   drawRenterChangeApplicationPage(page, {
     font,
     notice,
+    rows,
     renter,
     generatedAt,
     companySealImage,
@@ -1952,13 +1954,10 @@ async function generateVehicleApplicationListPdf({ fineNoticeId, bundle, notice,
   });
 }
 
-function drawRenterChangeApplicationPage(page, { font, notice, renter, generatedAt, companySealImage }) {
+function drawRenterChangeApplicationPage(page, { font, notice, rows, renter, generatedAt, companySealImage }) {
   const documentKey = buildFineNoticeDocumentNumber(notice, generatedAt);
   const issuer = stringifyNullable(notice.issuer) || '확인 필요';
-  const carNumber = stringifyNullable(notice.car_number) || '확인 필요';
-  const occurredAt = stringifyNullable(notice.occurred_at_text) || '확인 필요';
-  const location = stringifyNullable(notice.location) || '확인 필요';
-  const violationContent = buildFineNoticeViolationContent(notice);
+  const bundleFields = buildFineNoticeApplicationBundleFields(notice, rows);
   const renterName = renter.name || '확인 필요';
   const residentNo = renter.identityNo || '확인 필요';
   const renterPhone = stringifyNullable(renter.phone) || '확인 필요';
@@ -1969,21 +1968,21 @@ function drawRenterChangeApplicationPage(page, { font, notice, renter, generated
     ['시 행 일 자', formatKstDate(generatedAt)],
     ['발신 - 담당', '빵빵카(주) - 오연군'],
     ['수신 - 참조', issuer],
-    ['제       목', `도로교통법(${violationContent})위반 과태료 명의변경통보.`],
+    ['제       목', `도로교통법(${bundleFields.violationContent})위반 과태료 명의변경통보.`],
   ]);
 
   drawOfficialParagraphs(page, font, 92, 598, [
     '1. 귀 관청의 무궁한 발전을 진심으로 기원합니다.',
-    `2. 귀 관청에서 발행한 위반 사실 통지서 (통지번호 : ${stringifyNullable(notice.document_number) || '확인 필요'}) 도로 교통법(${violationContent}) 적발 (${carNumber}) 차량의 과태료 부과 건에 대하여 당사는 자동차대여 사업체로서 당시 내용대로 위반 임차인을 다음과 같이 통보 하오니 조치하여 회신 주시기 바랍니다.`,
+    `2. 귀 관청에서 발행한 위반 사실 통지서 (통지번호 : ${bundleFields.documentNumber}) 도로 교통법(${bundleFields.violationContent}) 적발 (${bundleFields.carNumber}) 차량의 과태료 부과 건에 대하여 당사는 자동차대여 사업체로서 당시 내용대로 위반 임차인을 다음과 같이 통보 하오니 조치하여 회신 주시기 바랍니다.`,
     '3. 운수사업법 제56조6, 시행규칙 제49조 준용 교통부 장관이 인가한 자동차 대여약관 제19조 2항(임차인은 교통법규 및 주,정차 위반 범칙금은 렌트카 반납 후에도 임차인이 부담한다.)및 자동차 운수 사업법 제31조 등에 관한 처분 요령 중 개정령 제7조 5항 신설내용(자동차 대여 사업자가 대여한 자동차로서 자동차만을 임대한 것이 명백한 경우에는 고용주에게 과태료에 처하지 아니한다.)을 참조하여 주시기 바랍니다.',
   ]);
 
   drawCenteredText(page, font, '------   다              음   ------', 286, 336, 9.5);
   drawOfficialList(page, font, 118, 300, [
-    ['1 위 반 차 량', carNumber],
-    ['2 위 반 일 시', occurredAt],
-    ['3 위 반 장 소', location],
-    ['4 위 반 내 용', violationContent],
+    ['1 위 반 차 량', bundleFields.carNumber],
+    ['2 위 반 일 시', bundleFields.occurredAt],
+    ['3 위 반 장 소', bundleFields.location],
+    ['4 위 반 내 용', bundleFields.violationContent],
     ['5 위   반   자', renterName],
     ['6 주민등록No', residentNo],
     ['7 연   락   처', renterPhone],
@@ -2072,8 +2071,11 @@ function drawOfficialList(page, font, x, y, rows) {
   let cursorY = y;
   for (const [label, value] of rows) {
     drawText(page, font, `${label} :`, x, cursorY, 9.4);
-    drawText(page, font, value, x + 116, cursorY, 9.2);
-    cursorY -= 20;
+    const lines = splitOfficialListValue(value);
+    lines.forEach((line, index) => {
+      drawText(page, font, line, x + 116, cursorY - index * 14, 9.2);
+    });
+    cursorY -= Math.max(20, lines.length * 14 + 6);
   }
 }
 
@@ -2106,6 +2108,74 @@ function buildFineNoticeViolationContent(notice) {
   if (profile.includes('traffic') || type.includes('traffic')) return '위반 사항';
   if (profile.includes('toll') || type.includes('toll')) return '미납통행료';
   return '위반 사항';
+}
+
+function buildFineNoticeApplicationBundleFields(notice, rows) {
+  const safeRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
+  return {
+    documentNumber: formatBundledDistinctValue(safeRows, (row) => row.document_number),
+    carNumber: formatBundledDistinctValue(safeRows, (row) => row.car_number),
+    occurredAt: formatBundledOccurredAtRange(safeRows),
+    location: formatBundledDistinctValue(safeRows, (row) => row.location),
+    violationContent: formatBundledDistinctValue(safeRows, (row) => buildFineNoticeViolationContent(row)),
+  };
+}
+
+function formatBundledDistinctValue(rows, pickValue) {
+  const values = uniqueNonEmptyValues(rows.map((row) => pickValue(row)));
+  if (values.length === 0) return '확인 필요';
+  if (values.length === 1) return values[0];
+  const inline = values.join(', ');
+  if (inline.length <= 28) return inline;
+  return values.map((value, index) => `${index + 1}) ${value}`).join('\n');
+}
+
+function formatBundledOccurredAtRange(rows) {
+  const values = uniqueNonEmptyValues(rows.map((row) => row.occurred_at_text || row.occurred_at));
+  if (values.length === 0) return '확인 필요';
+  if (values.length === 1) return values[0];
+  const sorted = [...values].sort((left, right) => compareFineNoticeOccurredAt(left, right));
+  return formatFineNoticeOccurredAtRangeText(sorted[0], sorted[sorted.length - 1]);
+}
+
+function compareFineNoticeOccurredAt(left, right) {
+  const leftTime = Date.parse(String(left).replace(' ', 'T'));
+  const rightTime = Date.parse(String(right).replace(' ', 'T'));
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
+  return String(left).localeCompare(String(right));
+}
+
+function uniqueNonEmptyValues(values) {
+  const seen = new Set();
+  const unique = [];
+  for (const value of values) {
+    const normalized = stringifyNullable(value).replace(/\s+/g, ' ').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function formatFineNoticeOccurredAtRangeText(first, last) {
+  const firstText = String(first);
+  const lastText = String(last);
+  const firstDate = extractDate(firstText);
+  const lastDate = extractDate(lastText);
+  if (firstDate && firstDate === lastDate && lastText.startsWith(`${lastDate} `)) {
+    return `${firstText} ~ ${lastText.slice(lastDate.length + 1)}`;
+  }
+  return `${firstText} ~ ${lastText}`;
+}
+
+function splitOfficialListValue(value) {
+  const explicitLines = String(value || '확인 필요').split('\n');
+  const lines = [];
+  for (const line of explicitLines) {
+    const wrapped = wrapText(line, 42);
+    lines.push(...(wrapped.length > 0 ? wrapped : ['']));
+  }
+  return lines.length > 0 ? lines : ['확인 필요'];
 }
 
 function drawDocumentFrame(page) {
