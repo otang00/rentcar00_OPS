@@ -1953,48 +1953,47 @@ async function generateVehicleApplicationListPdf({ fineNoticeId, bundle, notice,
 }
 
 function drawRenterChangeApplicationPage(page, { font, notice, renter, generatedAt, companySealImage }) {
-  drawDocumentFrame(page);
-  drawCompanyHeader(page, { font, generatedAt, documentKey: buildFineNoticeDocumentNumber(notice, generatedAt) });
-  drawCenteredTitle(page, font, '유료도로 미납통행료 임차인 변경 신청서', 684);
+  const documentKey = buildFineNoticeDocumentNumber(notice, generatedAt);
+  const issuer = stringifyNullable(notice.issuer) || '확인 필요';
+  const carNumber = stringifyNullable(notice.car_number) || '확인 필요';
+  const occurredAt = stringifyNullable(notice.occurred_at_text) || '확인 필요';
+  const location = stringifyNullable(notice.location) || '확인 필요';
+  const violationContent = buildFineNoticeViolationContent(notice);
+  const renterName = renter.name || '확인 필요';
+  const residentNo = renter.identityNo || '확인 필요';
+  const renterPhone = stringifyNullable(renter.phone) || '확인 필요';
 
-  drawInfoRows(page, font, 62, 632, 470, [
-    ['수신', stringifyNullable(notice.issuer) || '확인 필요'],
-    ['참조', '미납통행료 담당자'],
-    ['제목', '미납통행료 납부의무자 및 임차인 변경 신청'],
+  drawOfficialLetterHeader(page, { font });
+  drawOfficialMetaRows(page, font, 118, 652, [
+    ['문 서 번 호', documentKey],
+    ['시 행 일 자', formatKstDate(generatedAt)],
+    ['발신 - 담당', '빵빵카(주) - 오연군'],
+    ['수신 - 참조', issuer],
+    ['제       목', `도로교통법(${violationContent})위반 과태료 명의변경통보.`],
   ]);
 
-  drawParagraphBlock(page, font, 66, 548, [
-    '1. 귀 기관의 무궁한 발전을 기원합니다.',
-    `2. 귀 기관에서 발행한 미납통행료 안내문의 차량 ${stringifyNullable(notice.car_number) || '확인 필요'} 건에 대하여,`,
-    '   당사는 자동차대여 사업자로서 해당 통행 시점의 임차인 정보를 아래와 같이 제출합니다.',
-    '3. 첨부 계약서 및 고지서 사본을 확인하시어 납부의무자 변경 처리를 검토하여 주시기 바랍니다.',
+  drawOfficialParagraphs(page, font, 92, 510, [
+    '1. 귀 관청의 무궁한 발전을 진심으로 기원합니다.',
+    `2. 귀 관청에서 발행한 위반 사실 통지서 (통지번호 : ${stringifyNullable(notice.document_number) || '확인 필요'}) 도로 교통법(${violationContent}) 적발 (${carNumber}) 차량의 과태료 부과 건에 대하여 당사는 자동차대여 사업체로서 당시 내용대로 위반 임차인을 다음과 같이 통보 하오니 조치하여 회신 주시기 바랍니다.`,
+    '3. 운수사업법 제56조6, 시행규칙 제49조 준용 교통부 장관이 인가한 자동차 대여약관 제19조 2항(임차인은 교통법규 및 주,정차 위반 범칙금은 렌트카 반납 후에도 임차인이 부담한다.)및 자동차 운수 사업법 제31조 등에 관한 처분 요령 중 개정령 제7조 5항 신설내용(자동차 대여 사업자가 대여한 자동차로서 자동차만을 임대한 것이 명백한 경우에는 고용주에게 과태료에 처하지 아니한다.)을 참조하여 주시기 바랍니다.',
   ]);
 
-  drawSectionTitle(page, font, '신청 대상', 66, 456);
-  drawInfoRows(page, font, 66, 430, 464, [
-    ['고지서번호', stringifyNullable(notice.document_number) || '확인 필요'],
-    ['차량번호', stringifyNullable(notice.car_number) || '확인 필요'],
-    ['통행일시', stringifyNullable(notice.occurred_at_text) || '확인 필요'],
-    ['통행장소', stringifyNullable(notice.location) || '확인 필요'],
-  ], { labelWidth: 84, rowHeight: 24, fontSize: 9.5 });
+  drawCenteredText(page, font, '------   다              음   ------', 286, 276, 10);
+  drawOfficialList(page, font, 118, 240, [
+    ['1 위 반 차 량', carNumber],
+    ['2 위 반 일 시', occurredAt],
+    ['3 위 반 장 소', location],
+    ['4 위 반 내 용', violationContent],
+    ['5 위   반   자', renterName],
+    ['6 주민등록No', residentNo],
+    ['7 연   락   처', renterPhone],
+  ]);
 
-  drawSectionTitle(page, font, '임차인 정보', 66, 278);
-  drawInfoRows(page, font, 66, 252, 464, [
-    ['성명', renter.name || '확인 필요'],
-    ['주민등록번호', renter.identityNo || '확인 필요'],
-    ['운전면허번호', renter.driverLicenseNo || '확인 필요'],
-    ['연락처', stringifyNullable(renter.phone) || '확인 필요'],
-    ['주소', renter.address || '확인 필요'],
-  ], { labelWidth: 92, rowHeight: 22, fontSize: 9.2 });
-
-  drawSectionTitle(page, font, '첨부 서류', 66, 128);
-  drawTextLines(page, [
-    '1. 차량임대차 계약서 사본 1부',
-    '2. 미납통행료 안내문 사본 1부',
-    '3. 통행 목록 1부',
-  ], { font, x: 72, y: 108, size: 9.2, lineHeight: 15, maxChars: 64 });
-
-  drawCompanySignature(page, { font, companySealImage, x: 316, y: 72 });
+  drawOfficialAttachments(page, font, 150, 96, [
+    '1, 차량임대차 계약서  사본 1부',
+    '2, 위반 사실통지  원본1부',
+  ]);
+  page.drawImage(companySealImage, { x: 402, y: 54, width: 54, height: 54 });
   drawReviewNotice(page, font);
 }
 
@@ -2040,6 +2039,73 @@ function drawVehicleApplicationListPage(page, { font, notice, rows, renter, gene
 
   drawCompanySignature(page, { font, companySealImage, x: 326, y: 236 });
   drawReviewNotice(page, font);
+}
+
+function drawOfficialLetterHeader(page, { font }) {
+  drawCenteredText(page, font, '빵 빵 카 (주)', 288, 794, 16);
+  drawText(page, font, '(rentcar00.com)', 364, 795, 8.8);
+  drawText(page, font, '(우) 137-070 서울시 서초구 신반포로 23길 78-9, 빵빵카(주)', 118, 764, 7.8);
+  drawText(page, font, 'Tel : (02)592-0079  Fax : (02)592-7900  mail : rentcar00@daum.net', 118, 752, 7.8);
+  page.drawLine({ start: { x: 118, y: 746 }, end: { x: 466, y: 746 }, thickness: 1.2, color: rgb(0, 0, 0) });
+}
+
+function drawOfficialMetaRows(page, font, x, y, rows) {
+  let cursorY = y;
+  for (const [label, value] of rows) {
+    drawText(page, font, `${label}  :`, x, cursorY, 10);
+    drawText(page, font, value, x + 84, cursorY, 9.6);
+    cursorY -= 23;
+  }
+  page.drawLine({ start: { x, y: cursorY + 10 }, end: { x: 466, y: cursorY + 10 }, thickness: 0.9, color: rgb(0, 0, 0) });
+}
+
+function drawOfficialParagraphs(page, font, x, y, paragraphs) {
+  let cursorY = y;
+  const gaps = [34, 88, 128];
+  for (const [index, paragraph] of paragraphs.entries()) {
+    drawWrappedTextLines(page, font, paragraph, x, cursorY, 9.7, 48, 14.5);
+    cursorY -= gaps[index] || 48;
+  }
+}
+
+function drawOfficialList(page, font, x, y, rows) {
+  let cursorY = y;
+  for (const [label, value] of rows) {
+    drawText(page, font, `${label} :`, x, cursorY, 10);
+    drawText(page, font, value, x + 116, cursorY, 9.8);
+    cursorY -= 22;
+  }
+}
+
+function drawOfficialAttachments(page, font, x, y, attachments) {
+  drawText(page, font, '*별 첨 :', x, y, 10, { bold: true });
+  let cursorY = y;
+  for (const attachment of attachments) {
+    drawText(page, font, attachment, x + 54, cursorY, 9.5);
+    cursorY -= 22;
+  }
+}
+
+function drawCenteredText(page, font, text, centerX, y, size) {
+  const width = font.widthOfTextAtSize(text, size);
+  page.drawText(text, { x: centerX - width / 2, y, size, font, color: rgb(0, 0, 0) });
+}
+
+function drawWrappedTextLines(page, font, text, x, y, size, maxChars, lineHeight) {
+  let cursorY = y;
+  for (const line of wrapText(String(text || ''), maxChars)) {
+    page.drawText(line, { x, y: cursorY, size, font, color: rgb(0, 0, 0) });
+    cursorY -= lineHeight;
+  }
+}
+
+function buildFineNoticeViolationContent(notice) {
+  const profile = stringifyNullable(notice.notice_profile);
+  const type = stringifyNullable(notice.notice_type);
+  if (profile.includes('parking') || type.includes('parking')) return '주정차 위반';
+  if (profile.includes('traffic') || type.includes('traffic')) return '위반 사항';
+  if (profile.includes('toll') || type.includes('toll')) return '미납통행료';
+  return '위반 사항';
 }
 
 function drawDocumentFrame(page) {
