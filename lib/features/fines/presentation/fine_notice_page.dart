@@ -7,6 +7,7 @@ import 'package:rentcar00_ops/features/fines/data/fine_notice_contract_pdf_clien
 import 'package:rentcar00_ops/features/fines/data/fine_notice_document_client.dart';
 import 'package:rentcar00_ops/features/fines/domain/fine_notice_models.dart';
 import 'package:rentcar00_ops/features/fines/shared/fine_notice_providers.dart';
+import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
 
 class FineNoticePage extends ConsumerWidget {
@@ -14,6 +15,11 @@ class FineNoticePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final staff = ref.watch(currentStaffAccountProvider).valueOrNull;
+    if (staff?.canAccessOwnerOnlyOps != true) {
+      return const _FineNoticeUnauthorizedView();
+    }
+
     final casesAsync = ref.watch(fineNoticeCasesProvider);
 
     return casesAsync.when(
@@ -46,6 +52,25 @@ class FineNoticePage extends ConsumerWidget {
 
         return _FineNoticeTable(items: cases);
       },
+    );
+  }
+}
+
+class _FineNoticeUnauthorizedView extends StatelessWidget {
+  const _FineNoticeUnauthorizedView();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: const [
+        Card(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('과태료 관리는 관리자 전용 화면입니다.'),
+          ),
+        ),
+      ],
     );
   }
 }

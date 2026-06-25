@@ -54,6 +54,16 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final layer = ref.watch(selectedOpsLayerProvider);
+    final staff = ref.watch(currentStaffAccountProvider).valueOrNull;
+    final canAccessOwnerOnlyOps = staff?.canAccessOwnerOnlyOps == true;
+    final safeLayer = !canAccessOwnerOnlyOps && layer == OpsLayer.fines
+        ? OpsLayer.statusBoard
+        : layer;
+    final allowedLayers = [
+      OpsLayer.reservations,
+      OpsLayer.statusBoard,
+      if (canAccessOwnerOnlyOps) OpsLayer.fines,
+    ];
     final reservationTab = ref.watch(selectedReservationTabProvider);
     final statusBoardTab = ref.watch(selectedStatusBoardTabProvider);
 
@@ -62,12 +72,20 @@ class AppShell extends ConsumerWidget {
     final homepagePending = ref
         .watch(homepagePendingReservationsProvider)
         .valueOrNull;
-    final selectedIndex = switch (layer) {
+    if (safeLayer != layer) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) {
+          ref.read(selectedOpsLayerProvider.notifier).state = safeLayer;
+        }
+      });
+    }
+
+    final selectedIndex = switch (safeLayer) {
       OpsLayer.reservations => ReservationTab.values.indexOf(reservationTab),
       OpsLayer.statusBoard => StatusBoardTab.values.indexOf(statusBoardTab),
       OpsLayer.fines => 0,
     };
-    final destinations = switch (layer) {
+    final destinations = switch (safeLayer) {
       OpsLayer.reservations => [
         for (final tab in ReservationTab.values)
           NavigationDestination(
@@ -89,10 +107,13 @@ class AppShell extends ConsumerWidget {
       appBar: AppBar(
         titleSpacing: 10,
         actions: [
-          if (homepagePending != null && homepagePending.isNotEmpty)
+          if (canAccessOwnerOnlyOps &&
+              homepagePending != null &&
+              homepagePending.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 4),
-              child: TextButton.icon(
+              child: _HomepagePendingButton(
+                count: homepagePending.length,
                 onPressed: () {
                   ref.read(selectedOpsLayerProvider.notifier).state =
                       OpsLayer.reservations;
@@ -102,8 +123,6 @@ class AppShell extends ConsumerWidget {
                     '/reservation/${homepagePending.first.reservationId}',
                   );
                 },
-                icon: const Icon(Icons.language_outlined, size: 18),
-                label: Text('홈페이지 ${homepagePending.length}'),
               ),
             ),
           IconButton(
@@ -112,10 +131,11 @@ class AppShell extends ConsumerWidget {
             onPressed: () => context.push(AppRoutes.search),
           ),
           IconButton(
-            tooltip: layer == OpsLayer.fines ? '과태료 등록' : '예약추가',
+            tooltip: safeLayer == OpsLayer.fines ? '과태료 등록' : '예약추가',
             icon: const Icon(Icons.add),
             onPressed: () {
-              if (layer == OpsLayer.fines) {
+              if (safeLayer == OpsLayer.fines) {
+                if (!canAccessOwnerOnlyOps) return;
                 showFineNoticeCreateFlow(context: context, ref: ref);
                 return;
               }
@@ -145,7 +165,8 @@ class AppShell extends ConsumerWidget {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: _OpsLayerSwitcher(
-                  selected: layer,
+                  selected: safeLayer,
+                  layers: allowedLayers,
                   onSelected: (value) {
                     ref.read(selectedOpsLayerProvider.notifier).state = value;
                   },
@@ -155,13 +176,13 @@ class AppShell extends ConsumerWidget {
           ],
         ),
       ),
-      body: switch (layer) {
+      body: switch (safeLayer) {
         OpsLayer.reservations => ReservationTabPage(tab: reservationTab),
         OpsLayer.statusBoard => StatusBoardTabPage(tab: statusBoardTab),
         OpsLayer.fines => const FineNoticePage(),
       },
       floatingActionButton:
-          layer == OpsLayer.statusBoard &&
+          safeLayer == OpsLayer.statusBoard &&
               statusBoardTab == StatusBoardTab.schedule
           ? const StatusBoardScheduleFab()
           : null,
@@ -183,10 +204,10 @@ class AppShell extends ConsumerWidget {
                 selectedIndex: selectedIndex,
                 labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
                 onDestinationSelected: (index) {
-                  if (layer == OpsLayer.reservations) {
+                  if (safeLayer == OpsLayer.reservations) {
                     ref.read(selectedReservationTabProvider.notifier).state =
                         ReservationTab.values[index];
-                  } else if (layer == OpsLayer.statusBoard) {
+                  } else if (safeLayer == OpsLayer.statusBoard) {
                     ref.read(selectedStatusBoardTabProvider.notifier).state =
                         StatusBoardTab.values[index];
                   }
@@ -198,10 +219,36 @@ class AppShell extends ConsumerWidget {
   }
 }
 
+class _HomepagePendingButton extends StatelessWidget {
+  const _HomepagePendingButton({required this.count, required this.onPressed});
+
+  final int count;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: '홈페이지 확인 $count건',
+      onPressed: onPressed,
+      icon: Badge.count(
+        count: count,
+        backgroundColor: colorScheme.error,
+        child: const Icon(Icons.language_outlined),
+      ),
+    );
+  }
+}
+
 class _OpsLayerSwitcher extends StatelessWidget {
-  const _OpsLayerSwitcher({required this.selected, required this.onSelected});
+  const _OpsLayerSwitcher({
+    required this.selected,
+    required this.layers,
+    required this.onSelected,
+  });
 
   final OpsLayer selected;
+  final List<OpsLayer> layers;
   final ValueChanged<OpsLayer> onSelected;
 
   @override
@@ -217,7 +264,7 @@ class _OpsLayerSwitcher extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final layer in OpsLayer.values)
+          for (final layer in layers)
             Tooltip(
               message: _layerLabel(layer),
               child: Semantics(

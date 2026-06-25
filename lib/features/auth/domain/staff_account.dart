@@ -29,4 +29,6 @@ class StaffAccount {
   final bool isActive;
 
   bool get isAdmin => role.trim().toLowerCase() == 'admin';
+
+  bool get canAccessOwnerOnlyOps => isAdmin;
 }

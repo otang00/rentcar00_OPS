@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-06-26 — 사장님 전용 과태료/홈페이지 UI 접근 제한
+### 사용자 표면
+- 상단의 긴 `홈페이지 N` 버튼을 🌐 아이콘+숫자 배지로 줄여 탭 영역과 겹치지 않게 정리했다.
+- 직원 계정은 과태료 탭과 홈페이지 확인 진입점을 앱에서 누를 수 없게 막았다.
+- 사장님 권한은 현재 앱 권한 모델 기준 `admin`으로 해석한다.
+
+### 실제 동작
+- `StaffAccount.canAccessOwnerOnlyOps`를 추가해 owner-only UI 권한 기준을 한 곳으로 모았다.
+- AppShell에서 staff는 과태료 layer 목록과 홈페이지 pending action을 보지 못한다.
+- staff 상태에서 과태료 layer가 선택되어 있으면 안전한 statusBoard layer로 되돌린다.
+- `FineNoticePage` 내부에도 관리자 전용 차단 화면을 추가해 직접 렌더 경로를 막았다.
+
+### 핵심 파일
+- `lib/features/auth/domain/staff_account.dart`
+- `lib/app/view/app_shell.dart`
+- `lib/features/fines/presentation/fine_notice_page.dart`
+- `test/widget_test.dart`
+- `docs/COMPLETED/COMPLETE_20260626_rentcar00_OPS_owner_admin_ui_access_control_pm.md`
+
+### 검증
+- `git diff --check` 통과
+- `flutter analyze` 통과
+- `flutter test test/widget_test.dart` 통과
+- `flutter test` 전체 통과: 23 tests passed
+
+### 남은 확인
+- 이번 변경은 UI 접근 제한이다. Supabase/RLS 서버 보안 경계가 필요하면 별도 DB/RLS phase 승인이 필요하다.
+- 별도 `owner` role은 아직 없으며 현재는 `admin`을 사장님 권한으로 사용한다.
+
+---
+
 ## 2026-06-25 — 홈페이지 예약 importer 생년월일 정규화 및 중간서버 역할 문서화
 ### 사용자 표면
 - 홈페이지 자동 유입 예약의 생년월일이 `19840528` 같은 raw 값으로 저장되어 IMS추가 전 앱 검증에서 막히던 문제를 수정했다.
