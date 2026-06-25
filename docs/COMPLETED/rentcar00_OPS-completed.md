@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-06-25 — 홈페이지 예약 importer 생년월일 정규화 및 중간서버 역할 문서화
+### 사용자 표면
+- 홈페이지 자동 유입 예약의 생년월일이 `19840528` 같은 raw 값으로 저장되어 IMS추가 전 앱 검증에서 막히던 문제를 수정했다.
+- `reservation_ai_parser`가 현재 AI파서 단독이 아니라 OPS integration server 역할도 한다는 점을 README에 명확히 기록했다.
+
+### 실제 동작
+- 홈페이지 예약 payload mapper를 `reservation_ai_parser/src/homepage-reservation-mapper.js`로 분리했다.
+- `customerBirthDate`를 OPS 저장 기준 `YYYY-MM-DD`로 정규화한다.
+- 지원 형식: `YYYYMMDD`, `YYYY-MM-DD`, `YYYY.MM.DD`, `YYYY/MM/DD`, `YYYY MM DD`.
+- 유효하지 않은 실제 날짜는 빈값으로 처리해 IMS 검증 통과값처럼 저장하지 않는다.
+- 기존 문제 예약 `WEB-3207061c-9085-404d-bab1-ee72b6520508`의 `customer_birth_date`를 `19840528`에서 `1984-05-28`로 단건 보정했다.
+- launchd 서비스 `ai.otang.reservation-ai-parser`를 restart해 변경 코드를 운영 parser에 반영했다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/homepage-reservation-mapper.js`
+- `reservation_ai_parser/test/homepage-reservation-mapper.test.js`
+- `reservation_ai_parser/README.md`
+- `docs/PHASE/rentcar00_OPS-homepage-reservation-importer-normalization-pm.md`
+
+### 검증
+- `node --test reservation_ai_parser/test/homepage-reservation-mapper.test.js` 통과: 5 tests pass
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `node --check reservation_ai_parser/src/homepage-reservation-mapper.js` 통과
+- `git diff --check` 통과
+- DB readback: 대상 예약 `customer_birth_date = 1984-05-28` 확인
+- Runtime smoke: `GET http://127.0.0.1:43110/health` → `{"ok":true,"service":"reservation_ai_parser"}`
+
+### 남은 확인
+- 신규 실제 홈페이지 예약 유입 E2E는 운영 DB에 가짜 예약을 만들지 않기 위해 수행하지 않았다. 다음 실제 홈페이지 예약 발생 시 `customer_birth_date` 저장값을 확인한다.
+- 6자리 생년월일은 세기 판단이 불명확해 자동 변환하지 않는다. 정책 확정 시 별도 phase로 보강한다.
+- 장기적으로 `reservation_ai_parser` 디렉터리/서비스명을 `ops_integration_server` 계열로 분리하는 PM이 필요하다.
+
+---
+
 ## 2026-06-20 — b53 과태료 문서패키지 MVP APK 배포 완료
 ### 사용자 표면
 - 과태료 원장을 엑셀식 리스트로 확인하고, 상세 모달에서 고지서수정/계약서 재검색/문서생성/공유를 실행할 수 있는 APK를 배포했다.

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { buildConfig, loadEnvFile, parseReservationInput, validateConfig } from './parser-core.js';
+import { mapHomepageReservationPayload } from './homepage-reservation-mapper.js';
 import {
   buildConfig as buildFineNoticeConfig,
   parseFineNoticeInput,
@@ -470,48 +471,6 @@ async function importReservationCreatedEvent(payload) {
   return { reservationId: mapped.reservationId, reservationRefId, reused: false };
 }
 
-function mapHomepageReservationPayload(body = {}) {
-  const booking = body?.booking && typeof body.booking === 'object' ? body.booking : {};
-  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
-  const links = body?.links && typeof body.links === 'object' ? body.links : {};
-  const bookingOrderId = firstText(input.bookingOrderId, booking.bookingOrderId);
-  const reservationNumber = firstText(input.reservationCode, input.reservationNumber, booking.reservationCode);
-  const seed = bookingOrderId || reservationNumber || firstText(body.eventId);
-  const reservationId = `WEB-${seed}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 120);
-  const startAt = normalizeIsoDate(firstText(input.pickupAt, input.startAt, input.rentalAt, booking.pickupAt));
-  const endAt = normalizeIsoDate(firstText(input.returnAt, input.endAt, booking.returnAt));
-  const pickupLocation = firstText(input.pickupLocation, input.deliveryAddress, input.deliveryAddressSummary, booking.deliveryAddressSummary);
-  const dropoffLocation = firstText(input.dropoffLocation, input.returnLocation, pickupLocation);
-  const customerPhone = normalizePhone(firstText(input.customerPhone, input.phone, booking.customerPhone));
-  const paymentAmount = normalizeAmountText(firstText(input.quotedTotalAmount, input.totalAmount, input.paymentAmount, booking.quotedTotalAmount));
-
-  return {
-    reservationId,
-    reservationNumber,
-    customerName: firstText(input.customerName, input.name, booking.customerName),
-    customerPhone,
-    customerBirthDate: firstText(input.customerBirth, input.customerBirthDate, input.birthDate, booking.customerBirth),
-    carNumber: firstText(input.carNumber, booking.carNumber),
-    carName: firstText(input.carName, booking.carName),
-    startAt,
-    endAt,
-    pickupLocation,
-    dropoffLocation,
-    paymentAmount,
-    noteText: firstText(input.memo, input.note, `홈페이지 예약 ${reservationNumber || bookingOrderId}`),
-    metaJson: {
-      source: 'homepage',
-      event_id: firstText(body.eventId),
-      booking_order_id: bookingOrderId || null,
-      reservation_code: reservationNumber || null,
-      admin_booking_url: firstText(links.adminBookingUrl) || null,
-      homepage_review: 'pending',
-      reservation_input: input,
-      booking,
-    },
-  };
-}
-
 function buildHomepageScheduleRow({ mapped, type, at, location }) {
   return {
     schedule_id: `${mapped.reservationId}-${type}`,
@@ -599,32 +558,6 @@ function deriveReservationTabKey(startAt, endAt) {
   if (end && end < now) return 'return_due';
   if (start && start <= now) return 'pickup_today';
   return 'pending';
-}
-
-function normalizeIsoDate(value) {
-  const text = firstText(value);
-  if (!text) return '';
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
-}
-
-function normalizePhone(value) {
-  return firstText(value).replace(/[^0-9]/g, '');
-}
-
-function normalizeAmountText(value) {
-  const text = firstText(value);
-  if (!text) return '';
-  const num = Number(String(text).replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(num) ? String(Math.round(num)) : text;
-}
-
-function firstText(...values) {
-  for (const value of values) {
-    const text = stringifyNullable(value).trim();
-    if (text) return text;
-  }
-  return '';
 }
 
 function isSupabaseDuplicateError(error) {

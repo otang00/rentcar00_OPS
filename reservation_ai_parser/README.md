@@ -1,14 +1,26 @@
 # reservation_ai_parser
 
-rentcar00_OPS 예약생성 화면에 연결할 앱 전용 AI파서 서비스.
+rentcar00_OPS 운영 앱이 호출하는 Mac mini 중간서버다.
+초기 이름은 AI 예약 파서 기준으로 만들어졌지만, 현재 운영 역할은 `OPS integration server`에 가깝다.
 
 ## 역할
-- 예약 원문 텍스트를 입력받음
-- OpenAI를 단발 호출해 예약생성용 JSON으로 해석
-- 앱 폼 자동 채움용 결과만 반환
-- 예약 저장/승인/텔레그램 흐름은 포함하지 않음
-- 맥미니에서 **중간서버**로 실행한다
-- 앱은 **Cloudflare Tunnel 고정 HTTPS 도메인**으로 이 서버를 호출한다
+- 예약 원문 텍스트를 입력받아 OpenAI로 예약생성용 JSON을 만든다.
+- IMS 예약 생성/조회/변경/삭제/반납완료 요청을 중계한다.
+- 홈페이지 `reservation.created` 이벤트를 수신해 OPS 예약 원장/상태/일정을 생성한다.
+- 과태료/문서 생성 관련 endpoint를 제공한다.
+- 맥미니에서 **중간서버**로 실행한다.
+- 앱과 홈페이지 연동은 **Cloudflare Tunnel 고정 HTTPS 도메인**으로 이 서버를 호출한다.
+
+## 구조 기준
+- `src/server.js`: HTTP endpoint, 서명검증, IMS/API 호출, Supabase write orchestration.
+- `src/parser-core.js`: AI 예약 원문 파싱 core.
+- `src/homepage-reservation-mapper.js`: 홈페이지 예약 payload → OPS 예약 필드 정규화/매핑.
+
+## 명명/분리 기준
+- 디렉터리명 `reservation_ai_parser`는 역사적 이름이다.
+- 신규 기능을 추가할 때는 AI 파서 기능과 integration 기능을 구분해 파일을 분리한다.
+- 장기적으로는 `ops_integration_server` 같은 이름/서비스로 분리하는 것이 맞다.
+- 단, 현재 운영 launchd/Cloudflare 경로가 이 서비스에 묶여 있으므로 rename/redeploy는 별도 phase에서만 진행한다.
 
 ## 운영 기준
 - 서버 로컬 바인딩은 `127.0.0.1:43110`
