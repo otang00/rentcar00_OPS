@@ -159,12 +159,18 @@ void main() {
   });
 
   testWidgets('관리자는 과태료 레이어와 홈페이지 확인 배지를 볼 수 있다', (tester) async {
+    final launchedUris = <Uri>[];
+
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           appRouterProvider.overrideWithValue(_testRouter()),
           selectedOpsLayerProvider.overrideWith((ref) => OpsLayer.reservations),
           currentStaffAccountProvider.overrideWith((ref) async => adminStaff),
+          homepageLauncherProvider.overrideWithValue((uri) async {
+            launchedUris.add(uri);
+            return true;
+          }),
           allReservationsProvider.overrideWith(
             (ref) async => homepagePendingReservations,
           ),
@@ -176,6 +182,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('과태료'), findsOneWidget);
+    expect(find.byIcon(Icons.language_outlined), findsOneWidget);
+    expect(find.byTooltip('홈페이지 확인 1건'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('홈페이지 확인 1건'));
+    await tester.pumpAndSettle();
+
+    expect(launchedUris, [Uri.parse(rentcar00HomepageUri)]);
+    expect(find.byType(ReservationDetailPage), findsNothing);
+  });
+
+  testWidgets('관리자는 홈페이지 미확인 건이 없어도 일반 홈페이지 버튼을 볼 수 있다', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appRouterProvider.overrideWithValue(_testRouter()),
+          selectedOpsLayerProvider.overrideWith((ref) => OpsLayer.reservations),
+          currentStaffAccountProvider.overrideWith((ref) async => adminStaff),
+          allReservationsProvider.overrideWith((ref) async => fakeReservations),
+        ],
+        child: const Rentcar00OpsApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('홈페이지 열기'), findsOneWidget);
     expect(find.byIcon(Icons.language_outlined), findsOneWidget);
   });
 }

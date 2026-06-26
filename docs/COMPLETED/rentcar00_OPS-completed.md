@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-06-26 — 홈페이지 🌐 링크 + 미확인 배지 동작 정정
+### 사용자 표면
+- 관리자/admin 상단 🌐 버튼은 항상 메인 홈페이지 `https://rentcar00.com`을 연다.
+- 홈페이지 미확인 예약이 있으면 같은 🌐 버튼에 숫자 배지를 표시한다.
+- 미확인 건이 없으면 숫자 없이 일반 🌐 버튼으로 보인다.
+- staff는 기존 owner-only UI 규칙대로 홈페이지 버튼을 보지 않는다.
+
+### 실제 동작
+- 기존 🌐 버튼의 첫 미확인 예약 상세 이동 로직을 제거했다.
+- `url_launcher`의 external application launch로 메인 홈페이지를 연다.
+- 테스트용 `homepageLauncherProvider`를 두어 URL 호출과 상세 화면 미진입을 widget test로 검증한다.
+- 메뉴/분기/bottom sheet/예약상세 shortcut은 추가하지 않았다.
+
+### 핵심 파일
+- `lib/app/view/app_shell.dart`
+- `test/widget_test.dart`
+- `docs/COMPLETED/COMPLETE_20260626_rentcar00_OPS_homepage_link_with_pending_badge_pm.md`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/widget_test.dart` 통과: 5 tests passed
+- `flutter test` 전체 통과: 24 tests passed
+
+### 남은 확인
+- 실제 외부 브라우저 열림은 플랫폼 `url_launcher` 동작에 의존한다.
+- 이번 변경은 앱 UI 동작만이며 DB/RLS/런타임/배포는 변경하지 않았다.
+
+---
+
 ## 2026-06-26 — 사장님 전용 과태료/홈페이지 UI 접근 제한
 ### 사용자 표면
 - 상단의 긴 `홈페이지 N` 버튼을 🌐 아이콘+숫자 배지로 줄여 탭 영역과 겹치지 않게 정리했다.

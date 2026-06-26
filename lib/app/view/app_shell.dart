@@ -11,6 +11,13 @@ import 'package:rentcar00_ops/features/reservations/shared/providers/reservation
 import 'package:rentcar00_ops/features/status_board/list/presentation/status_board_tab_page.dart';
 import 'package:rentcar00_ops/features/status_board/detail/presentation/status_board_detail_page.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+const rentcar00HomepageUri = 'https://rentcar00.com';
+
+final homepageLauncherProvider = Provider<Future<bool> Function(Uri)>((ref) {
+  return (uri) => launchUrl(uri, mode: LaunchMode.externalApplication);
+});
 
 String _reservationLabel(ReservationTab tab, int? count) {
   if (count == null) return tab.label;
@@ -107,21 +114,21 @@ class AppShell extends ConsumerWidget {
       appBar: AppBar(
         titleSpacing: 10,
         actions: [
-          if (canAccessOwnerOnlyOps &&
-              homepagePending != null &&
-              homepagePending.isNotEmpty)
+          if (canAccessOwnerOnlyOps)
             Padding(
               padding: const EdgeInsets.only(right: 4),
               child: _HomepagePendingButton(
-                count: homepagePending.length,
-                onPressed: () {
-                  ref.read(selectedOpsLayerProvider.notifier).state =
-                      OpsLayer.reservations;
-                  ref.read(selectedReservationTabProvider.notifier).state =
-                      homepagePending.first.tab;
-                  context.push(
-                    '/reservation/${homepagePending.first.reservationId}',
+                count: homepagePending?.length ?? 0,
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final launched = await ref.read(homepageLauncherProvider)(
+                    Uri.parse(rentcar00HomepageUri),
                   );
+                  if (!launched && context.mounted) {
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('홈페이지를 열 수 없습니다.')),
+                    );
+                  }
                 },
               ),
             ),
@@ -229,13 +236,15 @@ class _HomepagePendingButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return IconButton(
-      tooltip: '홈페이지 확인 $count건',
+      tooltip: count > 0 ? '홈페이지 확인 $count건' : '홈페이지 열기',
       onPressed: onPressed,
-      icon: Badge.count(
-        count: count,
-        backgroundColor: colorScheme.error,
-        child: const Icon(Icons.language_outlined),
-      ),
+      icon: count > 0
+          ? Badge.count(
+              count: count,
+              backgroundColor: colorScheme.error,
+              child: const Icon(Icons.language_outlined),
+            )
+          : const Icon(Icons.language_outlined),
     );
   }
 }
