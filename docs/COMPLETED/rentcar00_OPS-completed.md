@@ -17,20 +17,30 @@
 - `url_launcher`의 external application launch로 메인 홈페이지를 연다.
 - 테스트용 `homepageLauncherProvider`를 두어 URL 호출과 상세 화면 미진입을 widget test로 검증한다.
 - 메뉴/분기/bottom sheet/예약상세 shortcut은 추가하지 않았다.
+- Android build number를 `1.0.0+54`로 올렸다.
+- arm64 release APK를 빌드했다.
+- GDrive `rentcar00_OPS/apk/`에는 최신 b54 APK 1개만 남겼다.
 
 ### 핵심 파일
 - `lib/app/view/app_shell.dart`
 - `test/widget_test.dart`
+- `pubspec.yaml`
+- `build/releases/rentcar00_ops-app-release-arm64-b54-200ec98.apk`
 - `docs/COMPLETED/COMPLETE_20260626_rentcar00_OPS_homepage_link_with_pending_badge_pm.md`
 
 ### 검증
+- `git diff --check` 통과
 - `flutter analyze` 통과
 - `flutter test test/widget_test.dart` 통과: 5 tests passed
 - `flutter test` 전체 통과: 24 tests passed
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=54` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b54-200ec98.apk` 1개만 존재
+- GDrive 업로드 확인 용량: `20,570,999 bytes`
+- 로컬 SHA-256: `e3676721eee238e0c0297c228d3e81f6fd1a1a8eca7903274aa35be11794ae7a`
 
 ### 남은 확인
-- 실제 외부 브라우저 열림은 플랫폼 `url_launcher` 동작에 의존한다.
-- 이번 변경은 앱 UI 동작만이며 DB/RLS/런타임/배포는 변경하지 않았다.
+- 실제 외부 브라우저 열림은 플랫폼 `url_launcher` 동작에 의존하므로 실기기 설치 후 1회 확인이 필요하다.
+- 이번 변경은 앱 UI/APK 배포만이며 DB/RLS/런타임은 변경하지 않았다.
 
 ---
 

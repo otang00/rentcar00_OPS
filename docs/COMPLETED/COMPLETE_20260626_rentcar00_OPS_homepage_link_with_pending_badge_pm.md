@@ -12,18 +12,28 @@
 - `test/widget_test.dart`
 - `docs/COMPLETED/rentcar00_OPS-completed.md`
 - `docs/COMPLETED/COMPLETE_20260626_rentcar00_OPS_homepage_link_with_pending_badge_pm.md`
-- `docs/PHASE/rentcar00_OPS_homepage_pending_badge_only_pm.md`
+- `pubspec.yaml`
 
 ## 검증
-- `dart format lib/app/view/app_shell.dart test/widget_test.dart`
+- `git diff --check` 통과
 - `flutter analyze` 통과
 - `flutter test test/widget_test.dart` 통과: 5 tests passed
 - `flutter test` 통과: 24 tests passed
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=54` 통과
+
+## 배포 확인
+- Commit: `200ec98 fix: open homepage from pending badge`
+- Android build number: `1.0.0+54`
+- APK: `build/releases/rentcar00_ops-app-release-arm64-b54-200ec98.apk`
+- GDrive: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b54-200ec98.apk`
+- GDrive APK 폴더에는 최신 b54 APK 1개만 남김.
+- Upload size: `20,570,999 bytes`
+- SHA-256: `e3676721eee238e0c0297c228d3e81f6fd1a1a8eca7903274aa35be11794ae7a`
 
 ## 보호 대상 확인
 - DB/RLS/Supabase migration 변경 없음.
-- `.env`, runtime config, deploy/restart, `output/` 변경 없음.
-- commit 없음.
+- `.env`, runtime config, restart 변경 없음.
+- `output/` 변경 없음.
 
 ## 남은 리스크
 - 실제 외부 브라우저 열림은 플랫폼 `url_launcher` 동작에 의존한다.
