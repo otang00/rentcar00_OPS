@@ -26,6 +26,7 @@ intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00
   - `rc00_ops_fine_notice_files`
 - 과태료 원장 저장/조회 repository 연결
 - IMS 일반/보험 계약 후보 검색 MVP 구현
+- IMS 보험배차 가져오기 건을 예약원장 lifecycle에 연결하고, 가져온 직후 배차완료/차량상태 `보험` 유지/반납완료 대기 흐름으로 정리
 - 계약자 수동 확정값 저장과 action log 기록
 - 확정 계약의 IMS 계약서 PDF 저장 endpoint와 OPS 버튼 구현
 - b53 과태료 문서패키지 MVP APK 배포

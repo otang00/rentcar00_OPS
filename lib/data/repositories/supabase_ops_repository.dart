@@ -555,6 +555,38 @@ class SupabaseOpsRepository {
     return ExternalReservationLink.fromRow(rows.first);
   }
 
+  Future<ExternalReservationLink?> fetchExternalReservationLinkByLinkKey({
+    required String linkKey,
+  }) async {
+    final rows = await _client
+        .from('rc00_ops_external_reservation_links')
+        .select()
+        .eq('provider', 'ims')
+        .eq('link_key', linkKey.trim())
+        .isFilter('deleted_at', null)
+        .limit(1);
+
+    if (rows.isEmpty) return null;
+    return ExternalReservationLink.fromRow(rows.first);
+  }
+
+  Future<String?> fetchPendingScheduleRowId({
+    required String reservationId,
+    required String scheduleType,
+  }) async {
+    final rows = await _client
+        .from('rc00_ops_schedules')
+        .select('id')
+        .eq('reservation_id', reservationId.trim())
+        .eq('schedule_type', scheduleType.trim())
+        .eq('schedule_done', false)
+        .order('schedule_at', ascending: true)
+        .limit(1);
+
+    if (rows.isEmpty) return null;
+    return rows.first['id']?.toString();
+  }
+
   Future<List<ExternalReservationLink>> fetchExternalReservationLinks() async {
     final rows = await _client
         .from('rc00_ops_external_reservation_links')
@@ -885,10 +917,15 @@ class SupabaseOpsRepository {
     required String scheduleType,
     required String reservationId,
     required String carNumber,
+    String carStatusAfterDispatch = '일반',
+    String carStatusActionAfterDispatch = '일정완료',
   }) async {
     final normalizedScheduleType = scheduleType.trim();
     final normalizedReservationId = reservationId.trim();
     final normalizedCarNumber = carNumber.trim();
+    final normalizedCarStatusAfterDispatch = carStatusAfterDispatch.trim();
+    final normalizedCarStatusActionAfterDispatch = carStatusActionAfterDispatch
+        .trim();
     final completedAt = DateTime.now();
     final now = completedAt.toIso8601String();
 
@@ -945,8 +982,12 @@ class SupabaseOpsRepository {
     final reservationStartAt = _parseDateTime(reservationRow?['start_at']);
     final reservationEndAt = _parseDateTime(reservationRow?['end_at']);
     final updatePayload = <String, dynamic>{
-      'status': '일반',
-      'status_action': '일정완료',
+      'status': normalizedCarStatusAfterDispatch.isEmpty
+          ? '일반'
+          : normalizedCarStatusAfterDispatch,
+      'status_action': normalizedCarStatusActionAfterDispatch.isEmpty
+          ? '일정완료'
+          : normalizedCarStatusActionAfterDispatch,
       if ((reservationRow?['customer_name'] as String?)?.trim().isNotEmpty ??
           false)
         'customer_name': (reservationRow?['customer_name'] as String).trim(),
@@ -977,7 +1018,8 @@ class SupabaseOpsRepository {
       targetRef: scheduleRowId,
       reservationId: normalizedReservationId,
       carNumber: normalizedCarNumber,
-      messageText: '배차 일정 완료 + 차량 일반 전환',
+      messageText:
+          '배차 일정 완료 + 차량 ${normalizedCarStatusAfterDispatch.isEmpty ? '일반' : normalizedCarStatusAfterDispatch} 전환',
     );
   }
 

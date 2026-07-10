@@ -574,10 +574,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       );
       if (imported == null) return;
       if (!imported.directInput && imported.candidate != null) {
-        await _applyInsuranceDispatchImport(
-          carRowId: carRowId,
-          candidate: imported.candidate!,
-        );
+        await _applyInsuranceDispatchImport(candidate: imported.candidate!);
         return;
       }
     }
@@ -594,35 +591,105 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
   }
 
   Future<void> _applyInsuranceDispatchImport({
-    required String carRowId,
     required ImsInsuranceClaimImportCandidate candidate,
   }) async {
     final startAt = _tryParseDateTime(candidate.rentalAt) ?? DateTime.now();
     final endAt = candidate.returnAt.trim().isEmpty
         ? null
         : _tryParseDateTime(candidate.returnAt);
+    if (endAt == null) {
+      _showError('IMS 보험배차 반납일시를 확인하지 못했습니다. 직접입력으로 진행해주세요.');
+      return;
+    }
+    final claimId = candidate.claimId.trim();
+    if (claimId.isEmpty) {
+      _showError('IMS 보험 claim id를 확인하지 못했습니다. 직접입력으로 진행해주세요.');
+      return;
+    }
+    final linkKey = 'ims-insurance-claim:$claimId';
     final noteText = [
       'IMS 보험배차 가져오기',
       if (candidate.title.trim().isNotEmpty) candidate.title.trim(),
-      'claim:${candidate.claimId}',
+      'claim:$claimId',
       if (candidate.status.trim().isNotEmpty) 'state:${candidate.status}',
     ].join(' | ');
 
     await _runAction(() async {
-      await ref
-          .read(supabaseOpsRepositoryProvider)
-          .updateCarInstantStatus(
-            carRowId: carRowId,
-            status: '보험',
-            statusAction: _dispatchStatusAction('보험'),
-            customerName: candidate.customerName,
-            customerPhone: opsFormatPhoneInput(candidate.customerPhone),
-            startAt: startAt,
-            endAt: endAt,
-            pickupLocation: candidate.pickupLocation,
-            parkingLocation: '',
-            noteText: noteText,
-          );
+      final repository = ref.read(supabaseOpsRepositoryProvider);
+      final existingLink = await repository
+          .fetchExternalReservationLinkByLinkKey(linkKey: linkKey);
+      if (existingLink != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('이미 가져온 IMS 보험배차입니다. 기존 예약상세로 이동합니다.'),
+            action: SnackBarAction(
+              label: '열기',
+              onPressed: () => context.push(
+                AppRoutes.reservationDetail.replaceFirst(
+                  ':reservationId',
+                  Uri.encodeComponent(existingLink.reservationId),
+                ),
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final reservationId = await repository.createReservationFromVehicle(
+        car: record,
+        reservationNumber: 'INS-$claimId',
+        customerName: candidate.customerName,
+        customerPhone: opsFormatPhoneInput(candidate.customerPhone),
+        customerBirthDate: '',
+        referralSource: candidate.insuranceCompany,
+        paymentAmount: '',
+        startAt: startAt,
+        endAt: endAt,
+        pickupLocation: candidate.pickupLocation,
+        dropoffLocation: candidate.pickupLocation,
+        noteText: noteText,
+        createdVia: 'ims_insurance_dispatch_import',
+      );
+      await repository.upsertExternalReservationLink(
+        reservationId: reservationId,
+        externalReservationId: claimId,
+        externalDetailId: claimId,
+        externalStatus: 'linked',
+        linkKey: linkKey,
+        lastPayloadJson: {
+          'source': 'ims_insurance_dispatch_import',
+          'claimId': claimId,
+          'status': candidate.status,
+          'carNumber': candidate.carNumber,
+          'carName': candidate.carName,
+          'customerName': candidate.customerName,
+          'customerPhone': candidate.customerPhone,
+          'rentalAt': candidate.rentalAt,
+          'returnAt': candidate.returnAt,
+          'pickupLocation': candidate.pickupLocation,
+          'insuranceCompany': candidate.insuranceCompany,
+          'claimUserName': candidate.claimUserName,
+          'title': candidate.title,
+        },
+        lastResultJson: {'code': 'IMPORTED', 'claimId': claimId},
+      );
+      final dispatchScheduleRowId = await repository.fetchPendingScheduleRowId(
+        reservationId: reservationId,
+        scheduleType: '배차',
+      );
+      if (dispatchScheduleRowId == null) {
+        throw StateError('생성된 보험예약의 배차 일정을 찾지 못했습니다.');
+      }
+      await repository.completeSchedule(
+        scheduleRowId: dispatchScheduleRowId,
+        scheduleType: '배차',
+        reservationId: reservationId,
+        carNumber: record.carNumber,
+        carStatusAfterDispatch: '보험',
+        carStatusActionAfterDispatch: _dispatchStatusAction('보험'),
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

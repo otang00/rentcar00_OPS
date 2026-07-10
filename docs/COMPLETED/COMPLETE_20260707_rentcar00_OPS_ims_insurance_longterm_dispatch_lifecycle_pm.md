@@ -1,0 +1,252 @@
+# IMS 보험배차/장기 배차 lifecycle 정책 수정 PM
+
+## 0. 문서 정보
+- 작성일: 2026-07-07
+- 작성자/agent: OpenClaw rentcar00_ops_developer
+- 상태: Draft
+- 승인 범위: 코드 체크 기반 PM 문서 작성만 완료. 코드/DB/배포/커밋은 아직 미승인.
+- 관련 문서:
+  - `docs/PHASE/rentcar00_OPS-ims-insurance-dispatch-return-action-issue-20260707.md`
+  - `docs/GOAL/rentcar00_OPS-current.md`
+  - `docs/PHASE/README.md`
+- 완료 후 문서명: `docs/COMPLETED/COMPLETE_20260707_rentcar00_OPS_ims_insurance_longterm_dispatch_lifecycle_pm.md`
+- 상태/정책문서 업데이트 대상:
+  - `docs/GOAL/rentcar00_OPS-current.md`
+  - `docs/PHASE/README.md`
+  - 필요 시 `docs/COMPLETED/rentcar00_OPS-completed.md`
+
+## 1. 목적
+- 목표:
+  - IMS 보험배차 가져오기 건을 예약원장 lifecycle에 올리되, 가져온 즉시 `배차완료`까지 처리된 상태로 만든다.
+  - 배차완료가 차량 상태를 무조건 `일반`으로 덮는 구조를 정책 기반으로 분리한다.
+  - 장기 배차 버튼/흐름을 같은 정책 구조로 확장 가능하게 준비한다.
+- 성공 기준:
+  - 보험배차 IMS 후보 선택 후 예약원장/배차일정/반납일정이 생성된다.
+  - 생성 직후 배차 일정은 완료되고 예약상태는 `배차중`이 된다.
+  - 차량 상태는 `보험`으로 유지된다.
+  - 반납 일정은 IMS 보험계약의 `returnAt` 값을 그대로 사용한다.
+  - 예약상세에는 `배차완료`가 아니라 `반납완료`가 표시된다.
+  - 일반 예약 배차완료는 기존처럼 차량 상태 `일반`으로 전환된다.
+  - 장기 배차는 차량 상태 `장기`를 유지하는 경로로 확장 가능하다.
+- 제외 범위:
+  - 운영 DB backfill
+  - Supabase schema 변경
+  - parser restart/deploy
+  - APK build/upload
+  - 기존 보험 즉시상태 건 자동 보정
+
+## 2. 현재 상태
+- 확인한 파일/docs:
+  - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+  - `lib/data/repositories/supabase_ops_repository.dart`
+  - `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
+  - `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+  - `lib/data/models/external_reservation_link.dart`
+  - `lib/data/models/status_board_record.dart`
+  - `docs/PHASE/rentcar00_OPS-ims-insurance-dispatch-return-action-issue-20260707.md`
+- 현재 git 상태:
+  - branch: `fix/ops-return-complete-end-at`
+  - untracked: `docs/PHASE/rentcar00_OPS-ims-insurance-dispatch-return-action-issue-20260707.md`
+  - untracked: `output/`
+- 기존 구현/문서 상태:
+  - 일반 예약 생성은 `createReservationFromVehicle()`에서 예약원장과 `배차`/`반납` 일정 2건을 생성한다.
+  - 예약상세 `반납완료` 표시 조건은 `예약상태 배차중/inUse` + 미완료 `반납` 일정이다.
+  - 보험배차 IMS 가져오기는 `_applyInsuranceDispatchImport()`에서 `updateCarInstantStatus()`만 호출해 차량 상태만 `보험`으로 갱신한다.
+  - `completeSchedule(scheduleType: '배차')`는 현재 차량 상태를 무조건 `일반`으로 전환한다.
+  - `_DispatchTypeDialog`에는 이미 `보험`, `일반`, `장기` 선택지가 있다.
+  - `ImsInsuranceClaimImportCandidate`에는 `returnAt` 필드가 있다.
+- 확인 필요:
+  - `claimId`를 `external_reservation_id`, `external_detail_id`, `link_key`에 어떤 방식으로 저장할지 최종 확정.
+  - 보험배차 예약번호가 비어도 운영상 허용되는지, 아니면 `INS-{claimId}` 같은 내부 번호가 필요한지.
+  - 장기 배차도 예약원장을 생성할지, 단순 즉시상태 버튼으로 남길지.
+
+## 3. 전체 변경 요약
+- 변경점:
+  - 배차완료 처리에서 예약 lifecycle 진행과 차량 상태 전환 정책을 분리한다.
+  - 보험배차 IMS 가져오기 성공 시 예약원장 생성 후 배차 일정 자동완료를 실행한다.
+  - 반납 일정은 IMS `returnAt` 값을 사용해 미완료로 남긴다.
+  - 장기 상태 보존을 위한 `carStatusAfterDispatch` 정책 인자를 도입한다.
+- 변경대상:
+  - `lib/data/repositories/supabase_ops_repository.dart`
+  - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+  - 필요 시 `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
+  - 테스트 파일 추가/수정 후보: `test/` 하위 repository/payload 관련 테스트
+- 예상 영향:
+  - 예약상세 버튼 표시, 차량현황 상태, 일정 완료 로그, 보험배차 가져오기 흐름.
+- 주요 리스크:
+  - 보험배차 가져오기 시 중복 예약 생성.
+  - 배차완료 정책 변경으로 일반 예약 차량 상태 전환 regression.
+  - 보험 차량 상태를 보존하다가 기존 일반예약 흐름까지 상태 보존될 위험.
+  - 외부 IMS claim id 저장 기준이 불명확하면 나중에 반납/계약서 연동 추적이 어려움.
+
+## 4. Phase 목록
+
+### Phase 1. 배차완료 차량상태 정책 분리
+- 목적: `배차완료 = 예약 lifecycle 진행`과 `차량상태 전환 = 배차유형별 정책`을 분리한다.
+- 변경점:
+  - `completeSchedule()`에 선택 인자 추가 후보:
+    - `String carStatusAfterDispatch = '일반'`
+    - `String carStatusActionAfterDispatch = '일정완료'`
+  - 일반 예약 호출은 기본값 `일반` 유지.
+  - 보험/장기 자동완료 호출은 각각 `보험`, `장기` 전달 가능하게 한다.
+- 변경대상:
+  - `lib/data/repositories/supabase_ops_repository.dart`
+  - `lib/features/reservations/detail/presentation/reservation_detail_page.dart` 호출부 확인
+- 실행방법:
+  - `completeSchedule()`의 배차 분기에서 hard-coded `status: '일반'`을 인자 기반으로 변경한다.
+  - 기본값은 `일반`으로 두어 기존 예약상세 배차완료 동작은 유지한다.
+- 종료조건:
+  - 일반 예약 `배차완료`는 기존처럼 차량상태 `일반` 전환.
+  - 보험/장기 호출부에서 상태 보존 정책을 전달할 수 있음.
+- 검증방법:
+  - 정적 코드 확인.
+  - 가능 시 `flutter analyze` 또는 관련 테스트 실행.
+  - 일반 예약 배차완료 호출부가 기본값을 사용하는지 확인.
+- 리스크:
+  - 인자 기본값 누락 시 기존 흐름 변경 가능.
+- 되돌릴 방법:
+  - `completeSchedule()` 시그니처와 updatePayload를 기존 hard-coded `일반`으로 원복.
+- 출력보고:
+  - 변경된 정책 인자, 기존 일반 예약 영향 없음 여부, 확인한 호출부.
+
+### Phase 2. 보험배차 IMS 가져오기 → 예약원장 생성 + 배차 자동완료
+- 목적: 보험배차 가져오기 결과를 예약원장 lifecycle에 올리고, 가져온 즉시 배차완료 상태로 만든다.
+- 변경점:
+  - `_applyInsuranceDispatchImport()`에서 `updateCarInstantStatus()` 단독 호출을 중단 또는 축소한다.
+  - IMS 보험 후보를 기반으로 `createReservationFromVehicle()` 호출.
+  - `startAt`은 IMS `rentalAt`, `endAt`은 IMS `returnAt` 그대로 사용한다.
+  - 생성된 예약의 `배차` 일정을 찾아 `completeSchedule(..., carStatusAfterDispatch: '보험')` 호출.
+  - `반납` 일정은 미완료 상태로 남긴다.
+  - `upsertExternalReservationLink()`에 보험 `claimId` 저장.
+- 변경대상:
+  - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+  - `lib/data/repositories/supabase_ops_repository.dart`
+- 실행방법:
+  - 후보 선택 시 `candidate.returnAt`이 비어 있으면 중단 또는 직접입력으로 유도한다.
+  - 예약 생성 후 해당 `reservationId`의 미완료 `배차` 일정 row id를 조회하는 repository helper를 추가한다.
+    - 후보: `fetchPendingScheduleRowId(reservationId, scheduleType)`
+  - 배차 자동완료는 helper로 얻은 schedule row id에 대해 실행한다.
+  - 보험 claim link 저장 기준 후보:
+    - `external_reservation_id = candidate.claimId`
+    - `external_detail_id = candidate.claimId`
+    - `link_key = 'ims-insurance-claim:${candidate.claimId}'`
+    - `lastPayloadJson = candidate 기반 payload`
+- 종료조건:
+  - 보험배차 IMS 가져오기 후 예약상세 진입 시 `배차완료`가 뜨지 않고 `반납완료`가 뜬다.
+  - 차량현황 상태는 `보험`이다.
+  - 반납 일정 시간은 IMS `returnAt` 기준이다.
+- 검증방법:
+  - 코드 inspection.
+  - 가능 시 단위 테스트 또는 repository-level fake/mock 테스트.
+  - 실기기/런타임 검증은 별도 승인 phase에서 수행.
+- 리스크:
+  - 중복 claim import.
+  - `returnAt` 파싱 실패 시 반납 일정 생성 불가.
+  - 기존 즉시상태 보험배차 UX 변화.
+- 되돌릴 방법:
+  - `_applyInsuranceDispatchImport()`를 기존 `updateCarInstantStatus()` 단독 호출로 원복.
+- 출력보고:
+  - 생성되는 예약 필드, 자동완료 일정, 외부 link 저장값, 반납일정 source.
+
+### Phase 3. 장기 배차 버튼 lifecycle 정책 준비
+- 목적: 장기 버튼도 배차완료 시 `일반`으로 덮이지 않도록 같은 정책 구조에 태운다.
+- 변경점:
+  - 기존 `_DispatchTypeDialog`의 `장기` 선택은 유지.
+  - 장기 즉시배차를 예약원장 lifecycle로 승격할지 여부를 코드 기준으로 분기 가능한 상태로 정리한다.
+  - 최소 구현 후보는 직접입력 장기 배차 시 `completeSchedule(..., carStatusAfterDispatch: '장기')`를 사용할 수 있게 하는 것.
+- 변경대상:
+  - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+  - `lib/data/repositories/supabase_ops_repository.dart`
+- 실행방법:
+  - 보험 phase에서 만든 정책 인자를 장기에도 재사용한다.
+  - 장기 예약원장 생성은 별도 승인 없이는 구현하지 않고, 버튼 정책만 설계/준비한다.
+- 종료조건:
+  - 장기 상태 보존을 위한 코드 경로가 명확함.
+  - 실제 장기 예약원장 생성 여부는 별도 정책 결정으로 남김.
+- 검증방법:
+  - 일반/보험/장기 상태 전환 경로 inspection.
+- 리스크:
+  - 장기 기능을 보험 수정과 한 번에 크게 섞으면 범위가 커짐.
+- 되돌릴 방법:
+  - 장기 관련 호출부 변경을 제외하고 보험 정책만 남긴다.
+- 출력보고:
+  - 장기 버튼의 현재 처리 상태와 다음 구현 후보.
+
+### Phase 4. 중복 방지와 기존 건 처리 기준 잠금
+- 목적: 보험 claim 중복 예약 생성과 기존 차량 즉시상태 건 처리 방침을 잠근다.
+- 변경점:
+  - import 전 `external_reservation_links`에서 `link_key` 또는 `external_reservation_id` 중복 확인 후보.
+  - 이미 가져온 claim이면 기존 예약으로 이동하거나 중단 메시지 표시.
+  - 기존 차량 즉시상태 건 backfill은 이번 구현 범위에서 제외하고 별도 PM 후보로 남긴다.
+- 변경대상:
+  - `lib/data/repositories/supabase_ops_repository.dart`
+  - `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- 실행방법:
+  - read helper 추가 후보: `fetchExternalReservationLinkByLinkKey()` 또는 claim id 검색.
+  - 중복이면 예약 생성 전 중단.
+- 종료조건:
+  - 같은 claim id로 보험예약이 중복 생성되지 않는다.
+- 검증방법:
+  - 중복 claim 후보 선택 시 중단 메시지 확인.
+  - link 저장값 inspection.
+- 리스크:
+  - 기존 link 데이터가 없는 과거 건은 중복 방지에서 누락될 수 있음.
+- 되돌릴 방법:
+  - 중복 검사 helper와 UI 중단 로직 제거.
+- 출력보고:
+  - 중복 판단 key, 기존 건 처리 제외 여부.
+
+### Final Phase. 검수·완료판정·상태/정책문서 정리·문서 COMPLETE 변경·커밋
+- 목적: 승인된 구현이 끝난 뒤 검수, 완료판정, 문서 정리, 커밋을 마무리한다.
+- 변경점:
+  - 전체 변경 검수
+  - 완료판정
+  - 상태변경/정책변경 여부 판단
+  - `docs/GOAL/rentcar00_OPS-current.md`, `docs/PHASE/README.md`, 필요 시 `docs/COMPLETED/rentcar00_OPS-completed.md` 업데이트
+  - PM 문서를 완료 위치로 이동 또는 이름 변경
+  - 파일명에 `COMPLETE_20260707` 반영
+  - 최종 커밋
+- 변경대상:
+  - 승인된 코드 파일
+  - 관련 docs
+- 실행방법:
+  - diff 검수 → analyze/test/build 중 승인 범위 내 최소 검증 → 문서 업데이트 → PM COMPLETE 이동 → 커밋.
+- 종료조건:
+  - 승인된 phase가 모두 완료됨.
+  - 검증 결과가 보고됨.
+  - 문서 최신화 여부가 판단됨.
+  - 커밋 해시가 보고됨. 단, 커밋 미승인 시 `커밋 제외`로 보고.
+- 검증방법:
+  - `git diff --check`
+  - `flutter analyze` 후보
+  - 관련 단위 테스트 후보
+  - 실기기 smoke는 별도 승인 시 수행
+- 리스크:
+  - 문서 완료 이동/커밋은 상태 변경이므로 별도 승인 필요.
+- 되돌릴 방법:
+  - 커밋 전 diff 원복 또는 커밋 revert.
+- 출력보고:
+  - 완료 phase, 변경 파일, 검증 결과, 완료 문서 경로, 커밋 여부, 남은 리스크.
+
+## 5. 승인 및 중단 조건
+- 승인 요청:
+  - 이 문서는 PM 준비 문서이며, 코드 수정 실행 승인이 아니다.
+  - 실행하려면 `Phase 1부터 코드 수정 진행`처럼 phase 범위를 명시해 승인 필요.
+- 중단 조건:
+  - 보험 claim id 중복 기준이 코드상 확정 불가.
+  - IMS `returnAt`이 비어 있거나 파싱 불가한 후보가 많음.
+  - `completeSchedule()` 정책 분리가 일반예약 배차완료 regression을 만들 위험 발견.
+  - protected target, DB schema, parser restart, APK build가 필요해짐.
+- protected target 별도 승인 필요 여부:
+  - `.env`, secret, runtime config 수정 없음.
+  - Supabase schema/운영 DB 변경 없음.
+  - parser restart/deploy/APK build/upload는 별도 승인 필요.
+
+## 6. 완료 보고 형식
+- 완료 phase:
+- 변경 파일:
+- 검증 결과:
+- 완료 문서 경로:
+- 상태/정책문서 업데이트:
+- 커밋:
+- 남은 리스크:

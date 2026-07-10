@@ -48,6 +48,8 @@
   - 과태료 MVP와 별개다. 코드/DB/운영 반영은 아직 승인되지 않았다.
 
 ## 완료로 이동한 PM
+- `docs/COMPLETED/COMPLETE_20260707_rentcar00_OPS_ims_insurance_longterm_dispatch_lifecycle_pm.md`
+  - IMS 보험배차 가져오기를 예약원장 lifecycle에 연결하고 배차완료 후 차량 상태 `보험` 유지 정책을 반영했다.
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`
   - b51 상단 메뉴/API parser hotfix PM. b52 APK build/upload 완료 기록이며, 최신 배포는 b53이다.
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_mvp_foundation_pm.md`

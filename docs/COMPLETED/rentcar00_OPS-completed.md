@@ -5,6 +5,32 @@
 
 ---
 
+
+## 2026-07-10 — IMS 보험배차 예약 lifecycle 통합
+### 사용자 표면
+- IMS 보험배차 가져오기 건도 예약원장 lifecycle에 올라가며, 가져온 직후 배차완료 상태가 된다.
+- 보험배차 가져오기 후 예약상세에서는 배차완료가 아니라 반납완료 흐름으로 이어진다.
+- 같은 IMS 보험 claim은 중복 생성하지 않고 기존 예약으로 안내한다.
+
+### 실제 동작
+- `completeSchedule()`의 배차완료 차량 상태 전환을 정책 인자로 분리했다.
+- 일반 예약 배차완료 기본값은 차량 상태 `일반`으로 유지한다.
+- 보험배차 IMS 가져오기는 예약원장/배차일정/반납일정을 생성한 뒤 배차 일정을 자동 완료하고 차량 상태를 `보험`으로 유지한다.
+- IMS 보험 claim link key는 `ims-insurance-claim:{claimId}` 기준으로 저장/중복 확인한다.
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `docs/COMPLETED/COMPLETE_20260707_rentcar00_OPS_ims_insurance_longterm_dispatch_lifecycle_pm.md`
+
+### 검증
+- `flutter analyze` 통과
+
+### 남은 확인
+- 실제 IMS 보험 claim 후보 선택 후 실기기에서 예약상세 `반납완료` 노출을 1회 확인해야 한다.
+- 운영 DB backfill, Supabase schema 변경, parser restart, APK build/upload는 이번 범위에 포함하지 않았다.
+
+---
 ## 2026-06-26 — 홈페이지 🌐 링크 + 미확인 배지 동작 정정
 ### 사용자 표면
 - 관리자/admin 상단 🌐 버튼은 항상 메인 홈페이지 `https://rentcar00.com`을 연다.
