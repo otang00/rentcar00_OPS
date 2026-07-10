@@ -6,6 +6,32 @@
 ---
 
 
+## 2026-07-10 — 홈페이지 예약 상단 액션 모달
+### 사용자 표면
+- 상단 홈페이지 배지/버튼을 누르면 `홈페이지 진입`과 `예약확인` 선택 모달이 열린다.
+- `예약확인`을 누르면 홈페이지 pending 예약만 카드 리스트로 확인할 수 있다.
+- 예약 카드를 누르면 해당 예약상세로 이동한다.
+
+### 실제 동작
+- 기존 외부 홈페이지 열기는 `홈페이지 진입` 선택지로 유지했다.
+- `homepagePendingReservationsProvider`를 카드 리스트 모달에서 직접 watch한다.
+- pending 0건, loading, error 상태를 모달 안에서 처리한다.
+
+### 핵심 파일
+- `lib/app/view/app_shell.dart`
+- `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_homepage_reservation_action_modal_pm.md`
+- `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_three_pm_bundle_execution_plan.md`
+
+### 검증
+- `git diff --check` 통과
+- `flutter analyze` 통과
+
+### 남은 확인
+- 실기기에서 홈페이지 진입, 예약확인 리스트, 카드 선택 상세 이동을 1회 확인해야 한다.
+- APK build/upload는 이번 범위에 포함하지 않았다.
+
+---
+
 ## 2026-07-10 — 홈페이지 예약 foreground 인앱알림
 ### 사용자 표면
 - 앱이 켜져 있는 동안 홈페이지 예약 pending 건수가 늘어나면 인앱 SnackBar 알림이 표시된다.

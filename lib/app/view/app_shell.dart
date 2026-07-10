@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/domain/ops_layer.dart';
+import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
 import 'package:rentcar00_ops/features/fines/presentation/fine_notice_page.dart';
@@ -20,6 +21,8 @@ final homepageLauncherProvider = Provider<Future<bool> Function(Uri)>((ref) {
 });
 
 final _lastHomepagePendingCountProvider = StateProvider<int?>((ref) => null);
+
+enum _HomepageQuickAction { openHomepage, reviewReservations }
 
 String _reservationLabel(ReservationTab tab, int? count) {
   if (count == null) return tab.label;
@@ -55,6 +58,70 @@ void _openAccountMenu(BuildContext context, WidgetRef ref) {
   }
 
   context.push(AppRoutes.admin);
+}
+
+Future<void> _openHomepageActionMenu(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final action = await showModalBottomSheet<_HomepageQuickAction>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '홈페이지 예약',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.open_in_new_outlined),
+              title: const Text('홈페이지 진입'),
+              subtitle: const Text('rentcar00.com 열기'),
+              onTap: () =>
+                  Navigator.of(context).pop(_HomepageQuickAction.openHomepage),
+            ),
+            ListTile(
+              leading: const Icon(Icons.fact_check_outlined),
+              title: const Text('예약확인'),
+              subtitle: const Text('홈페이지 예약만 카드로 보기'),
+              onTap: () => Navigator.of(
+                context,
+              ).pop(_HomepageQuickAction.reviewReservations),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (action == null || !context.mounted) return;
+
+  switch (action) {
+    case _HomepageQuickAction.openHomepage:
+      final launched = await ref.read(homepageLauncherProvider)(
+        Uri.parse(rentcar00HomepageUri),
+      );
+      if (!launched && context.mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('홈페이지를 열 수 없습니다.')),
+        );
+      }
+    case _HomepageQuickAction.reviewReservations:
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => const _HomepageReservationListSheet(),
+      );
+  }
 }
 
 class AppShell extends ConsumerWidget {
@@ -137,17 +204,7 @@ class AppShell extends ConsumerWidget {
               padding: const EdgeInsets.only(right: 4),
               child: _HomepagePendingButton(
                 count: homepagePending?.length ?? 0,
-                onPressed: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  final launched = await ref.read(homepageLauncherProvider)(
-                    Uri.parse(rentcar00HomepageUri),
-                  );
-                  if (!launched && context.mounted) {
-                    messenger.showSnackBar(
-                      const SnackBar(content: Text('홈페이지를 열 수 없습니다.')),
-                    );
-                  }
-                },
+                onPressed: () => _openHomepageActionMenu(context, ref),
               ),
             ),
           IconButton(
@@ -265,6 +322,138 @@ class _HomepagePendingButton extends StatelessWidget {
           : const Icon(Icons.language_outlined),
     );
   }
+}
+
+class _HomepageReservationListSheet extends ConsumerWidget {
+  const _HomepageReservationListSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reservationsAsync = ref.watch(homepagePendingReservationsProvider);
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '홈페이지 예약확인',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: reservationsAsync.when(
+                  data: (items) => items.isEmpty
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 32),
+                            child: Text('확인할 홈페이지 예약이 없습니다.'),
+                          ),
+                        )
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: items.length,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (context, index) =>
+                              _HomepageReservationCard(
+                                reservation: items[index],
+                              ),
+                        ),
+                  loading: () => const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                  error: (error, _) => Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 32),
+                      child: Text('홈페이지 예약을 불러오지 못했습니다.\n$error'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomepageReservationCard extends StatelessWidget {
+  const _HomepageReservationCard({required this.reservation});
+
+  final ReservationRecord reservation;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final carLabel = [
+      reservation.carNumber,
+      reservation.carName,
+    ].where((item) => item.trim().isNotEmpty).join(' · ');
+    final period =
+        '${_formatHomepageReservationDateTime(reservation.startAt)} → ${_formatHomepageReservationDateTime(reservation.endAt)}';
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          final router = GoRouter.of(context);
+          Navigator.of(context).pop();
+          router.push('/reservation/${reservation.reservationId}');
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      reservation.customerName.trim().isEmpty
+                          ? '고객명 미확인'
+                          : reservation.customerName.trim(),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const Badge(label: Text('홈페이지 확인')),
+                ],
+              ),
+              const SizedBox(height: 6),
+              if (reservation.customerPhone.trim().isNotEmpty)
+                Text(reservation.customerPhone.trim()),
+              if (carLabel.isNotEmpty) Text(carLabel),
+              Text(period),
+              if (reservation.reservationNumber.trim().isNotEmpty)
+                Text('예약번호 ${reservation.reservationNumber.trim()}'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatHomepageReservationDateTime(DateTime value) {
+  String two(int input) => input.toString().padLeft(2, '0');
+  return '${value.month}/${value.day} ${two(value.hour)}:${two(value.minute)}';
 }
 
 class _OpsLayerSwitcher extends StatelessWidget {

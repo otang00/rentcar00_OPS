@@ -41,14 +41,6 @@
   - 역할: 경찰/교통 과태료 명의변경 통보/신청서 템플릿 후보.
   - 남은 일: 법령 문구, 수신-참조, 주민번호/면허번호 표시 방식, 도장 위치 확인.
 
-## 비과태료 진행 PM
-- `rentcar00_OPS-homepage-reservation-action-modal-pm-20260710.md`
-  - 상태: `Draft / bundle Step 3 pending`
-  - 역할: 상단 홈페이지 버튼을 홈페이지 진입/예약확인 선택 모달로 바꾸고, 홈페이지 예약 카드 리스트에서 예약상세로 이동한다.
-- `rentcar00_OPS-three-pm-bundle-execution-plan-20260710.md`
-  - 상태: `Step 2 completed / Step 3 pending`
-  - 역할: IMS 보험배차 lifecycle, 홈페이지 인앱알림, 홈페이지 액션 모달 3개 PM을 순서대로 실행·완료판정·커밋한다.
-
 ## 비과태료 PM
 - `rentcar00_OPS-vehicle-group-pricing-policy.md`
   - 상태: `In Review`
@@ -56,6 +48,10 @@
   - 과태료 MVP와 별개다. 코드/DB/운영 반영은 아직 승인되지 않았다.
 
 ## 완료로 이동한 PM
+- `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_homepage_reservation_action_modal_pm.md`
+  - 상단 홈페이지 버튼을 액션 모달로 바꾸고 홈페이지 예약 카드 리스트/예약상세 이동을 추가했다.
+- `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_three_pm_bundle_execution_plan.md`
+  - IMS 보험배차 lifecycle, 홈페이지 인앱알림, 홈페이지 액션 모달 3개 PM 번들 실행을 완료했다.
 - `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_homepage_reservation_inapp_notification_pm.md`
   - 앱 foreground 상태에서 홈페이지 pending 예약 증가분을 SnackBar로 알린다.
 - `docs/COMPLETED/COMPLETE_20260707_rentcar00_OPS_ims_insurance_longterm_dispatch_lifecycle_pm.md`
