@@ -6,6 +6,30 @@
 ---
 
 
+## 2026-07-10 — 홈페이지 예약 foreground 인앱알림
+### 사용자 표면
+- 앱이 켜져 있는 동안 홈페이지 예약 pending 건수가 늘어나면 인앱 SnackBar 알림이 표시된다.
+- 앱 시작 시 기존 pending 건은 조용히 배지만 표시하고, 이후 증가분만 알린다.
+
+### 실제 동작
+- `homepagePendingCountProvider` 변화를 감지해 이전 count보다 증가한 경우에만 알림을 띄운다.
+- 사장님 권한 UI에서만 홈페이지 예약 알림을 표시한다.
+- FCM/OS 푸쉬, 기기 token, Firebase 설정은 추가하지 않았다.
+
+### 핵심 파일
+- `lib/app/view/app_shell.dart`
+- `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_homepage_reservation_inapp_notification_pm.md`
+
+### 검증
+- `git diff --check` 통과
+- `flutter analyze` 통과
+
+### 남은 확인
+- 실기기 foreground 상태에서 실제 홈페이지 예약 유입 시 SnackBar 알림을 1회 확인해야 한다.
+- 앱 백그라운드/종료 상태 알림은 이번 범위가 아니며 FCM PM이 필요하다.
+
+---
+
 ## 2026-07-10 — IMS 보험배차 예약 lifecycle 통합
 ### 사용자 표면
 - IMS 보험배차 가져오기 건도 예약원장 lifecycle에 올라가며, 가져온 직후 배차완료 상태가 된다.

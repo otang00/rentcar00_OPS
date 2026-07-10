@@ -19,6 +19,8 @@ final homepageLauncherProvider = Provider<Future<bool> Function(Uri)>((ref) {
   return (uri) => launchUrl(uri, mode: LaunchMode.externalApplication);
 });
 
+final _lastHomepagePendingCountProvider = StateProvider<int?>((ref) => null);
+
 String _reservationLabel(ReservationTab tab, int? count) {
   if (count == null) return tab.label;
   return '${tab.label}\n$count';
@@ -79,6 +81,22 @@ class AppShell extends ConsumerWidget {
     final homepagePending = ref
         .watch(homepagePendingReservationsProvider)
         .valueOrNull;
+    ref.listen<AsyncValue<int>>(homepagePendingCountProvider, (_, next) {
+      final current = next.valueOrNull;
+      if (current == null) return;
+      final previous = ref.read(_lastHomepagePendingCountProvider);
+      ref.read(_lastHomepagePendingCountProvider.notifier).state = current;
+      if (!canAccessOwnerOnlyOps || previous == null || current <= previous) {
+        return;
+      }
+      final delta = current - previous;
+      final message = delta == 1
+          ? '홈페이지 예약이 새로 들어왔습니다.'
+          : '홈페이지 예약 $delta건이 새로 들어왔습니다.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    });
     if (safeLayer != layer) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (context.mounted) {

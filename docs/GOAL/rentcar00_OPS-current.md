@@ -139,6 +139,7 @@ intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00
 - HMAC 서명, timestamp, eventId, payload schema 검증을 넣었다.
 - 정상 payload는 이벤트 저장 후 예약 원장/상태/배차·반납 일정까지 자동 생성한다.
 - 앱은 홈페이지 검토 배지와 예약 상세 확인 처리를 제공한다.
+- 앱 foreground 상태에서는 홈페이지 pending 예약 증가분을 인앱 SnackBar로 알린다.
 
 ### 5. UI/실사용 보강
 - 상단 통합 검색, 차량 선택, 주소 네이버지도 링크, 당겨서 새로고침, 핵심 Realtime을 반영했다.
