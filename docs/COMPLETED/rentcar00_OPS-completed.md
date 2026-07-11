@@ -16,6 +16,8 @@
 - 기존 외부 홈페이지 열기는 `홈페이지 진입` 선택지로 유지했다.
 - `homepagePendingReservationsProvider`를 카드 리스트 모달에서 직접 watch한다.
 - pending 0건, loading, error 상태를 모달 안에서 처리한다.
+- Android build number는 `1.0.0+55`다.
+- GDrive `rentcar00_OPS/apk/`의 최신 APK는 `rentcar00_ops-app-release-arm64-b55-19770c0.apk`이며, 파일 크기는 `20,636,679 bytes`다.
 
 ### 핵심 파일
 - `lib/app/view/app_shell.dart`
@@ -25,10 +27,11 @@
 ### 검증
 - `git diff --check` 통과
 - `flutter analyze` 통과
+- widget test는 홈페이지 버튼 → 액션 모달 → `홈페이지 진입` 선택 → 외부 URL 호출 경로를 검증한다.
 
 ### 남은 확인
 - 실기기에서 홈페이지 진입, 예약확인 리스트, 카드 선택 상세 이동을 1회 확인해야 한다.
-- APK build/upload는 이번 범위에 포함하지 않았다.
+- b55 APK는 GDrive 업로드 및 직원 사용 상태를 사장님이 확인했다.
 
 ---
 
@@ -95,7 +98,7 @@
 - 메뉴/분기/bottom sheet/예약상세 shortcut은 추가하지 않았다.
 - Android build number를 `1.0.0+54`로 올렸다.
 - arm64 release APK를 빌드했다.
-- GDrive `rentcar00_OPS/apk/`에는 최신 b54 APK 1개만 남겼다.
+- 당시 GDrive `rentcar00_OPS/apk/`에는 b54 APK를 최신 배포본으로 유지했다.
 
 ### 핵심 파일
 - `lib/app/view/app_shell.dart`

@@ -30,7 +30,7 @@
    - 과태료/주정차/통행료 임차인 변경 통합 PM 문서
    - 상태: 큰 phase map paused, 실전 MVP increment 모드
 10. `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`
-   - b51/b52 UI/parser hotfix 완료 문서. 최신 APK는 b53 문서패키지 MVP 배포본이다.
+   - b51/b52 UI/parser hotfix 완료 문서. 최신 APK 기준은 b55이며, 배포 기록은 `docs/COMPLETED/rentcar00_OPS-completed.md`에 둔다.
 11. `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_mvp_foundation_pm.md`
    - 기존 과태료 MVP foundation 로드맵 완료 문서
    - Phase 1-10 완료 상태로 닫았다.

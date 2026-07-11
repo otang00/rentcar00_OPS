@@ -188,6 +188,13 @@ void main() {
     await tester.tap(find.byTooltip('홈페이지 확인 1건'));
     await tester.pumpAndSettle();
 
+    expect(find.text('홈페이지 진입'), findsOneWidget);
+    expect(find.text('예약확인'), findsOneWidget);
+    expect(launchedUris, isEmpty);
+
+    await tester.tap(find.text('홈페이지 진입'));
+    await tester.pumpAndSettle();
+
     expect(launchedUris, [Uri.parse(rentcar00HomepageUri)]);
     expect(find.byType(ReservationDetailPage), findsNothing);
   });
