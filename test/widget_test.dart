@@ -183,16 +183,16 @@ void main() {
 
     expect(find.byTooltip('과태료'), findsOneWidget);
     expect(find.byIcon(Icons.language_outlined), findsOneWidget);
-    expect(find.byTooltip('홈페이지 확인 1건'), findsOneWidget);
+    expect(find.byTooltip('예약확인 1건'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('홈페이지 확인 1건'));
+    await tester.tap(find.byTooltip('예약확인 1건'));
     await tester.pumpAndSettle();
 
     expect(find.text('홈페이지 진입'), findsOneWidget);
-    expect(find.text('예약확인'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, '예약확인'), findsOneWidget);
     expect(launchedUris, isEmpty);
 
-    await tester.tap(find.text('홈페이지 진입'));
+    await tester.tap(find.widgetWithText(ListTile, '홈페이지 진입'));
     await tester.pumpAndSettle();
 
     expect(launchedUris, [Uri.parse(rentcar00HomepageUri)]);
