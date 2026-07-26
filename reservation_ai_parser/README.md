@@ -43,6 +43,44 @@ rentcar00_OPS 운영 앱이 호출하는 Mac mini 중간서버다.
 
 그 외 path/method 는 차단 방향으로 유지한다.
 
+
+## OPS 앱 parser token 인증
+
+OPS 앱이 직접 호출하는 parser/IMS/과태료 endpoint는 `X-Ops-Parser-Token` 헤더가 필요하다.
+
+보호 대상:
+```txt
+POST /parse-reservation
+POST /parse-fine-notice
+POST /ims/*
+POST /fine-notices/*
+GET  /fine-notice-file-packages
+GET  /fine-notice-files/download
+```
+
+예외:
+```txt
+GET  /health
+POST /api/integrations/rentcar00/reservation-events
+```
+
+필요 env 이름:
+```txt
+OPS_APP_PARSER_TOKEN
+```
+
+운영 반영 순서:
+1. OPS 앱에 `OPS_PARSER_API_TOKEN` 설정 및 header 적용 빌드 준비
+2. 새 OPS 앱 배포
+3. parser `.env`에 `OPS_APP_PARSER_TOKEN` 설정
+4. parser restart
+5. public smoke 확인
+
+주의:
+- secret/token 값은 문서/채팅/로그에 남기지 않는다.
+- parser token guard가 먼저 켜지고 구버전 OPS 앱이 남아 있으면 AI parser/IMS/과태료 기능이 실패한다.
+- 홈페이지 예약 이벤트는 기존 HMAC 인증을 계속 사용하며 이 token guard 대상이 아니다.
+
 ## 홈페이지 예약 이벤트 수신
 홈페이지 예약 확정 시 `reservation.created` 이벤트를 받아 Supabase inbox에 저장하고 OPS 원장에 자동 등록한다.
 

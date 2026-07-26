@@ -6,6 +6,46 @@
 ---
 
 
+## 2026-07-24 — Parser API Auth Hardening / b56 배포
+### 사용자 표면
+- OPS 앱의 AI 파서, IMS 연동, 과태료 parser 기능은 새 b56 APK에서 parser token header를 포함해 호출한다.
+- token 없는 외부 parser 요청은 차단된다.
+
+### 실제 동작
+- parser 보호 경로에 `X-Ops-Parser-Token` 가드를 추가했다.
+- `/health`는 공개 유지했다.
+- 홈페이지 예약 이벤트 endpoint는 기존 HMAC 인증을 유지했다.
+- 앱 `.env`에는 `OPS_PARSER_API_TOKEN`, parser `.env`에는 `OPS_APP_PARSER_TOKEN`을 추가했고 두 값은 같은 토큰이다. 값은 문서에 기록하지 않는다.
+- parser launchd 서비스 `ai.otang.reservation-ai-parser`를 재시작했다.
+- Android build number는 `1.0.0+56`이다.
+- GDrive `rentcar00_OPS/apk/`에 `rentcar00_ops-app-release-arm64-b56-657c52b.apk`를 업로드했다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/parser-core.js`
+- `lib/shared/config/ops_parser_headers.dart`
+- parser/IMS/과태료 client 파일들
+- `reservation_ai_parser/README.md`
+- `docs/PHASE/README.md`
+
+### 검증
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `node --check reservation_ai_parser/src/parser-core.js` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- `git diff --check` 통과
+- public smoke:
+  - `/health` → 200
+  - token 없는 `/parse-reservation` → 401
+  - token 있는 `/parse-reservation` → route 진입 확인
+
+### 남은 확인
+- 직원 단말에서 b56 설치 후 AI 파서/IMS/과태료 parser 기능을 1회 실기기 확인해야 한다.
+- commit은 아직 하지 않았다.
+
+---
+
+
 ## 2026-07-10 — 홈페이지 예약 상단 액션 모달
 ### 사용자 표면
 - 상단 홈페이지 배지/버튼을 누르면 `홈페이지 진입`과 `예약확인` 선택 모달이 열린다.

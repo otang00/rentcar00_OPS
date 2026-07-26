@@ -76,7 +76,7 @@ Future<void> _openHomepageActionMenu(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '홈페이지 예약',
+              '예약확인',
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -92,7 +92,7 @@ Future<void> _openHomepageActionMenu(
             ListTile(
               leading: const Icon(Icons.fact_check_outlined),
               title: const Text('예약확인'),
-              subtitle: const Text('홈페이지 예약만 카드로 보기'),
+              subtitle: const Text('홈페이지/외부예약 확인 카드 보기'),
               onTap: () => Navigator.of(
                 context,
               ).pop(_HomepageQuickAction.reviewReservations),
@@ -311,7 +311,7 @@ class _HomepagePendingButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return IconButton(
-      tooltip: count > 0 ? '홈페이지 확인 $count건' : '홈페이지 열기',
+      tooltip: count > 0 ? '예약확인 $count건' : '홈페이지 열기',
       onPressed: onPressed,
       icon: count > 0
           ? Badge.count(
@@ -346,7 +346,7 @@ class _HomepageReservationListSheet extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '홈페이지 예약확인',
+                '예약확인',
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -358,7 +358,7 @@ class _HomepageReservationListSheet extends ConsumerWidget {
                       ? const Center(
                           child: Padding(
                             padding: EdgeInsets.symmetric(vertical: 32),
-                            child: Text('확인할 홈페이지 예약이 없습니다.'),
+                            child: Text('확인할 예약이 없습니다.'),
                           ),
                         )
                       : ListView.separated(
@@ -380,7 +380,7 @@ class _HomepageReservationListSheet extends ConsumerWidget {
                   error: (error, _) => Center(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 32),
-                      child: Text('홈페이지 예약을 불러오지 못했습니다.\n$error'),
+                      child: Text('확인 예약을 불러오지 못했습니다.\n$error'),
                     ),
                   ),
                 ),
@@ -433,7 +433,7 @@ class _HomepageReservationCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const Badge(label: Text('홈페이지 확인')),
+                  Badge(label: Text(reservationSourceReviewLabel(reservation))),
                 ],
               ),
               const SizedBox(height: 6),

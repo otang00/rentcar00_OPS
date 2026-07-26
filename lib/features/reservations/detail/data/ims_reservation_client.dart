@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:rentcar00_ops/shared/config/ops_parser_headers.dart';
+
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
 import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
@@ -85,6 +87,7 @@ class ImsReservationClient {
     final uri = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
+    applyOpsParserTokenHeader(request);
     request.write(jsonEncode(body));
 
     final response = await request.close().timeout(

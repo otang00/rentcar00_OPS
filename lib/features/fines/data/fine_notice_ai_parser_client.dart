@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:rentcar00_ops/shared/config/ops_parser_headers.dart';
+
 import 'package:rentcar00_ops/features/fines/domain/fine_notice_models.dart';
 
 class FineNoticeAiParserClient {
@@ -15,6 +17,7 @@ class FineNoticeAiParserClient {
     final uri = Uri.parse('${_normalizedBaseUrl()}/parse-fine-notice');
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
+    applyOpsParserTokenHeader(request);
     request.write(
       jsonEncode({
         'fixture': {
@@ -56,6 +59,7 @@ class FineNoticeAiParserClient {
     final uri = Uri.parse('${_normalizedBaseUrl()}/parse-fine-notice');
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
+    applyOpsParserTokenHeader(request);
     request.write(
       jsonEncode({'imageBase64': base64Encode(bytes), 'mimeType': mimeType}),
     );

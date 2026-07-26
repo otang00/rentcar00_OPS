@@ -22,28 +22,37 @@
 - 재처리 기준:
   - 사용자가 다시 생성. 중복 방지 키는 예약번호/예약ID 기준 확인 필요.
 
-## Event/Decision/Command: 홈페이지 예약 생성 이벤트 수신
+## Event/Decision/Command: 홈페이지/sync 예약 생성 이벤트 수신
 
 - 유형: Event
-- 생성 위치: 실제 빵빵카 홈페이지 예약 확정 flow
+- 생성 위치:
+  - 실제 빵빵카 홈페이지 예약 확정 flow
+  - booking-system sync/orchestrator 외부 provider 예약 handoff
 - 처리 위치: `reservation_ai_parser/src/server.js` `/api/integrations/rentcar00/reservation-events`
 - 결과 상태:
   - `rc00_ops_reservation_events` 기록
   - HMAC/timestamp/eventId 검증
-  - dedupe 판단
-  - `rc00_ops_reservations` 생성
-  - `rc00_ops_reservation_states`에 `homepage_review=pending`
+  - eventId 및 provider reservation id 기반 dedupe 판단
+  - `rc00_ops_reservations` 생성 또는 기존 예약 reuse
+  - `rc00_ops_reservation_states` 생성
+    - 홈페이지: `homepage_review=pending`
+    - 카모아/찜카: `provider_source`, `provider_check_status`, `{provider}_check_status`, `ims_create_status=not_started`
   - `rc00_ops_schedules` 배차/반납 2건 생성
+  - `rc00_ops_action_logs`에 `reservation.sync_imported` 기록
 - 다음 흐름:
-  - 앱에서 `홈페이지 확인` 배지 표시
+  - 앱에서 홈페이지 또는 provider 확인 배지 표시
   - 직원이 예약 상세에서 확인 처리
+  - IMS 예약등록은 기존 OPS `/ims/create-reservation` 경로 재사용 대상이며, 실제 IMS write는 별도 승인/실행 단계
 - 실패 기준:
   - signature 불일치
   - timestamp 허용오차 초과
   - payload schema/필드 매핑 실패
+  - 필수값 누락
   - Supabase insert 실패
+  - provider reservation id dedupe 충돌
 - 재처리 기준:
   - 같은 eventId는 dedupe 처리
+  - 같은 `sourceProvider + sourceReservationId`는 같은 OPS reservation id로 매핑
   - 실패 event 재처리 정책은 확인 필요
 
 ## Event/Decision/Command: 홈페이지 예약 확인 처리

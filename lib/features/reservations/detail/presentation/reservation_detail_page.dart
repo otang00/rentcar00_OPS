@@ -62,22 +62,20 @@ class _ReservationDetailBodyState
   bool _lifecycleUpdating = false;
   bool _cancelUpdating = false;
 
-  Future<void> _markHomepageReviewed(ReservationRecord reservation) async {
+  Future<void> _markSourceReviewed(ReservationRecord reservation) async {
     if (_reservationUpdating) return;
+    final label = reservationSourceReviewLabel(reservation);
     setState(() => _reservationUpdating = true);
     try {
       await ref
           .read(supabaseOpsRepositoryProvider)
-          .markHomepageReservationReviewed(
+          .markReservationSourceReviewed(
             reservationId: reservation.reservationId,
           );
       ref.invalidate(allReservationsProvider);
       ref.invalidate(actionLogsProvider(widget.reservationId));
       if (!mounted) return;
-      _showSnack(
-        '홈페이지 예약 확인 완료 처리했습니다.',
-        backgroundColor: Colors.green.shade700,
-      );
+      _showSnack('$label 완료 처리했습니다.', backgroundColor: Colors.green.shade700);
     } catch (error) {
       if (!mounted) return;
       _showSnack('확인 처리 실패($error)', backgroundColor: Colors.red.shade700);
@@ -815,8 +813,8 @@ class _ReservationDetailBodyState
         final logs = logsAsync.valueOrNull ?? const [];
         final outboxPreview = outboxPreviewAsync.valueOrNull ?? const [];
         final hasPhone = hasCallablePhone(reservation.customerPhone);
-        final needsHomepageReview =
-            reservation.checkPayload['homepage_review'] == 'pending';
+        final needsSourceReview = reservationNeedsSourceReview(reservation);
+        final sourceReviewLabel = reservationSourceReviewLabel(reservation);
         final externalLink = externalLinkAsync.valueOrNull;
         final hasActiveImsRegistration = externalLink?.isActiveBinding == true;
         final linkedSchedules =
@@ -982,14 +980,14 @@ class _ReservationDetailBodyState
                                 ? null
                                 : _submitImsReservation,
                           ),
-                        if (needsHomepageReview)
+                        if (needsSourceReview)
                           _DetailActionButton(
-                            label: '홈페이지확인',
+                            label: sourceReviewLabel.replaceAll(' ', ''),
                             icon: Icons.check_circle_outline,
                             loading: _reservationUpdating,
                             onPressed: _reservationUpdating
                                 ? null
-                                : () => _markHomepageReviewed(reservation),
+                                : () => _markSourceReviewed(reservation),
                           ),
                         _DetailActionButton(
                           label: '예약취소',

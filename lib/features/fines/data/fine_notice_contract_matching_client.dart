@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:rentcar00_ops/shared/config/ops_parser_headers.dart';
+
 import 'package:rentcar00_ops/features/fines/domain/fine_notice_models.dart';
 
 class FineNoticeContractMatchingClient {
@@ -47,6 +49,7 @@ class FineNoticeContractMatchingClient {
     final uri = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
+    applyOpsParserTokenHeader(request);
     request.write(jsonEncode(payload));
 
     final response = await request.close().timeout(

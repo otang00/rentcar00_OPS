@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:rentcar00_ops/shared/config/ops_parser_headers.dart';
+
 class ReservationAiParserClient {
   ReservationAiParserClient({required this.baseUrl, HttpClient? httpClient})
     : _httpClient = httpClient ?? HttpClient();
@@ -12,6 +14,7 @@ class ReservationAiParserClient {
     if (baseUrl.trim().isEmpty) return false;
     final uri = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}/health');
     final request = await _httpClient.getUrl(uri);
+    applyOpsParserTokenHeader(request);
     final response = await request.close().timeout(
       const Duration(seconds: 10),
       onTimeout: () {
@@ -41,6 +44,7 @@ class ReservationAiParserClient {
     );
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
+    applyOpsParserTokenHeader(request);
     request.write(jsonEncode({'text': normalizedText}));
 
     final response = await request.close().timeout(
@@ -129,6 +133,7 @@ class ReservationAiParserClient {
     final uri = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
+    applyOpsParserTokenHeader(request);
     request.write(jsonEncode(payload));
 
     final response = await request.close().timeout(

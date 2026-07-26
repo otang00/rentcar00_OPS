@@ -29,6 +29,7 @@ if (process.argv.includes('--check')) {
     fineNoticeOpenAiModel: fineNoticeConfig.openAiModel,
     fineNoticeTimeoutMs: fineNoticeConfig.timeoutMs,
     hasOpsReservationEventSecret: Boolean(config.opsReservationEventSecret),
+    hasOpsParserToken: Boolean(config.opsParserToken),
     hasSupabaseUrl: Boolean(config.supabaseUrl),
     hasSupabaseServiceRoleKey: Boolean(config.supabaseServiceRoleKey),
     reservationEventTimestampToleranceMs: config.reservationEventTimestampToleranceMs
@@ -56,6 +57,10 @@ const server = http.createServer(async (req, res) => {
       const rawBody = await readRawBody(req);
       const result = await receiveRentcar00ReservationEvent({ req, rawBody });
       return sendJson(res, 200, result);
+    }
+
+    if (isOpsParserProtectedPath(pathname)) {
+      requireOpsParserToken(req);
     }
 
     if (req.url === '/parse-reservation') {
@@ -282,7 +287,6 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
   const payload = normalizeReservationCreatedEventPayload({ body, eventId, eventType });
 
   const existing = await findStoredReservationEvent(eventId);
-  if (existing?.status === 'imported') return { ok: true, deduped: true, imported: true };
 
   if (!existing) {
     try {
@@ -295,7 +299,18 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
   try {
     const importResult = await importReservationCreatedEvent(payload);
     await markReservationEventImported(payload.eventId, importResult);
-    return { ok: true, deduped: Boolean(existing), imported: true, reservationId: importResult.reservationId };
+    return {
+      ok: true,
+      eventId: payload.eventId,
+      provider: importResult.provider || null,
+      sourceReservationId: importResult.sourceReservationId || null,
+      deduped: Boolean(existing),
+      imported: true,
+      reservationId: importResult.reservationId,
+      reservationRefId: importResult.reservationRefId,
+      ops: importResult.ops,
+      ims: importResult.ims,
+    };
   } catch (error) {
     await markReservationEventFailed(payload.eventId, error);
     throw error;
@@ -357,11 +372,37 @@ function normalizeReservationCreatedEventPayload({ body, eventId, eventType }) {
   }
   const booking = body?.booking && typeof body.booking === 'object' ? body.booking : null;
   if (!booking) throw new ApiError(400, 'invalid_payload', 'booking object is required');
+  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
 
-  const bookingOrderId = stringifyNullable(booking.bookingOrderId).trim();
-  const reservationCode = stringifyNullable(booking.reservationCode).trim();
-  if (!bookingOrderId && !reservationCode) {
-    throw new ApiError(400, 'invalid_payload', 'booking.bookingOrderId or booking.reservationCode is required');
+  const bookingOrderId = firstNonEmpty(
+    booking.bookingOrderId,
+    input.bookingOrderId,
+  );
+  const sourceReservationId = firstNonEmpty(
+    booking.sourceReservationId,
+    booking.externalReservationId,
+    booking.external_reservation_id,
+    booking.providerReservationId,
+    input.sourceReservationId,
+    input.externalReservationId,
+    input.external_reservation_id,
+    input.providerReservationId,
+  );
+  const reservationCode = firstNonEmpty(
+    booking.reservationCode,
+    booking.reservationNumber,
+    input.reservationCode,
+    input.reservationNumber,
+    booking.sourceReservationNo,
+    booking.externalReservationNo,
+    booking.external_reservation_no,
+    input.sourceReservationNo,
+    input.externalReservationNo,
+    input.external_reservation_no,
+    sourceReservationId,
+  );
+  if (!bookingOrderId && !reservationCode && !sourceReservationId) {
+    throw new ApiError(400, 'invalid_payload', 'booking bookingOrderId, reservationCode or sourceReservationId is required');
   }
 
   return {
@@ -420,20 +461,66 @@ async function importReservationCreatedEvent(payload) {
     throw new ApiError(400, 'invalid_payload', 'reservation id could not be derived');
   }
 
+  const carRef = await findOpsCarByNumber(mapped.carNumber);
   const existingReservation = await findReservationByReservationId(mapped.reservationId);
   if (existingReservation?.id) {
-    return { reservationId: mapped.reservationId, reservationRefId: existingReservation.id, reused: true };
+    await backfillReservationCarRef({ reservationRefId: existingReservation.id, mapped, carRef });
+    const scheduleSummary = await fetchReservationScheduleSummary(mapped.reservationId);
+    const ims = await ensureImsReservationForImportedEvent({ mapped, reservationRefId: existingReservation.id, reused: true, allowCreate: false });
+    return buildReservationImportResult({ mapped, reservationRefId: existingReservation.id, reused: true, scheduleSummary, ims, carRef });
   }
 
+  if (mapped.sourceProvider !== 'homepage') {
+    const imsPayload = buildImsReservationPayloadFromMappedReservation(mapped);
+    const imsCreateResult = await createImsReservationDirect(imsPayload, { allowExistingLink: false });
+    const imsBindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: imsCreateResult });
+    const imsLinked = imsBindingResult?.externalStatus === 'linked' && Boolean(imsBindingResult?.externalReservationId);
+    if (!imsLinked) {
+      throw new ApiError(409, 'ims_create_required_before_ops', stringifyErrorText(imsBindingResult?.errorText || imsBindingResult?.message) || 'IMS 생성 성공 전에는 OPS 예약을 생성하지 않습니다.');
+    }
+
+    const reservation = await createOpsReservationRows({ mapped, carRef });
+    await upsertExternalReservationLink({
+      mapped,
+      reservationRefId: reservation.reservationRefId,
+      imsPayload,
+      imsResult: sanitizeImsResultForStorage(imsBindingResult),
+      externalStatus: 'linked',
+      errorText: null,
+    });
+    return buildReservationImportResult({
+      mapped,
+      reservationRefId: reservation.reservationRefId,
+      reused: false,
+      scheduleSummary: reservation.scheduleSummary,
+      ims: {
+        attempted: true,
+        created: true,
+        reused: false,
+        externalReservationId: imsBindingResult.externalReservationId || '',
+        externalDetailId: imsBindingResult.externalDetailId || '',
+        externalStatus: 'linked',
+        error: null,
+      },
+      carRef,
+    });
+  }
+
+  const reservation = await createOpsReservationRows({ mapped, carRef });
+  return buildReservationImportResult({ mapped, reservationRefId: reservation.reservationRefId, reused: false, scheduleSummary: reservation.scheduleSummary, ims: { attempted: false, created: false, skipped: true, reason: 'homepage_source', error: null }, carRef });
+}
+
+async function createOpsReservationRows({ mapped, carRef } = {}) {
   const reservation = await insertSupabaseRow('rc00_ops_reservations', {
     reservation_id: mapped.reservationId,
     reservation_number: mapped.reservationNumber || null,
+    car_id: carRef?.id || null,
     car_number: mapped.carNumber || null,
-    car_name: mapped.carName || null,
+    car_name: mapped.carName || carRef?.car_name || null,
     customer_name: mapped.customerName || null,
     customer_phone: mapped.customerPhone || null,
     customer_birth_date: mapped.customerBirthDate || null,
-    referral_source: '홈페이지',
+    referral_source: mapped.referralSource || '홈페이지',
     payment_amount: mapped.paymentAmount || null,
     start_at: mapped.startAt || null,
     end_at: mapped.endAt || null,
@@ -446,20 +533,15 @@ async function importReservationCreatedEvent(payload) {
   const reservationRefId = reservation?.id;
   if (!reservationRefId) throw new ApiError(502, 'reservation_insert_failed', 'reservation insert did not return id');
 
-  const checkPayload = {
-    homepage_review: 'pending',
-    customer_name_verified: mapped.customerName ? 'done' : 'pending',
-    customer_phone_verified: mapped.customerPhone ? 'done' : 'pending',
-    pickup_location_verified: mapped.pickupLocation ? 'done' : 'pending',
-  };
+  const checkPayload = buildReservationCheckPayload(mapped);
   await insertSupabaseRow('rc00_ops_reservation_states', {
     reservation_id: mapped.reservationId,
     reservation_ref_id: reservationRefId,
     tab_key: deriveReservationTabKey(mapped.startAt, mapped.endAt),
-    needs_attention: true,
-    warning_level: 'warning',
+    needs_attention: Object.values(checkPayload).includes('pending') || mapped.sourceProvider !== 'homepage',
+    warning_level: Object.values(checkPayload).includes('pending') || mapped.sourceProvider !== 'homepage' ? 'warning' : null,
     check_payload_json: checkPayload,
-    memo_text: '홈페이지 예약 확인 필요',
+    memo_text: mapped.sourceProvider === 'homepage' ? '홈페이지 예약 확인 필요' : `${mapped.referralSource} 예약 확인 필요`,
     last_action_at: new Date().toISOString(),
   }, 'id');
 
@@ -468,7 +550,212 @@ async function importReservationCreatedEvent(payload) {
     buildHomepageScheduleRow({ mapped, type: '반납', at: mapped.endAt, location: mapped.dropoffLocation || mapped.pickupLocation }),
   ], 'id');
 
-  return { reservationId: mapped.reservationId, reservationRefId, reused: false };
+  await insertSupabaseRow('rc00_ops_action_logs', {
+    reservation_id: mapped.reservationId,
+    reservation_ref_id: reservationRefId,
+    action_key: 'reservation.sync_imported',
+    target_type: 'reservation',
+    message_text: `${mapped.referralSource} 예약원장과 배차/반납 일정을 생성`,
+    result_status: 'success',
+    meta_json: {
+      created_via: mapped.createdVia,
+      source_provider: mapped.sourceProvider,
+      source_reservation_id: mapped.sourceReservationId || null,
+    },
+  }, 'id');
+
+  const scheduleSummary = await fetchReservationScheduleSummary(mapped.reservationId);
+  return { reservationRefId, scheduleSummary };
+}
+
+async function findOpsCarByNumber(carNumber) {
+  const normalized = stringifyNullable(carNumber).trim();
+  if (!normalized) return null;
+  const url = new URL('/rest/v1/rc00_ops_cars', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('car_number', `eq.${normalized}`);
+  url.searchParams.set('select', 'id,car_number,car_name,status');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'ops_car_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase OPS car lookup failed'));
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function backfillReservationCarRef({ reservationRefId, mapped = {}, carRef } = {}) {
+  if (!reservationRefId) return;
+  const patch = {};
+  if (carRef?.id) patch.car_id = carRef.id;
+  if (mapped.carName) patch.car_name = mapped.carName;
+  if (mapped.customerBirthDate) patch.customer_birth_date = mapped.customerBirthDate;
+  if (Object.keys(patch).length === 0) return;
+  const url = new URL('/rest/v1/rc00_ops_reservations', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${reservationRefId}`);
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...buildSupabaseServiceHeaders(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify(patch),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'reservation_car_ref_update_failed', resolveApiErrorMessage(json, response.status, 'Supabase reservation car ref update failed'));
+}
+
+function buildReservationImportResult({ mapped, reservationRefId, reused, scheduleSummary = {}, ims = {}, carRef = null } = {}) {
+  return {
+    eventId: mapped.metaJson?.event_id || null,
+    provider: mapped.sourceProvider,
+    sourceReservationId: mapped.sourceReservationId || null,
+    reservationId: mapped.reservationId,
+    reservationRefId,
+    reused: Boolean(reused),
+    ops: {
+      created: !reused,
+      reused: Boolean(reused),
+      reservationId: mapped.reservationId,
+      reservationRefId,
+      scheduleCreated: Number(scheduleSummary.scheduleCount || 0) >= 2,
+      scheduleCount: Number(scheduleSummary.scheduleCount || 0),
+      carId: carRef?.id || null,
+      carMatched: Boolean(carRef?.id),
+    },
+    ims,
+  };
+}
+
+async function ensureImsReservationForImportedEvent({ mapped, reservationRefId, reused = false, allowCreate = true } = {}) {
+  if (!mapped || mapped.sourceProvider === 'homepage') {
+    return { attempted: false, created: false, skipped: true, reason: 'homepage_source', error: null };
+  }
+
+  const existingLink = await findExternalReservationLinkByReservationId(mapped.reservationId);
+  if (existingLink?.external_status === 'linked' && existingLink?.external_reservation_id) {
+    return {
+      attempted: false,
+      created: false,
+      reused: true,
+      externalReservationId: existingLink.external_reservation_id,
+      externalDetailId: existingLink.external_detail_id || '',
+      externalStatus: existingLink.external_status,
+      error: null,
+    };
+  }
+
+  if (!allowCreate) {
+    return { attempted: false, created: false, skipped: true, reason: 'existing_ops_no_auto_ims_link', error: null };
+  }
+
+  let imsPayload;
+  try {
+    imsPayload = buildImsReservationPayloadFromMappedReservation(mapped);
+  } catch (error) {
+    const result = buildStructuredImsFailure({ stage: 'build_ims_payload', error });
+    await upsertExternalReservationLink({ mapped, reservationRefId, imsPayload: {}, imsResult: result, externalStatus: 'failed', errorText: result.error?.message || 'ims_payload_build_failed' });
+    return result;
+  }
+
+  try {
+    const createResult = await createImsReservationDirect(imsPayload);
+    const bindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: createResult });
+    const linked = bindingResult?.externalStatus === 'linked' && Boolean(bindingResult?.externalReservationId);
+    await upsertExternalReservationLink({
+      mapped,
+      reservationRefId,
+      imsPayload,
+      imsResult: sanitizeImsResultForStorage(bindingResult),
+      externalStatus: linked ? 'linked' : 'failed',
+      errorText: linked ? null : (bindingResult?.errorText || bindingResult?.message || bindingResult?.code || 'ims_create_failed'),
+    });
+    return {
+      attempted: true,
+      created: linked,
+      reused: Boolean(reused),
+      externalReservationId: bindingResult?.externalReservationId || '',
+      externalDetailId: bindingResult?.externalDetailId || '',
+      externalStatus: bindingResult?.externalStatus || (linked ? 'linked' : 'failed'),
+      error: linked ? null : { stage: 'ims_create', code: bindingResult?.code || 'IMS_CREATE_FAILED', message: stringifyErrorText(bindingResult?.errorText || bindingResult?.message) || 'IMS create failed', details: bindingResult?.errorDetails || bindingResult?.apiResult || null },
+    };
+  } catch (error) {
+    const result = buildStructuredImsFailure({ stage: 'ims_create', error });
+    await upsertExternalReservationLink({ mapped, reservationRefId, imsPayload, imsResult: result, externalStatus: 'failed', errorText: result.error?.message || 'ims_create_failed' });
+    return result;
+  }
+}
+
+function buildStructuredImsFailure({ stage, error } = {}) {
+  return {
+    attempted: stage !== 'build_ims_payload',
+    created: false,
+    externalReservationId: '',
+    externalDetailId: '',
+    externalStatus: 'failed',
+    error: {
+      stage: stage || 'ims_create',
+      code: error?.code || error?.name || 'IMS_CREATE_FAILED',
+      message: error?.message || 'IMS create failed',
+    },
+  };
+}
+
+function buildShortImsContractMemo(mapped = {}) {
+  const note = String(mapped.noteText || '').trim();
+  if (!note) return '';
+  const compact = note
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => /^(계약번호|고객명|차량|대여|반납|예약경로|SRC):/.test(line))
+    .join(' / ');
+  const summary = compact || note.replace(/\s+/g, ' ');
+  return summary.length > 160 ? `${summary.slice(0, 157)}...` : summary;
+}
+
+function buildImsReservationPayloadFromMappedReservation(mapped = {}) {
+  const shortContractMemo = buildShortImsContractMemo(mapped);
+  return normalizeImsReservationPayload({
+    rentalAt: formatKstMinute(mapped.startAt),
+    returnAt: formatKstMinute(mapped.endAt),
+    carNumber: mapped.carNumber,
+    totalFee: mapped.paymentAmount,
+    customerName: mapped.customerName,
+    customerPhone: mapped.customerPhone,
+    address: mapped.pickupLocation || '',
+    useDelivery: true,
+    memo: [
+      mapped.referralSource ? `${mapped.referralSource} 자동등록` : '외부예약 자동등록',
+      mapped.sourceReservationId ? `SRC:${mapped.sourceReservationId}` : '',
+      mapped.reservationId ? `OPS:${mapped.reservationId}` : '',
+      shortContractMemo ? `참고:${shortContractMemo}` : '',
+    ].filter(Boolean).join(' | ').slice(0, 240),
+    reservationId: mapped.reservationId,
+  });
+}
+
+function sanitizeImsPayloadForStorage(payload = {}) {
+  return { ...payload, customerPhone: payload.customerPhone ? `***${String(payload.customerPhone).slice(-4)}` : '' };
+}
+
+function sanitizeImsResultForStorage(result = {}) {
+  const { apiResult, requestBody, matchedSchedule, ...safe } = result || {};
+  return safe;
+}
+
+function buildReservationCheckPayload(mapped) {
+  const checkPayload = {
+    customer_name_verified: mapped.customerName ? 'done' : 'pending',
+    customer_phone_verified: mapped.customerPhone ? 'done' : 'pending',
+    pickup_location_verified: mapped.pickupLocation ? 'done' : 'pending',
+  };
+  if (mapped.sourceProvider === 'homepage') {
+    checkPayload.homepage_review = 'pending';
+    return checkPayload;
+  }
+  checkPayload.provider_source = mapped.sourceProvider;
+  checkPayload.source_provider = mapped.sourceProvider;
+  checkPayload.source_review = 'pending';
+  checkPayload.provider_check_status = mapped.providerCheckStatus || 'found';
+  checkPayload.provider_reservation_id = mapped.sourceReservationId || '';
+  checkPayload[`${mapped.sourceProvider}_check_status`] = mapped.providerCheckStatus || 'found';
+  checkPayload.ims_create_status = 'not_started';
+  return checkPayload;
 }
 
 function buildHomepageScheduleRow({ mapped, type, at, location }) {
@@ -482,9 +769,72 @@ function buildHomepageScheduleRow({ mapped, type, at, location }) {
     schedule_at: at || null,
     schedule_done: false,
     location_text: location || null,
-    detail_text: '홈페이지 예약 자동 생성',
-    payload_json: { created_via: 'homepage_reservation_event', reservation_id: mapped.reservationId, status: type },
+    detail_text: `${mapped.referralSource} 예약 자동 생성`,
+    payload_json: {
+      created_via: mapped.createdVia,
+      reservation_id: mapped.reservationId,
+      source_provider: mapped.sourceProvider,
+      source_reservation_id: mapped.sourceReservationId || null,
+      status: type,
+    },
   };
+}
+
+
+async function fetchReservationScheduleSummary(reservationId) {
+  const url = new URL('/rest/v1/rc00_ops_schedules', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('reservation_id', `eq.${reservationId}`);
+  url.searchParams.set('select', 'id,schedule_type');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'schedule_summary_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase schedule lookup failed'));
+  const rows = Array.isArray(json) ? json : [];
+  return { scheduleCount: rows.length, scheduleTypes: rows.map((row) => row.schedule_type).filter(Boolean) };
+}
+
+async function findExternalReservationLinkByReservationId(reservationId) {
+  const url = new URL('/rest/v1/rc00_ops_external_reservation_links', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('provider', 'eq.ims');
+  url.searchParams.set('reservation_id', `eq.${reservationId}`);
+  url.searchParams.set('select', 'id,reservation_id,external_reservation_id,external_detail_id,external_status,link_key,error_text');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'external_link_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase external link lookup failed'));
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function upsertExternalReservationLink({ mapped, reservationRefId, imsPayload = {}, imsResult = {}, externalStatus = 'failed', errorText = null } = {}) {
+  const url = new URL('/rest/v1/rc00_ops_external_reservation_links', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('on_conflict', 'provider,reservation_id');
+  const now = new Date().toISOString();
+  const body = {
+    reservation_id: mapped.reservationId,
+    reservation_ref_id: reservationRefId || null,
+    provider: 'ims',
+    external_reservation_id: imsResult.externalReservationId || null,
+    external_detail_id: imsResult.externalDetailId || null,
+    external_status: externalStatus,
+    link_key: imsResult.linkKey || `OPS:${mapped.reservationId}`,
+    last_payload_json: sanitizeImsPayloadForStorage(imsPayload),
+    last_result_json: sanitizeImsResultForStorage(imsResult),
+    linked_at: externalStatus === 'linked' ? now : null,
+    last_checked_at: now,
+    deleted_at: null,
+    error_text: errorText || null,
+    updated_at: now,
+  };
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'external_link_upsert_failed', resolveApiErrorMessage(json, response.status, 'Supabase external link upsert failed'));
 }
 
 async function findReservationByReservationId(reservationId) {
@@ -575,6 +925,34 @@ function buildSupabaseServiceHeaders() {
     Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
     Accept: 'application/json',
   };
+}
+
+
+function isOpsParserProtectedPath(pathname) {
+  if (pathname === '/parse-reservation') return true;
+  if (pathname === '/parse-fine-notice') return true;
+  if (pathname.startsWith('/ims/')) return true;
+  if (pathname.startsWith('/fine-notices/')) return true;
+  if (pathname === '/fine-notice-file-packages') return true;
+  if (pathname === '/fine-notice-files/download') return true;
+  return false;
+}
+
+function requireOpsParserToken(req) {
+  if (!config.opsParserToken) {
+    throw new ApiError(503, 'parser_token_not_configured', 'OPS parser token is not configured');
+  }
+
+  const actual = getHeader(req, 'x-ops-parser-token');
+  if (!actual) {
+    throw new ApiError(401, 'invalid_ops_parser_token', 'X-Ops-Parser-Token is required');
+  }
+
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(config.opsParserToken);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+    throw new ApiError(401, 'invalid_ops_parser_token', 'invalid OPS parser token');
+  }
 }
 
 function getHeader(req, name) {
@@ -2810,7 +3188,7 @@ async function deleteFineNoticeFileMetadataForPath(fineNoticeId, fileRole, local
 }
 
 
-async function createImsReservationDirect(payload) {
+async function createImsReservationDirect(payload, { allowExistingLink = false } = {}) {
   if (payload.dryRun) {
     return {
       code: 'DRY_RUN',
@@ -2819,6 +3197,22 @@ async function createImsReservationDirect(payload) {
   }
 
   const token = await fetchImsAccessToken();
+  if (allowExistingLink) {
+    const existingSchedule = await findCreatedImsReservationByApi({ token, payload });
+    if (existingSchedule?.id) {
+      return {
+        code: 'SUCCESS',
+        message: '',
+        externalStatus: 'linked',
+        externalReservationId: stringifyNullable(existingSchedule.id),
+        externalDetailId: stringifyNullable(existingSchedule?.reservation?.id || existingSchedule?.detail?.id),
+        linkKey: buildLinkKey(payload),
+        matchedSchedule: existingSchedule,
+        requestBody: null,
+      };
+    }
+  }
+
   const car = await findAvailableImsCar({ token, payload });
   if (!car) {
     return {
@@ -2840,6 +3234,7 @@ async function createImsReservationDirect(payload) {
       message: resolveApiErrorMessage(json, response.status),
       apiStatus: response.status,
       apiResult: json,
+      errorDetails: json,
     };
   }
 
@@ -3075,7 +3470,7 @@ async function findCreatedImsReservationByApi({ token, payload }) {
     const fastMatches = [];
     const candidates = await findImsReservationsBySearchApi({ token, payload });
     for (const schedule of candidates) {
-      const sameCar = normalizeText(schedule?.car_identity || schedule?.car_number || schedule?.car) === normalizeText(payload.carNumber);
+      const sameCar = normalizeText(schedule?.car?.car_identity || schedule?.car_identity || schedule?.car_number || schedule?.car) === normalizeText(payload.carNumber);
       const sameStart = normalizeImsDateTime(schedule?.start_at || schedule?.start) === normalizeImsDateTime(payload.rentalAt);
       const sameEnd = normalizeImsDateTime(schedule?.end_at || schedule?.end) === normalizeImsDateTime(payload.returnAt);
       if (!sameCar || !sameStart || !sameEnd) continue;
@@ -3092,7 +3487,7 @@ async function findCreatedImsReservationByApi({ token, payload }) {
     const matches = await findImsReservationsByListApi({
       token,
       predicate: async (schedule) => {
-        const sameCar = normalizeText(schedule?.car_identity || schedule?.car_number) === normalizeText(payload.carNumber);
+        const sameCar = normalizeText(schedule?.car?.car_identity || schedule?.car_identity || schedule?.car_number) === normalizeText(payload.carNumber);
         const sameStart = normalizeImsDateTime(schedule?.start_at) === normalizeImsDateTime(payload.rentalAt);
         const sameEnd = normalizeImsDateTime(schedule?.end_at) === normalizeImsDateTime(payload.returnAt);
         if (!sameCar || !sameStart || !sameEnd) return null;
@@ -3113,12 +3508,12 @@ async function findCreatedImsReservationByApi({ token, payload }) {
 
 function isCreatedImsReservationDetailMatch({ detail, schedule, payload }) {
   if (!detail) return false;
-  const reservation = detail?.reservation || {};
-  const detailCar = detail?.car?.car_identity || detail?.car_identity || schedule?.car_identity || schedule?.car;
+  const reservation = detail?.reservation || detail?.detail || schedule?.reservation || schedule?.detail || {};
+  const detailCar = detail?.car?.car_identity || detail?.car_identity || schedule?.car?.car_identity || schedule?.car_identity || schedule?.car;
   const sameDetailCar = normalizeText(detailCar) === normalizeText(payload.carNumber);
   const sameCustomer = normalizeText(reservation.customer_name) === normalizeText(payload.customerName);
   const samePhone = digitsOnly(reservation.customer_contact) === digitsOnly(payload.customerPhone);
-  const sameAddress = !payload.address || normalizeText(reservation.pickup_address) === normalizeText(payload.address);
+  const sameAddress = !payload.address || !reservation.pickup_address || normalizeText(reservation.pickup_address) === normalizeText(payload.address);
   const sameWindow =
     normalizeImsDateTime(detail?.start_at || schedule?.start_at || schedule?.start) === normalizeImsDateTime(payload.rentalAt) &&
     normalizeImsDateTime(detail?.end_at || schedule?.end_at || schedule?.end) === normalizeImsDateTime(payload.returnAt);
@@ -3307,7 +3702,20 @@ async function readJsonResponse(response) {
 }
 
 function resolveApiErrorMessage(json, status, fallback = 'IMS API failed') {
-  return stringifyNullable(json?.message || json?.msg || json?.error || json?.detail || json?.raw) || `${fallback} (${status})`;
+  const value = json?.message || json?.msg || json?.error || json?.detail || json?.raw;
+  return stringifyErrorText(value) || `${fallback} (${status})`;
+}
+
+function stringifyErrorText(value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.message || '';
+  if (typeof value === 'object') {
+    const direct = value.message || value.msg || value.error || value.reason || value.detail || value.details || value.code;
+    if (direct && direct !== value) return stringifyErrorText(direct);
+    try { return JSON.stringify(value); } catch { return 'unknown_object_error'; }
+  }
+  return String(value);
 }
 
 function normalizeImsReturnDoneAt(value) {
@@ -3315,6 +3723,26 @@ function normalizeImsReturnDoneAt(value) {
   let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T-](\d{2})[:\-](\d{2})/);
   if (!match) return text;
   return `${match[1]}-${match[2]}-${match[3]}-${match[4]}-${match[5]}`;
+}
+
+
+function formatKstMinute(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return normalizeImsDateTime(value);
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
 function toImsLocalApiDateTime(value) {
@@ -3396,7 +3824,19 @@ function digitsOnly(value) {
   return String(value || '').replace(/\D+/g, '');
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = stringifyNullable(value).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 function stringifyNullable(value) {
   if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    const text = stringifyErrorText(value);
+    return text || '';
+  }
   return String(value);
 }

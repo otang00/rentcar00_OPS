@@ -41,6 +41,7 @@ export function buildConfig(env = process.env) {
     port: Number(env.AI_PARSER_PORT || 43110),
     timeoutMs: Number(env.AI_PARSER_TIMEOUT_MS || 30000),
     opsReservationEventSecret: String(env.OPS_APP_RESERVATION_EVENT_SECRET || '').trim(),
+    opsParserToken: String(env.OPS_APP_PARSER_TOKEN || '').trim(),
     supabaseUrl: String(env.SUPABASE_URL || '').trim(),
     supabaseServiceRoleKey: String(env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
     fineNoticeStorageRoot: String(

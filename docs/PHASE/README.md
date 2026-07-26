@@ -5,7 +5,8 @@
 ## 현재 실행 기준
 - 과태료 실전 MVP는 큰 `pa all` 트랙이 아니라 작은 increment별 승인으로 진행한다.
 - 코드/DB/parser restart/APK/commit/외부 제출은 문서에 적혀 있어도 별도 승인 전 실행하지 않는다.
-- PDF 저장용 별도 내부 비밀번호/토큰 가드는 사용하지 않는다. `/fine-notices/save-contract-pdf`는 기존 parser/Supabase/storage 설정으로 저장 시도한다.
+- Parser API Auth Hardening 이후 OPS 앱용 parser/IMS/과태료 endpoint는 `X-Ops-Parser-Token` 가드를 사용한다. 홈페이지 예약 이벤트는 기존 HMAC 인증을 유지한다.
+- 코드/앱 header 변경은 로컬 반영됐지만 운영 `.env`, parser restart, APK build/upload, commit은 별도 승인 전 실행하지 않는다.
 
 ## 과태료 남은 PM
 - `rentcar00_OPS-fine-notice-next-operational-phases-pm.md`
@@ -40,6 +41,15 @@
   - 상태: `Draft from legacy sample / needs current legal wording review`
   - 역할: 경찰/교통 과태료 명의변경 통보/신청서 템플릿 후보.
   - 남은 일: 법령 문구, 수신-참조, 주민번호/면허번호 표시 방식, 도장 위치 확인.
+
+
+## Parser/Auth PM
+- `rentcar00_OPS-parser-cloudflare-access-hardening-pm-20260723.md`
+  - 상태: `Local Implementation Pending Verification / Operational apply pending`
+  - 역할: 공개 parser API의 OPS 앱용 endpoint에 `X-Ops-Parser-Token` 가드를 추가하고 앱 client가 동일 header를 보내도록 하는 보안 선행 PM.
+  - 로컬 범위: parser guard, OPS 앱 client header, README 정책 정리.
+  - 남은 운영 게이트: OPS 앱 token env 준비, APK build/upload, parser `.env` token 설정, parser restart, public smoke, commit.
+  - 운영 `.env`/restart/APK/commit은 별도 승인 전 실행하지 않는다.
 
 ## 비과태료 PM
 - `rentcar00_OPS-vehicle-group-pricing-policy.md`

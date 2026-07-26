@@ -1216,6 +1216,12 @@ class SupabaseOpsRepository {
   Future<void> markHomepageReservationReviewed({
     required String reservationId,
   }) async {
+    await markReservationSourceReviewed(reservationId: reservationId);
+  }
+
+  Future<void> markReservationSourceReviewed({
+    required String reservationId,
+  }) async {
     final stateRow = await _client
         .from('rc00_ops_reservation_states')
         .select('check_payload_json')
@@ -1223,7 +1229,13 @@ class SupabaseOpsRepository {
         .maybeSingle();
 
     final checkPayload = _toStringMap(stateRow?['check_payload_json']);
-    checkPayload['homepage_review'] = 'done';
+    final label = _sourceReviewLabel(checkPayload);
+    if (checkPayload['homepage_review'] == 'pending') {
+      checkPayload['homepage_review'] = 'done';
+    }
+    if (_externalSourceReviewPending(checkPayload)) {
+      checkPayload['source_review'] = 'done';
+    }
     final hasPending = checkPayload.values.any((value) => value == 'pending');
 
     await _client
@@ -1237,11 +1249,11 @@ class SupabaseOpsRepository {
         .eq('reservation_id', reservationId);
 
     await recordActionLog(
-      actionKey: 'reservation.homepage_review',
-      label: '홈페이지 예약확인',
+      actionKey: 'reservation.source_review',
+      label: label,
       targetType: 'reservation',
       reservationId: reservationId,
-      messageText: '홈페이지 예약 확인 완료',
+      messageText: '$label 완료',
     );
   }
 
@@ -1425,6 +1437,9 @@ class SupabaseOpsRepository {
 
     if (checkPayload['homepage_review'] == 'pending') {
       badges.add('홈페이지 확인');
+    }
+    if (_externalSourceReviewPending(checkPayload)) {
+      badges.add(_sourceReviewLabel(checkPayload));
     }
     if (checkPayload['customer_name_verified'] != 'done') {
       badges.add('고객명 미확인');
@@ -1751,6 +1766,33 @@ class SupabaseOpsRepository {
   }
 
   String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D+'), '');
+
+  String _sourceReviewLabel(Map<String, String> checkPayload) {
+    if (checkPayload['homepage_review'] == 'pending') return '홈페이지 확인';
+    final provider =
+        (checkPayload['source_provider'] ??
+                checkPayload['provider_source'] ??
+                '')
+            .trim()
+            .toLowerCase();
+    return switch (provider) {
+      'carmore' => '카모아 확인',
+      'zzimcar' => '찜카 확인',
+      _ => '외부예약 확인',
+    };
+  }
+
+  bool _externalSourceReviewPending(Map<String, String> checkPayload) {
+    final sourceReview = (checkPayload['source_review'] ?? '').trim();
+    if (sourceReview == 'pending') return true;
+    if (sourceReview == 'done') return false;
+    final provider =
+        (checkPayload['source_provider'] ??
+                checkPayload['provider_source'] ??
+                '')
+            .trim();
+    return provider.isNotEmpty;
+  }
 
   String _normalizeBirthDate(String value) {
     final text = value.trim();

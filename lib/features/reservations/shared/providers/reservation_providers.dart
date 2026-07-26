@@ -67,11 +67,41 @@ final homepagePendingReservationsProvider =
     Provider<AsyncValue<List<ReservationRecord>>>((ref) {
       final reservationsAsync = ref.watch(allReservationsProvider);
       return reservationsAsync.whenData(
-        (reservations) => reservations
-            .where((item) => item.checkPayload['homepage_review'] == 'pending')
-            .toList(),
+        (reservations) =>
+            reservations.where(reservationNeedsSourceReview).toList(),
       );
     });
+
+bool reservationNeedsSourceReview(ReservationRecord item) {
+  return item.checkPayload['homepage_review'] == 'pending' ||
+      _externalSourceReviewPending(item.checkPayload);
+}
+
+String reservationSourceReviewLabel(ReservationRecord item) {
+  return reservationSourceReviewLabelFromPayload(item.checkPayload);
+}
+
+String reservationSourceReviewLabelFromPayload(Map<String, String> payload) {
+  if (payload['homepage_review'] == 'pending') return '홈페이지 확인';
+  final provider =
+      (payload['source_provider'] ?? payload['provider_source'] ?? '')
+          .trim()
+          .toLowerCase();
+  return switch (provider) {
+    'carmore' => '카모아 확인',
+    'zzimcar' => '찜카 확인',
+    _ => '외부예약 확인',
+  };
+}
+
+bool _externalSourceReviewPending(Map<String, String> payload) {
+  final sourceReview = (payload['source_review'] ?? '').trim();
+  if (sourceReview == 'pending') return true;
+  if (sourceReview == 'done') return false;
+  final provider =
+      (payload['source_provider'] ?? payload['provider_source'] ?? '').trim();
+  return provider.isNotEmpty;
+}
 
 final homepagePendingCountProvider = Provider<AsyncValue<int>>((ref) {
   return ref
@@ -383,7 +413,13 @@ bool _isCompletedBadge(String badge) {
 
 int _badgePriority(String badge) {
   return switch (badge) {
-    '홈페이지 확인' || '확인 필요' || '특이사항' || '반납완료 직전 미처리' => 0,
+    '홈페이지 확인' ||
+    '카모아 확인' ||
+    '찜카 확인' ||
+    '외부예약 확인' ||
+    '확인 필요' ||
+    '특이사항' ||
+    '반납완료 직전 미처리' => 0,
     '신분증 미확보' ||
     '주소 미확보' ||
     '고객명 미확인' ||

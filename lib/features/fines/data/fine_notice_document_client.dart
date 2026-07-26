@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:rentcar00_ops/shared/config/ops_parser_headers.dart';
+
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -67,6 +69,7 @@ class FineNoticeDocumentClient {
     }
     final uri = _uri('/fine-notice-files/download', {'fileId': fileId});
     final request = await _httpClient.getUrl(uri);
+    applyOpsParserTokenHeader(request);
     final response = await request.close().timeout(
       const Duration(seconds: 120),
     );
@@ -125,6 +128,7 @@ class FineNoticeDocumentClient {
     }
     final request = await _httpClient.postUrl(_uri(path));
     request.headers.contentType = ContentType.json;
+    applyOpsParserTokenHeader(request);
     request.write(jsonEncode(body));
     final response = await request.close().timeout(
       timeout,
@@ -153,6 +157,7 @@ class FineNoticeDocumentClient {
       throw const FineNoticeDocumentException('AI/IMS 파서 주소가 설정되지 않았습니다.');
     }
     final request = await _httpClient.getUrl(uri);
+    applyOpsParserTokenHeader(request);
     final response = await request.close().timeout(const Duration(seconds: 60));
     final body = await utf8.decoder.bind(response).join();
     final json = body.isEmpty
