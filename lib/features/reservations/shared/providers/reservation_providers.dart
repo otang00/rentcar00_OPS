@@ -236,6 +236,7 @@ final outboxEntriesProvider = Provider<AsyncValue<List<OutboxEntry>>>((ref) {
 final filteredReservationsProvider =
     Provider<AsyncValue<List<ReservationSummary>>>((ref) {
       final query = ref.watch(searchQueryProvider).trim().toLowerCase();
+      final queryDigits = _digitsOnly(query);
       final reservationsAsync = ref.watch(allReservationsProvider);
 
       return reservationsAsync.whenData((items) {
@@ -245,7 +246,11 @@ final filteredReservationsProvider =
         }
 
         return summaries.where((item) {
+          final customerPhoneDigits = _digitsOnly(item.customerPhone);
           return item.customerName.toLowerCase().contains(query) ||
+              item.customerPhone.toLowerCase().contains(query) ||
+              (queryDigits.isNotEmpty &&
+                  customerPhoneDigits.contains(queryDigits)) ||
               item.carNumber.toLowerCase().contains(query) ||
               item.carName.toLowerCase().contains(query) ||
               item.reservationId.toLowerCase().contains(query) ||
@@ -441,6 +446,8 @@ String _formatDateTime(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(kst.month)}/${two(kst.day)}(${opsKoreanWeekday(kst)}) ${two(kst.hour)}:${two(kst.minute)}';
 }
+
+String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D+'), '');
 
 bool _matchesStatusBoardSearch(StatusBoardRecord item, String query) {
   return item.carNumber.toLowerCase().contains(query) ||

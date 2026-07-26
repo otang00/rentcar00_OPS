@@ -3837,6 +3837,46 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
     });
   }
 
+  Future<void> _copyDeliveryMessage() async {
+    final message = _buildDeliveryMessage(record);
+    if (message.isEmpty) {
+      _showError('탁송문구를 만들 수 없습니다.');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: message));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('클립보드에 넣었습니다. 붙여넣기 하세요.')));
+  }
+
+  String _buildDeliveryMessage(StatusBoardRecord record) {
+    final type = record.scheduleType.trim();
+    final carLine = [
+      record.carNumber,
+      record.carName,
+    ].where((value) => value.trim().isNotEmpty).join(' ').trim();
+    final location = record.locationSummary.trim();
+    final phone = record.customerPhone.trim();
+    if (carLine.isEmpty || location.isEmpty) return '';
+
+    if (type == '반납') {
+      return [
+        carLine,
+        '출발지 : $location',
+        if (phone.isNotEmpty) '출발지번호 : $phone',
+        '도착지 : 빵빵렌터카',
+      ].join('\n');
+    }
+
+    return [
+      carLine,
+      '출발지 : 빵빵렌터카',
+      '도착지 : $location',
+      if (phone.isNotEmpty) '착지번호 : $phone',
+    ].join('\n');
+  }
+
   void _showError(String message) {
     ScaffoldMessenger.of(
       context,
@@ -3953,6 +3993,14 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                         onPressed: _submitting
                             ? null
                             : () => tryLaunchSms(context, record.customerPhone),
+                      ),
+                    if (record.scheduleType.trim() == '배차' ||
+                        record.scheduleType.trim() == '반납')
+                      _ActionChipButton(
+                        label: '탁송문구',
+                        icon: Icons.content_copy_outlined,
+                        expand: true,
+                        onPressed: _submitting ? null : _copyDeliveryMessage,
                       ),
                     _ActionChipButton(
                       label: '삭제',
