@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-07-27 — IMS authority / 빠른 예약 흐름 b57 배포
+
+### 사용자 표면
+- IMS authority 정리와 OPS 빠른 예약 생성 흐름을 포함한 Android arm64 APK를 설치할 수 있다.
+- 홈페이지 예약 버튼 문구는 현재 UI의 `예약확인` 기준으로 검증한다.
+
+### 배포물
+- 버전: `1.0.0+57`
+- 코드 커밋: `5d4183b chore: prepare b57 release`
+- APK: `build/releases/rentcar00_ops-app-release-arm64-b57-5d4183b.apk`
+- Google Drive: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b57-5d4183b.apk`
+- 파일 크기: `20,702,379 bytes`
+- SHA-256: `b4ad52ad8eef1340ddbc93f8798bd30c0d0d29ba0c0aee57f6498b55083abeb6`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 전체 24개 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- IMS snapshot diff 테스트 11개 통과
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=57` 통과
+- Google Drive 업로드 후 파일명과 크기 재확인
+
+### 남은 확인
+- 실기기 설치 후 빠른 예약 생성과 IMS 연동 예약 흐름을 확인해야 한다.
+- parser restart, Supabase migration 적용, 운영 DB 변경은 이번 배포 범위에 포함하지 않았다.
+
 
 ## 2026-07-24 — Parser API Auth Hardening / b56 배포
 ### 사용자 표면
