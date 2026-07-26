@@ -606,11 +606,13 @@ class SupabaseOpsRepository {
     String? externalDetailId,
     required String externalStatus,
     required String linkKey,
+    String? sourceType,
     Map<String, dynamic> lastPayloadJson = const {},
     Map<String, dynamic> lastResultJson = const {},
     String? errorText,
   }) async {
     final now = DateTime.now().toIso8601String();
+    final normalizedSourceType = sourceType?.trim();
     await _client.from('rc00_ops_external_reservation_links').upsert({
       'reservation_id': reservationId.trim(),
       'reservation_ref_id': reservationRefId,
@@ -618,6 +620,8 @@ class SupabaseOpsRepository {
       'external_reservation_id': externalReservationId?.trim(),
       'external_detail_id': externalDetailId?.trim(),
       'external_status': externalStatus.trim(),
+      if (normalizedSourceType != null && normalizedSourceType.isNotEmpty)
+        'source_type': normalizedSourceType,
       'link_key': linkKey.trim(),
       'last_payload_json': lastPayloadJson,
       'last_result_json': lastResultJson,
@@ -745,37 +749,39 @@ class SupabaseOpsRepository {
     );
   }
 
-  Future<void> markCarUnderRepair({
+  Future<void> markCarDispatchUnavailable({
     required String carRowId,
-    required String factoryName,
+    required String reason,
   }) async {
     await _client
         .from('rc00_ops_cars')
         .update({
-          'status': '수리중',
-          'status_action': '수리중',
-          'parking_location': factoryName.trim(),
+          'status': '배차불가',
+          'status_action': '배차불가',
+          'parking_location': reason.trim(),
         })
         .eq('id', carRowId);
 
     await recordActionLog(
-      actionKey: 'car.repair_start',
-      label: '차량 수리중',
+      actionKey: 'car.dispatch_unavailable',
+      label: '차량 배차불가',
       targetType: 'car',
       targetRef: carRowId,
-      messageText: factoryName.trim(),
+      messageText: reason.trim(),
     );
   }
 
-  Future<void> completeCarRepair({required String carRowId}) async {
+  Future<void> completeCarDispatchUnavailable({
+    required String carRowId,
+  }) async {
     await _client
         .from('rc00_ops_cars')
-        .update({'status': '대기중', 'status_action': '수리완료'})
+        .update({'status': '대기중', 'status_action': '배차가능'})
         .eq('id', carRowId);
 
     await recordActionLog(
-      actionKey: 'car.repair_complete',
-      label: '차량 수리완료',
+      actionKey: 'car.dispatch_available',
+      label: '차량 배차가능',
       targetType: 'car',
       targetRef: carRowId,
       messageText: '대기중 전환',
@@ -1493,7 +1499,7 @@ class SupabaseOpsRepository {
   StatusBoardRecord _toCarRecord(Map<String, dynamic> row) {
     final status = (row['status'] as String? ?? '').trim();
     final tab = switch (status) {
-      '대기' || '대기중' || '수리중' => StatusBoardTab.idle,
+      '대기' || '대기중' || '배차불가' => StatusBoardTab.idle,
       '보험' => StatusBoardTab.insurance,
       '일반' => StatusBoardTab.general,
       '장기' => StatusBoardTab.longTerm,
@@ -1645,10 +1651,12 @@ class SupabaseOpsRepository {
     required String statusAction,
   }) {
     final badges = <String>[];
-    if (status.trim() == '수리중') badges.add('수리중');
+    if (status.trim() == '배차불가') badges.add('배차불가');
     if (_isTruthy(carWash)) badges.add('세차');
     if (_isTruthy(interiorWash)) badges.add('실내세차');
-    if (statusAction.isNotEmpty) badges.add(statusAction);
+    if (statusAction.isNotEmpty && !badges.contains(statusAction)) {
+      badges.add(statusAction);
+    }
     if (noteText.isNotEmpty) badges.add('비고');
     return badges.take(3).toList();
   }

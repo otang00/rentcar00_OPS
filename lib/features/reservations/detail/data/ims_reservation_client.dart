@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:rentcar00_ops/shared/config/ops_parser_headers.dart';
 
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
-import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
 class ImsReservationClient {
   ImsReservationClient({required this.baseUrl, HttpClient? httpClient})
@@ -51,26 +50,20 @@ class ImsReservationClient {
     );
   }
 
-  Future<ImsReservationExecutionResult> completeReservationReturn({
-    required String contractId,
-    required String reservationId,
-    required DateTime doneAt,
-    required int returnGasCharge,
-    required String drivenDistanceUponReturn,
-    required int fuelCost,
+  Future<ImsReservationExecutionResult> updateVehicleRentalFlags({
+    required String carNumber,
+    required bool canGeneralRental,
+    required bool canMonthlyRental,
   }) async {
     return _postIms(
-      path: '/ims/complete-reservation-return',
+      path: '/ims/update-vehicle-rental-flags',
       body: {
-        'contractId': contractId.trim(),
-        'reservationId': reservationId.trim(),
-        'doneAt': _formatImsReturnDoneAt(doneAt),
-        'returnGasCharge': returnGasCharge,
-        'drivenDistanceUponReturn': drivenDistanceUponReturn.trim(),
-        'fuelCost': fuelCost,
+        'carNumber': carNumber.trim(),
+        'canGeneralRental': canGeneralRental,
+        'canMonthlyRental': canMonthlyRental,
       },
-      timeoutMessage: 'IMS 반납완료 응답 시간이 초과되었습니다.',
-      failureMessage: 'IMS 반납완료 호출에 실패했습니다.',
+      timeoutMessage: 'IMS 차량 배차가능 설정 응답 시간이 초과되었습니다.',
+      failureMessage: 'IMS 차량 배차가능 설정 호출에 실패했습니다.',
     );
   }
 
@@ -167,10 +160,4 @@ class ImsReservationClientException implements Exception {
 
   @override
   String toString() => message;
-}
-
-String _formatImsReturnDoneAt(DateTime value) {
-  final kst = opsAsKstWallTime(value);
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${kst.year}-${two(kst.month)}-${two(kst.day)}-${two(kst.hour)}-${two(kst.minute)}';
 }

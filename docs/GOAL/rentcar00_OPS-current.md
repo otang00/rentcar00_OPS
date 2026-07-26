@@ -99,6 +99,12 @@ intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00
 `docs/PHASE/rentcar00_OPS-vehicle-group-pricing-policy.md`의 PM 문서 기준으로만 남긴다.
 코드/DB/운영 반영은 별도 승인 전까지 진행하지 않는다.
 
+IMS lifecycle 자동완료는 폐기한다.
+OPS와 IMS는 일정 원장과 계약 원장으로 분리하고, OPS 배차/반납 완료 버튼은 IMS write를 호출하지 않는다.
+연결된 IMS 예약이 있으면 OPS는 확인 모달로 연결 정보를 보여준 뒤 OPS 일정만 완료한다.
+IMS 배차중 snapshot diff 구현물은 보관용 로컬 산출물이며 `send-events`/자동 배반차/launchd 연결은 비활성화 상태다.
+차량번호/기간 fallback 자동매칭과 미연동 예약 backfill은 금지한다.
+
 ## 현재 기준점
 - repository: `rentcar00_OPS`
 - branch: `fix/ops-return-complete-end-at`

@@ -1,4 +1,6 @@
-# IMS Linked 배차/반납 신호 감지 Watcher PM
+# ARCHIVED — IMS Linked 배차/반납 신호 감지 Watcher PM
+
+> 2026-07-26 신규예약 오케스트레이션 재설계에서 자동 lifecycle 변경 경로를 폐기해 보관한다.
 
 ## 0. 문서 정보
 - 작성일: 2026-07-26

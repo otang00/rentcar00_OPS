@@ -1,5 +1,10 @@
 # OPS 플랫폼 신규 예약 → IMS 생성 기준 통합 오케스트레이션 PM
 
+> 2026-07-26 재점검 기준: 이 문서는 현재 구현 기준 문서가 아니라 과거 draft다.
+> 외부예약 신규등록의 현재 기준은 booking-system `docs/PHASE/2026-07-26_EXTERNAL_RESERVATION_ORCHESTRATION_REBUILD_PM.md`와 OPS `reservation.created` parser 보강이다.
+> IMS 배차/반납 자동완료는 2026-07-27 기준 폐기됐다. 관련 검토 이력은 `docs/ARCHIVE/rentcar00_OPS_ims_two_source_lifecycle_worker_pm_20260726.md`에 보관한다.
+> 본 문서의 schema/table 제안은 별도 재승인 전 구현 기준으로 사용하지 않는다.
+
 ## 0. 문서 정보
 - 작성일: 2026-07-23
 - 수정일: 2026-07-24

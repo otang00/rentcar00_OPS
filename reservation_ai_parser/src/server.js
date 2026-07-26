@@ -186,6 +186,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, ok ? 200 : 422, { ok, payload, result });
     }
 
+    if (req.url === '/ims/update-vehicle-rental-flags') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeImsVehicleRentalFlagsPayload(body);
+      const result = await updateImsVehicleRentalFlagsDirect(payload);
+      const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
+      return sendJson(res, ok ? 200 : 422, { ok, payload, result });
+    }
+
     if (req.url === '/ims/delete-reservation') {
       if (req.method !== 'POST') {
         return sendMethodNotAllowed(res, ['POST']);
@@ -193,17 +204,6 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const payload = normalizeImsDeleteReservationPayload(body);
       const result = await deleteImsReservationDirect(payload);
-      const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
-      return sendJson(res, ok ? 200 : 422, { ok, payload, result });
-    }
-
-    if (req.url === '/ims/complete-reservation-return') {
-      if (req.method !== 'POST') {
-        return sendMethodNotAllowed(res, ['POST']);
-      }
-      const body = await readJsonBody(req);
-      const payload = normalizeImsCompleteReturnPayload(body);
-      const result = await completeImsReservationReturnDirect(payload);
       const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
       return sendJson(res, ok ? 200 : 422, { ok, payload, result });
     }
@@ -284,6 +284,7 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
   } catch {
     throw new ApiError(400, 'invalid_json', 'request body must be valid JSON');
   }
+
   const payload = normalizeReservationCreatedEventPayload({ body, eventId, eventType });
 
   const existing = await findStoredReservationEvent(eventId);
@@ -316,7 +317,6 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
     throw error;
   }
 }
-
 
 function ensureReservationEventReceiverConfigured() {
   const missing = [];
@@ -465,19 +465,31 @@ async function importReservationCreatedEvent(payload) {
   const existingReservation = await findReservationByReservationId(mapped.reservationId);
   if (existingReservation?.id) {
     await backfillReservationCarRef({ reservationRefId: existingReservation.id, mapped, carRef });
-    const scheduleSummary = await fetchReservationScheduleSummary(mapped.reservationId);
-    const ims = await ensureImsReservationForImportedEvent({ mapped, reservationRefId: existingReservation.id, reused: true, allowCreate: false });
+    const scheduleSummary = await ensureOpsReservationProjection({
+      mapped,
+      reservationRefId: existingReservation.id,
+    });
+    const ims = await ensureImsReservationForImportedEvent({
+      mapped,
+      reservationRefId: existingReservation.id,
+      reused: true,
+      allowCreate: mapped.sourceProvider !== 'homepage',
+    });
     return buildReservationImportResult({ mapped, reservationRefId: existingReservation.id, reused: true, scheduleSummary, ims, carRef });
   }
 
   if (mapped.sourceProvider !== 'homepage') {
     const imsPayload = buildImsReservationPayloadFromMappedReservation(mapped);
-    const imsCreateResult = await createImsReservationDirect(imsPayload, { allowExistingLink: false });
+    const imsCreateResult = await createImsReservationDirect(imsPayload, { allowExistingLink: true });
     const imsBindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: imsCreateResult });
     const imsLinked = imsBindingResult?.externalStatus === 'linked' && Boolean(imsBindingResult?.externalReservationId);
     if (!imsLinked) {
       throw new ApiError(409, 'ims_create_required_before_ops', stringifyErrorText(imsBindingResult?.errorText || imsBindingResult?.message) || 'IMS 생성 성공 전에는 OPS 예약을 생성하지 않습니다.');
     }
+    await assertImsBindingAvailable({
+      externalReservationId: imsBindingResult.externalReservationId,
+      reservationId: mapped.reservationId,
+    });
 
     const reservation = await createOpsReservationRows({ mapped, carRef });
     await upsertExternalReservationLink({
@@ -495,8 +507,8 @@ async function importReservationCreatedEvent(payload) {
       scheduleSummary: reservation.scheduleSummary,
       ims: {
         attempted: true,
-        created: true,
-        reused: false,
+        created: imsBindingResult.reusedExisting !== true,
+        reused: imsBindingResult.reusedExisting === true,
         externalReservationId: imsBindingResult.externalReservationId || '',
         externalDetailId: imsBindingResult.externalDetailId || '',
         externalStatus: 'linked',
@@ -533,22 +545,7 @@ async function createOpsReservationRows({ mapped, carRef } = {}) {
   const reservationRefId = reservation?.id;
   if (!reservationRefId) throw new ApiError(502, 'reservation_insert_failed', 'reservation insert did not return id');
 
-  const checkPayload = buildReservationCheckPayload(mapped);
-  await insertSupabaseRow('rc00_ops_reservation_states', {
-    reservation_id: mapped.reservationId,
-    reservation_ref_id: reservationRefId,
-    tab_key: deriveReservationTabKey(mapped.startAt, mapped.endAt),
-    needs_attention: Object.values(checkPayload).includes('pending') || mapped.sourceProvider !== 'homepage',
-    warning_level: Object.values(checkPayload).includes('pending') || mapped.sourceProvider !== 'homepage' ? 'warning' : null,
-    check_payload_json: checkPayload,
-    memo_text: mapped.sourceProvider === 'homepage' ? '홈페이지 예약 확인 필요' : `${mapped.referralSource} 예약 확인 필요`,
-    last_action_at: new Date().toISOString(),
-  }, 'id');
-
-  await insertSupabaseRow('rc00_ops_schedules', [
-    buildHomepageScheduleRow({ mapped, type: '배차', at: mapped.startAt, location: mapped.pickupLocation }),
-    buildHomepageScheduleRow({ mapped, type: '반납', at: mapped.endAt, location: mapped.dropoffLocation || mapped.pickupLocation }),
-  ], 'id');
+  const scheduleSummary = await ensureOpsReservationProjection({ mapped, reservationRefId });
 
   await insertSupabaseRow('rc00_ops_action_logs', {
     reservation_id: mapped.reservationId,
@@ -564,8 +561,31 @@ async function createOpsReservationRows({ mapped, carRef } = {}) {
     },
   }, 'id');
 
-  const scheduleSummary = await fetchReservationScheduleSummary(mapped.reservationId);
   return { reservationRefId, scheduleSummary };
+}
+
+async function ensureOpsReservationProjection({ mapped, reservationRefId } = {}) {
+  if (!mapped?.reservationId || !reservationRefId) {
+    throw new ApiError(500, 'ops_projection_identity_required', 'OPS projection identity is required');
+  }
+  const checkPayload = buildReservationCheckPayload(mapped);
+  await insertSupabaseRowsIfMissing('rc00_ops_reservation_states', {
+    reservation_id: mapped.reservationId,
+    reservation_ref_id: reservationRefId,
+    tab_key: deriveReservationTabKey(mapped.startAt, mapped.endAt),
+    needs_attention: Object.values(checkPayload).includes('pending') || mapped.sourceProvider !== 'homepage',
+    warning_level: Object.values(checkPayload).includes('pending') || mapped.sourceProvider !== 'homepage' ? 'warning' : null,
+    check_payload_json: checkPayload,
+    memo_text: mapped.sourceProvider === 'homepage' ? '홈페이지 예약 확인 필요' : `${mapped.referralSource} 예약 확인 필요`,
+    last_action_at: new Date().toISOString(),
+  }, { onConflict: 'reservation_id', select: 'id' });
+
+  await insertSupabaseRowsIfMissing('rc00_ops_schedules', [
+    buildHomepageScheduleRow({ mapped, type: '배차', at: mapped.startAt, location: mapped.pickupLocation }),
+    buildHomepageScheduleRow({ mapped, type: '반납', at: mapped.endAt, location: mapped.dropoffLocation || mapped.pickupLocation }),
+  ], { onConflict: 'schedule_id', select: 'id' });
+
+  return fetchReservationScheduleSummary(mapped.reservationId);
 }
 
 async function findOpsCarByNumber(carNumber) {
@@ -653,9 +673,15 @@ async function ensureImsReservationForImportedEvent({ mapped, reservationRefId, 
   }
 
   try {
-    const createResult = await createImsReservationDirect(imsPayload);
+    const createResult = await createImsReservationDirect(imsPayload, { allowExistingLink: true });
     const bindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: createResult });
     const linked = bindingResult?.externalStatus === 'linked' && Boolean(bindingResult?.externalReservationId);
+    if (linked) {
+      await assertImsBindingAvailable({
+        externalReservationId: bindingResult.externalReservationId,
+        reservationId: mapped.reservationId,
+      });
+    }
     await upsertExternalReservationLink({
       mapped,
       reservationRefId,
@@ -666,8 +692,8 @@ async function ensureImsReservationForImportedEvent({ mapped, reservationRefId, 
     });
     return {
       attempted: true,
-      created: linked,
-      reused: Boolean(reused),
+      created: linked && bindingResult.reusedExisting !== true,
+      reused: linked && bindingResult.reusedExisting === true,
       externalReservationId: bindingResult?.externalReservationId || '',
       externalDetailId: bindingResult?.externalDetailId || '',
       externalStatus: bindingResult?.externalStatus || (linked ? 'linked' : 'failed'),
@@ -804,6 +830,29 @@ async function findExternalReservationLinkByReservationId(reservationId) {
   return Array.isArray(json) && json.length > 0 ? json[0] : null;
 }
 
+async function assertImsBindingAvailable({ externalReservationId, reservationId } = {}) {
+  const externalId = stringifyNullable(externalReservationId).trim();
+  const targetReservationId = stringifyNullable(reservationId).trim();
+  if (!externalId || !targetReservationId) {
+    throw new ApiError(400, 'ims_binding_identity_required', 'IMS external ID and OPS reservation ID are required');
+  }
+  const url = new URL('/rest/v1/rc00_ops_external_reservation_links', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('provider', 'eq.ims');
+  url.searchParams.set('external_status', 'eq.linked');
+  url.searchParams.set('external_reservation_id', `eq.${externalId}`);
+  url.searchParams.set('select', 'reservation_id,external_reservation_id,external_status');
+  url.searchParams.set('limit', '20');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'ims_binding_lookup_failed', resolveApiErrorMessage(json, response.status, 'IMS binding lookup failed'));
+  }
+  const conflicts = (Array.isArray(json) ? json : []).filter((row) => stringifyNullable(row.reservation_id) !== targetReservationId);
+  if (conflicts.length > 0) {
+    throw new ApiError(409, 'ims_binding_conflict', `IMS reservation ${externalId} is already linked to another OPS reservation`);
+  }
+}
+
 async function upsertExternalReservationLink({ mapped, reservationRefId, imsPayload = {}, imsResult = {}, externalStatus = 'failed', errorText = null } = {}) {
   const url = new URL('/rest/v1/rc00_ops_external_reservation_links', normalizeSupabaseBaseUrl(config.supabaseUrl));
   url.searchParams.set('on_conflict', 'provider,reservation_id');
@@ -815,6 +864,7 @@ async function upsertExternalReservationLink({ mapped, reservationRefId, imsPayl
     external_reservation_id: imsResult.externalReservationId || null,
     external_detail_id: imsResult.externalDetailId || null,
     external_status: externalStatus,
+    source_type: imsResult.sourceType || 'normal_schedule',
     link_key: imsResult.linkKey || `OPS:${mapped.reservationId}`,
     last_payload_json: sanitizeImsPayloadForStorage(imsPayload),
     last_result_json: sanitizeImsResultForStorage(imsResult),
@@ -863,6 +913,27 @@ async function insertSupabaseRow(table, body, select = '*') {
   const json = await readJsonResponse(response);
   if (!response.ok) throw new ApiError(502, `${table}_insert_failed`, resolveApiErrorMessage(json, response.status, `Supabase ${table} insert failed`));
   return Array.isArray(json) ? json[0] : json;
+}
+
+async function insertSupabaseRowsIfMissing(table, body, { onConflict, select = '*' } = {}) {
+  if (!onConflict) throw new ApiError(500, 'upsert_conflict_key_required', `Supabase ${table} conflict key is required`);
+  const url = new URL(`/rest/v1/${table}`, normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('on_conflict', onConflict);
+  if (select) url.searchParams.set('select', select);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=ignore-duplicates,return=representation',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, `${table}_ensure_failed`, resolveApiErrorMessage(json, response.status, `Supabase ${table} ensure failed`));
+  }
+  return Array.isArray(json) ? json : [json];
 }
 
 async function markReservationEventImported(eventId, importResult) {
@@ -1030,6 +1101,24 @@ function normalizeImsChangeCarPayload(body = {}) {
   return payload;
 }
 
+function normalizeImsVehicleRentalFlagsPayload(body = {}) {
+  const payload = {
+    carNumber: String(body?.carNumber || body?.car_identity || body?.car_number || '').trim(),
+    canGeneralRental: normalizeOptionalBoolean(body?.canGeneralRental ?? body?.can_general_rental, 'canGeneralRental'),
+    canMonthlyRental: normalizeOptionalBoolean(body?.canMonthlyRental ?? body?.can_monthly_rental, 'canMonthlyRental'),
+    dryRun: body?.dryRun === true,
+  };
+
+  if (!payload.carNumber) {
+    throw new Error('missing required ims fields: carNumber');
+  }
+  if (payload.canGeneralRental == null && payload.canMonthlyRental == null) {
+    throw new Error('missing required ims fields: canGeneralRental or canMonthlyRental');
+  }
+
+  return payload;
+}
+
 function normalizeImsReservationSearchPayload(body = {}) {
   const payload = {
     customerName: String(body?.customerName || '').trim(),
@@ -1109,31 +1198,6 @@ function normalizeFineNoticeBundleMergePayload(body = {}) {
     dryRun: body?.dryRun !== false && body?.dry_run !== false,
     forceRebundle: body?.forceRebundle === true || body?.force_rebundle === true,
   };
-}
-
-function normalizeImsCompleteReturnPayload(body = {}) {
-  const payload = {
-    contractId: String(body?.contractId || body?.externalDetailId || body?.externalReservationId || '').trim(),
-    doneAt: normalizeImsReturnDoneAt(body?.doneAt || body?.done_at || ''),
-    returnGasCharge: Number(body?.returnGasCharge ?? body?.return_gas_charge ?? 100),
-    drivenDistanceUponReturn: String(body?.drivenDistanceUponReturn || body?.driven_distance_upon_return || '').replace(/[^0-9.]/g, ''),
-    fuelCost: Number(body?.fuelCost ?? body?.fuel_cost),
-    reservationId: String(body?.reservationId || '').trim(),
-    dryRun: body?.dryRun === true,
-  };
-
-  const missing = ['contractId', 'doneAt', 'drivenDistanceUponReturn'].filter((key) => !payload[key]);
-  if (missing.length > 0) {
-    throw new Error(`missing required ims fields: ${missing.join(', ')}`);
-  }
-  if (!Number.isFinite(payload.returnGasCharge) || payload.returnGasCharge < 0 || payload.returnGasCharge > 100) {
-    throw new Error('missing required ims fields: returnGasCharge');
-  }
-  if (!Number.isFinite(payload.fuelCost)) {
-    throw new Error('missing required ims fields: fuelCost');
-  }
-
-  return payload;
 }
 
 function normalizeImsDeleteReservationPayload(body = {}) {
@@ -3207,6 +3271,7 @@ async function createImsReservationDirect(payload, { allowExistingLink = false }
         externalReservationId: stringifyNullable(existingSchedule.id),
         externalDetailId: stringifyNullable(existingSchedule?.reservation?.id || existingSchedule?.detail?.id),
         linkKey: buildLinkKey(payload),
+        reusedExisting: true,
         matchedSchedule: existingSchedule,
         requestBody: null,
       };
@@ -3369,50 +3434,76 @@ async function deleteImsReservationDirect(payload) {
   };
 }
 
-async function completeImsReservationReturnDirect(payload) {
+async function updateImsVehicleRentalFlagsDirect(payload) {
   if (payload.dryRun) {
     return {
       code: 'DRY_RUN',
-      message: 'dryRun=true; IMS direct return skipped',
-      externalReservationId: payload.contractId,
-      externalStatus: 'linked',
-      linkKey: buildLinkKey(payload),
+      message: 'dryRun=true; IMS vehicle flag update skipped',
+      externalStatus: 'vehicle_flags_dry_run',
+      externalReservationId: '',
+      linkKey: '',
     };
   }
 
   const token = await fetchImsAccessToken();
-  const data = {
-    done_at: payload.doneAt,
-    return_gas_charge: String(payload.returnGasCharge),
-    driven_distance_upon_return: String(payload.drivenDistanceUponReturn),
-    fuel_cost: payload.fuelCost,
-  };
-  const response = await fetch(
-    `https://api.rencar.co.kr/v2/normal-contracts/${encodeURIComponent(payload.contractId)}/set-done`,
-    {
-      method: 'POST',
-      headers: buildImsApiHeaders(token, { contentType: true }),
-      body: JSON.stringify(data),
-    },
-  );
-  const json = await readJsonResponse(response);
-  if (!response.ok) {
+  const car = await findImsRentCompanyCarByNumber({
+    token,
+    carNumber: payload.carNumber,
+  });
+  if (!car) {
+    return {
+      code: 'NOT_FOUND',
+      message: `IMS vehicle not found: ${payload.carNumber}`,
+    };
+  }
+
+  const carId = stringifyNullable(car.id);
+  if (!carId) {
     return {
       code: 'ERROR',
-      message: resolveApiErrorMessage(json, response.status),
-      apiStatus: response.status,
-      apiResult: json,
+      message: `IMS vehicle id missing: ${payload.carNumber}`,
+    };
+  }
+  const requestedFlags = {};
+  if (payload.canGeneralRental != null) {
+    requestedFlags.can_general_rental = payload.canGeneralRental;
+  }
+  if (payload.canMonthlyRental != null) {
+    requestedFlags.can_monthly_rental = payload.canMonthlyRental;
+  }
+
+  const apiResults = [];
+  for (const [field, value] of Object.entries(requestedFlags)) {
+    apiResults.push(await postImsVehicleRentalFlag({
+      token,
+      carId,
+      body: { [field]: value },
+    }));
+  }
+  const failed = apiResults.find((item) => item?.code === 'ERROR');
+  if (failed) {
+    return {
+      code: 'ERROR',
+      message: failed.message || 'IMS vehicle flag update failed',
+      apiResults,
     };
   }
 
   return {
     code: 'SUCCESS',
     message: '',
-    externalStatus: 'linked',
-    externalReservationId: payload.contractId,
-    linkKey: buildLinkKey(payload),
-    apiResult: json,
-    requestBody: data,
+    externalStatus: 'vehicle_flags_updated',
+    externalReservationId: carId,
+    externalDetailId: '',
+    linkKey: `IMS_CAR:${carId}`,
+    targetCarId: carId,
+    carNumber: stringifyNullable(car.car_identity || car.car_number || payload.carNumber),
+    beforeFlags: {
+      can_general_rental: car.can_general_rental,
+      can_monthly_rental: car.can_monthly_rental,
+    },
+    requestedFlags,
+    apiResults,
   };
 }
 
@@ -3438,6 +3529,68 @@ async function fetchImsAccessToken() {
     throw new Error(resolveApiErrorMessage(json, response.status, 'IMS auth failed'));
   }
   return token;
+}
+
+async function findImsRentCompanyCarByNumber({
+  token,
+  carNumber,
+  maxPages = 20,
+}) {
+  const normalizedTarget = normalizeCarNumberForMatch(carNumber);
+  const matches = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = new URL('https://api.rencar.co.kr/v2/rent-company-cars');
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('state', 'all');
+    url.searchParams.set('per_page', '200');
+
+    const response = await fetch(url, { headers: buildImsApiHeaders(token) });
+    const json = await readJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(resolveApiErrorMessage(json, response.status, 'IMS vehicle lookup failed'));
+    }
+
+    const cars = Array.isArray(json?.list)
+      ? json.list
+      : (Array.isArray(json?.cars) ? json.cars : []);
+    for (const car of cars) {
+      const current = normalizeCarNumberForMatch(
+        car?.car_identity || car?.car_number || car?.car_num || car?.number,
+      );
+      if (current === normalizedTarget) matches.push(car);
+    }
+
+    const totalPage = Number(json?.total_page || json?.totalPage || 0);
+    if (cars.length === 0 || (totalPage > 0 && page >= totalPage)) break;
+  }
+
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    throw new ApiError(409, 'ims_vehicle_match_ambiguous', 'multiple IMS vehicles matched the same car number');
+  }
+  return null;
+}
+
+async function postImsVehicleRentalFlag({ token, carId, body }) {
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/rent-company-cars/${encodeURIComponent(carId)}/flags`,
+    {
+      method: 'POST',
+      headers: buildImsApiHeaders(token, { contentType: true }),
+      body: JSON.stringify(body),
+    },
+  );
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    return {
+      body,
+      code: 'ERROR',
+      message: resolveApiErrorMessage(json, response.status),
+      apiStatus: response.status,
+      apiResult: json,
+    };
+  }
+  return { body, code: 'SUCCESS', apiStatus: response.status, apiResult: json };
 }
 
 async function findAvailableImsCar({ token, payload }) {
@@ -3481,7 +3634,7 @@ async function findCreatedImsReservationByApi({ token, payload }) {
 
     if (fastMatches.length === 1) return fastMatches[0];
     if (fastMatches.length > 1) {
-      return fastMatches.sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
+      throw new ApiError(409, 'ims_existing_match_ambiguous', 'multiple IMS reservations match the same provider reservation');
     }
 
     const matches = await findImsReservationsByListApi({
@@ -3499,7 +3652,7 @@ async function findCreatedImsReservationByApi({ token, payload }) {
 
     if (matches.length === 1) return matches[0];
     if (matches.length > 1) {
-      return matches.sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
+      throw new ApiError(409, 'ims_existing_match_ambiguous', 'multiple IMS reservations match the same provider reservation');
     }
     await delay(1200 * attempt);
   }
@@ -3718,14 +3871,6 @@ function stringifyErrorText(value) {
   return String(value);
 }
 
-function normalizeImsReturnDoneAt(value) {
-  const text = String(value || '').trim();
-  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T-](\d{2})[:\-](\d{2})/);
-  if (!match) return text;
-  return `${match[1]}-${match[2]}-${match[3]}-${match[4]}-${match[5]}`;
-}
-
-
 function formatKstMinute(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -3818,6 +3963,19 @@ function normalizeImsDateTime(value) {
 
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeCarNumberForMatch(value) {
+  return String(value || '').replace(/\s+/g, '').toUpperCase();
+}
+
+function normalizeOptionalBoolean(value, fieldName = 'boolean') {
+  if (value === null || value === undefined || value === '') return null;
+  if (value === true || value === false) return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'y', 'yes'].includes(normalized)) return true;
+  if (['false', '0', 'n', 'no'].includes(normalized)) return false;
+  throw new Error(`invalid boolean ims field: ${fieldName}`);
 }
 
 function digitsOnly(value) {

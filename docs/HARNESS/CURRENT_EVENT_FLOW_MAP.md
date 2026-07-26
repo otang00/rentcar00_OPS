@@ -128,25 +128,22 @@
 
 ## Event/Decision/Command: 반납완료
 
-- 유형: Command + 외부 Command 후보
+- 유형: OPS Command
 - 생성 위치: 예약 상세 또는 일정/차량 상세 완료 버튼
 - 처리 위치:
   - OPS: `SupabaseOpsRepository.completeSchedule`
-  - IMS: `ImsReservationClient.completeReservationReturn` → parser `/ims/complete-reservation-return`
+  - IMS: 호출하지 않음. IMS 연결 예약이면 확인 모달로 연결 정보를 보여준 뒤 OPS 일정만 완료한다.
 - 결과 상태:
   - 반납 일정 완료
   - 예약 `완료`/completed tab
   - 예약 `end_at`을 실제 완료 처리 시각으로 갱신
   - 차량 상태 갱신
-  - IMS 반납완료 command 수행 가능
   - action log 기록
 - 다음 흐름:
   - 완료 탭/projection 갱신
 - 실패 기준:
   - OPS update 실패
-  - IMS API 실패
 - 재처리 기준:
-  - IMS command는 외부 live 변경이므로 중복 호출 주의
   - OPS 반납완료 재처리 기준 확인 필요
 
 ## Event/Decision/Command: 예약취소

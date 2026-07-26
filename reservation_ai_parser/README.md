@@ -5,7 +5,7 @@ rentcar00_OPS 운영 앱이 호출하는 Mac mini 중간서버다.
 
 ## 역할
 - 예약 원문 텍스트를 입력받아 OpenAI로 예약생성용 JSON을 만든다.
-- IMS 예약 생성/조회/변경/삭제/반납완료 요청을 중계한다.
+- IMS 예약 생성/조회/차량변경/삭제와 차량 일배차·월배차 flag 변경 요청을 중계한다.
 - 홈페이지 `reservation.created` 이벤트를 수신해 OPS 예약 원장/상태/일정을 생성한다.
 - 과태료/문서 생성 관련 endpoint를 제공한다.
 - 맥미니에서 **중간서버**로 실행한다.
@@ -38,7 +38,7 @@ rentcar00_OPS 운영 앱이 호출하는 Mac mini 중간서버다.
 - `POST /ims/search-insurance-claims`
 - `POST /ims/change-reservation-car`
 - `POST /ims/delete-reservation`
-- `POST /ims/complete-reservation-return`
+- `POST /ims/update-vehicle-rental-flags`
 - `POST /api/integrations/rentcar00/reservation-events`
 
 그 외 path/method 는 차단 방향으로 유지한다.
@@ -354,18 +354,15 @@ Response:
 - 내부 호출 대상은 `POST /v2/company-car-schedules/delete`이며 body는 `{ "ids": [scheduleId] }`다.
 
 
-### POST /ims/complete-reservation-return
-IMS에 이미 배차중인 계약을 반납완료 처리한다.
+### POST /ims/update-vehicle-rental-flags
+IMS 차량의 일배차/월배차 가능 flag를 변경한다.
 
 Request:
 ```json
 {
-  "contractId": "1209357",
-  "doneAt": "2026-05-17-12-30",
-  "returnGasCharge": 70,
-  "drivenDistanceUponReturn": "70483",
-  "fuelCost": -7010,
-  "reservationId": "R-001"
+  "carNumber": "101하9300",
+  "canGeneralRental": false,
+  "canMonthlyRental": false
 }
 ```
 
@@ -375,17 +372,19 @@ Response:
   "ok": true,
   "result": {
     "code": "SUCCESS",
-    "externalStatus": "linked",
-    "externalReservationId": "204340"
+    "externalStatus": "vehicle_flags_updated",
+    "targetCarId": "12345"
   }
 }
 ```
 
 주의:
 - 실제 IMS 상태를 변경한다.
-- `contractId`는 IMS `normal-contracts` detail id이며, 앱은 저장된 `externalDetailId`를 우선 사용하고 없으면 `externalReservationId`를 fallback으로 사용한다.
-- 내부 호출 대상은 `POST /v2/normal-contracts/{contractId}/set-done`이다.
-- `returnGasCharge`, `drivenDistanceUponReturn`, `fuelCost`는 필수다. OPS 앱은 IMS 연결 반납 시 입력창에서 세 값을 받은 뒤 호출한다.
+- 서버는 `GET /v2/rent-company-cars`에서 차량번호 exact match로 IMS 차량 id를 찾는다.
+- 내부 호출 대상은 `POST /v2/rent-company-cars/{carId}/flags`다.
+- OPS 앱의 `배차불가`는 `canGeneralRental=false`, `canMonthlyRental=false`를 먼저 적용한 뒤 OPS 차량 상태를 바꾼다.
+- OPS 앱의 `배차가능`은 `canGeneralRental=true`, `canMonthlyRental=true`를 먼저 적용한 뒤 OPS 차량 상태를 `대기중`으로 복귀시킨다.
+- OPS 앱의 배차/반납 완료 버튼은 더 이상 IMS 반납완료 write를 호출하지 않는다.
 
 Response:
 ```json
