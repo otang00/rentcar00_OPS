@@ -271,8 +271,8 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
   const timestamp = getHeader(req, 'x-rentcar00-timestamp');
   const signature = getHeader(req, 'x-rentcar00-signature');
 
-  if (eventType !== 'reservation.created') {
-    throw new ApiError(400, 'invalid_event_type', 'X-Rentcar00-Event-Type must be reservation.created');
+  if (!['reservation.created', 'reservation.cancelled'].includes(eventType)) {
+    throw new ApiError(400, 'invalid_event_type', 'X-Rentcar00-Event-Type must be reservation.created or reservation.cancelled');
   }
   if (!eventId) throw new ApiError(400, 'missing_event_id', 'X-Rentcar00-Event-Id is required');
   validateReservationEventTimestamp(timestamp);
@@ -285,7 +285,9 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
     throw new ApiError(400, 'invalid_json', 'request body must be valid JSON');
   }
 
-  const payload = normalizeReservationCreatedEventPayload({ body, eventId, eventType });
+  const payload = eventType === 'reservation.cancelled'
+    ? normalizeReservationCancelledEventPayload({ body, eventId, eventType })
+    : normalizeReservationCreatedEventPayload({ body, eventId, eventType });
 
   const existing = await findStoredReservationEvent(eventId);
 
@@ -295,6 +297,19 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
     } catch (error) {
       if (!isSupabaseDuplicateError(error)) throw error;
     }
+  }
+
+  if (eventType === 'reservation.cancelled') {
+    return {
+      ok: true,
+      eventId: payload.eventId,
+      eventType: payload.eventType,
+      provider: payload.provider || null,
+      sourceReservationId: payload.sourceReservationId || null,
+      deduped: Boolean(existing),
+      imported: false,
+      reviewRequired: true,
+    };
   }
 
   try {
@@ -412,6 +427,66 @@ function normalizeReservationCreatedEventPayload({ body, eventId, eventType }) {
     reservationCode,
     payload: body,
     status: 'received',
+  };
+}
+
+function normalizeReservationCancelledEventPayload({ body, eventId, eventType }) {
+  const bodyEventId = stringifyNullable(body?.eventId).trim();
+  const bodyEventType = stringifyNullable(body?.eventType).trim();
+  if (bodyEventId && bodyEventId !== eventId) {
+    throw new ApiError(400, 'event_id_mismatch', 'header and body eventId do not match');
+  }
+  if (bodyEventType && bodyEventType !== eventType) {
+    throw new ApiError(400, 'event_type_mismatch', 'header and body eventType do not match');
+  }
+
+  const booking = body?.booking && typeof body.booking === 'object' ? body.booking : {};
+  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
+  const provider = firstNonEmpty(
+    body?.provider,
+    booking.sourceProvider,
+    input.sourceProvider,
+  );
+  const sourceReservationId = firstNonEmpty(
+    booking.sourceReservationId,
+    booking.externalReservationId,
+    booking.external_reservation_id,
+    input.sourceReservationId,
+    input.externalReservationId,
+    input.external_reservation_id,
+  );
+  const reservationCode = firstNonEmpty(
+    booking.reservationCode,
+    booking.reservationNumber,
+    booking.sourceReservationNo,
+    booking.externalReservationNo,
+    booking.external_reservation_no,
+    input.reservationCode,
+    input.reservationNumber,
+    input.sourceReservationNo,
+    input.externalReservationNo,
+    input.external_reservation_no,
+    sourceReservationId,
+  );
+  const bookingOrderId = firstNonEmpty(
+    booking.bookingOrderId,
+    input.bookingOrderId,
+    provider && sourceReservationId ? `external-provider:${provider}:${sourceReservationId}` : '',
+  );
+
+  if (!provider || !sourceReservationId) {
+    throw new ApiError(400, 'invalid_payload', 'provider and source reservation id are required for cancellation event');
+  }
+
+  return {
+    eventId,
+    eventType,
+    bookingOrderId,
+    reservationCode,
+    provider,
+    sourceReservationId,
+    payload: body,
+    status: 'pending_review',
   };
 }
 

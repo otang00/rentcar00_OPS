@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:rentcar00_ops/data/models/action_log_entry.dart';
 import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
+import 'package:rentcar00_ops/data/models/reservation_cancellation_notice.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
@@ -30,6 +31,25 @@ class SupabaseOpsRepository {
     }
     final rows = await query.order('created_at', ascending: false).limit(limit);
     return rows.map<ActionLogEntry>(ActionLogEntry.fromJson).toList();
+  }
+
+  Future<List<ReservationCancellationNotice>>
+  fetchReservationCancellationNotices({int limit = 100}) async {
+    final rows = await _client
+        .from('rc00_ops_reservation_events')
+        .select(
+          'id, event_id, event_type, booking_order_id, reservation_code, payload_json, received_at, status, created_at, updated_at',
+        )
+        .eq('event_type', 'reservation.cancelled')
+        .inFilter('status', ['pending_review', 'received'])
+        .order('received_at', ascending: false)
+        .limit(limit);
+
+    return rows
+        .map<ReservationCancellationNotice>(
+          ReservationCancellationNotice.fromRow,
+        )
+        .toList();
   }
 
   Future<void> recordActionLog({

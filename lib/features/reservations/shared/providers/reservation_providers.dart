@@ -3,6 +3,7 @@ import 'package:rentcar00_ops/app/domain/ops_layer.dart';
 import 'package:rentcar00_ops/data/models/action_log_entry.dart';
 import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/outbox_entry.dart';
+import 'package:rentcar00_ops/data/models/reservation_cancellation_notice.dart';
 import 'package:rentcar00_ops/data/models/reservation_action_definition.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
@@ -219,6 +220,55 @@ final allActionLogsProvider = FutureProvider<List<ActionLogEntry>>((ref) {
   return ref.watch(supabaseOpsRepositoryProvider).fetchActionLogs(limit: 200);
 });
 
+final reservationCancellationNoticesRawProvider =
+    FutureProvider<List<ReservationCancellationNotice>>((ref) {
+      return ref
+          .watch(supabaseOpsRepositoryProvider)
+          .fetchReservationCancellationNotices(limit: 100);
+    });
+
+final reservationCancellationNoticesProvider =
+    Provider<AsyncValue<List<ReservationCancellationNotice>>>((ref) {
+      final noticesAsync = ref.watch(reservationCancellationNoticesRawProvider);
+      final reservationsAsync = ref.watch(allReservationsProvider);
+      if (noticesAsync.hasError) {
+        return AsyncValue.error(
+          noticesAsync.error!,
+          noticesAsync.stackTrace ?? StackTrace.current,
+        );
+      }
+      if (reservationsAsync.hasError) {
+        return AsyncValue.error(
+          reservationsAsync.error!,
+          reservationsAsync.stackTrace ?? StackTrace.current,
+        );
+      }
+      final notices = noticesAsync.valueOrNull;
+      final reservations = reservationsAsync.valueOrNull;
+      if (notices == null || reservations == null) {
+        return const AsyncValue.loading();
+      }
+      return AsyncValue.data(
+        notices
+            .map(
+              (notice) => _attachCancellationCandidate(
+                notice: notice,
+                reservations: reservations,
+              ),
+            )
+            .whereType<ReservationCancellationNotice>()
+            .toList(),
+      );
+    });
+
+final reservationCancellationNoticeCountProvider = Provider<AsyncValue<int>>((
+  ref,
+) {
+  return ref
+      .watch(reservationCancellationNoticesProvider)
+      .whenData((items) => items.length);
+});
+
 final outboxPreviewProvider = Provider.family<AsyncValue<List<String>>, String>(
   (ref, reservationId) {
     return const AsyncValue.data([
@@ -407,6 +457,92 @@ List<String> _prioritizeBadges(List<String> badges) {
 
   visible.sort((a, b) => _badgePriority(a).compareTo(_badgePriority(b)));
   return visible.take(3).toList();
+}
+
+ReservationCancellationNotice? _attachCancellationCandidate({
+  required ReservationCancellationNotice notice,
+  required List<ReservationRecord> reservations,
+}) {
+  final matches = reservations
+      .where((reservation) => _matchesCancellationNotice(reservation, notice))
+      .toList();
+  if (matches.isNotEmpty &&
+      matches.every((item) => item.statusKey.trim() == '예약취소')) {
+    return null;
+  }
+
+  final activeMatches = matches
+      .where((item) => item.statusKey.trim() != '예약취소')
+      .toList();
+  if (activeMatches.isEmpty) return notice;
+
+  activeMatches.sort((a, b) {
+    final exactA = _reservationNumberMatchesCancellation(a, notice) ? 0 : 1;
+    final exactB = _reservationNumberMatchesCancellation(b, notice) ? 0 : 1;
+    final exactCompare = exactA.compareTo(exactB);
+    if (exactCompare != 0) return exactCompare;
+    return a.startAt.compareTo(b.startAt);
+  });
+  final candidate = activeMatches.first;
+  return notice.copyWithCandidate(
+    reservationId: candidate.reservationId,
+    reservationNumber: candidate.reservationNumber,
+    status: candidate.statusKey,
+    count: activeMatches.length,
+  );
+}
+
+bool _matchesCancellationNotice(
+  ReservationRecord reservation,
+  ReservationCancellationNotice notice,
+) {
+  if (_reservationNumberMatchesCancellation(reservation, notice)) {
+    return true;
+  }
+
+  final noticeCar = notice.carNumber.trim();
+  if (noticeCar.isNotEmpty && reservation.carNumber.trim() != noticeCar) {
+    return false;
+  }
+  if (!_reservationTimeOverlapsCancellation(reservation, notice)) {
+    return false;
+  }
+
+  final noticePhoneLast4 = _digitsOnly(notice.customerPhoneLast4);
+  final reservationPhone = _digitsOnly(reservation.customerPhone);
+  if (noticePhoneLast4.isNotEmpty &&
+      reservationPhone.endsWith(noticePhoneLast4)) {
+    return true;
+  }
+
+  final noticeName = notice.customerName.trim();
+  return noticeName.isNotEmpty && reservation.customerName.trim() == noticeName;
+}
+
+bool _reservationNumberMatchesCancellation(
+  ReservationRecord reservation,
+  ReservationCancellationNotice notice,
+) {
+  final reservationNumber = reservation.reservationNumber.trim();
+  if (reservationNumber.isEmpty) return false;
+  return [
+    notice.sourceReservationId,
+    notice.sourceReservationNo,
+    notice.reservationCode,
+  ].any(
+    (value) => value.trim().isNotEmpty && value.trim() == reservationNumber,
+  );
+}
+
+bool _reservationTimeOverlapsCancellation(
+  ReservationRecord reservation,
+  ReservationCancellationNotice notice,
+) {
+  final pickupAt = notice.pickupAt;
+  final returnAt = notice.returnAt;
+  if (pickupAt == null || returnAt == null) return false;
+  return reservation.startAt.isBefore(returnAt) &&
+      reservation.endAt.isAfter(pickupAt);
 }
 
 bool _isCompletedBadge(String badge) {

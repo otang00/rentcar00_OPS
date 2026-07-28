@@ -842,16 +842,11 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
   }
 
   Future<void> _completeDispatchUnavailable() async {
-    final confirmed = await showDialog<bool>(
+    final selection = await showDialog<_RentalFlagSelection>(
       context: context,
-      builder: (context) => _ConfirmActionDialog(
-        icon: Icons.task_alt_rounded,
-        title: '배차가능',
-        message: 'IMS 일배차/월배차를 다시 켜고 대기중으로 전환하시겠습니까?',
-        confirmLabel: '확인',
-      ),
+      builder: (context) => const _RentalFlagSelectionDialog(),
     );
-    if (confirmed != true) return;
+    if (selection == null) return;
 
     final carRowId = _extractRawRowId(record.recordId, 'car');
     if (carRowId == null) {
@@ -867,11 +862,11 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
           () => ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl)
               .updateVehicleRentalFlags(
                 carNumber: record.carNumber,
-                canGeneralRental: true,
-                canMonthlyRental: true,
+                canGeneralRental: selection.canGeneralRental,
+                canMonthlyRental: selection.canMonthlyRental,
               ),
           title: 'IMS 배차가능 설정중',
-          message: 'IMS 차량 일배차와 월배차를 다시 켜는 중입니다.',
+          message: selection.progressMessage,
         );
         if (!result.isSuccess) {
           throw StateError(
@@ -886,7 +881,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
         if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('배차가능 처리했습니다.')));
+        ).showSnackBar(SnackBar(content: Text(selection.successMessage)));
       });
     } catch (error) {
       if (mounted) _showError('배차가능 처리에 실패했습니다.\n$error');
@@ -1431,6 +1426,58 @@ class _ActionChipButton extends StatelessWidget {
 }
 
 enum _ActionChipEmphasis { standard, primary, danger }
+
+enum _RentalFlagSelection {
+  general,
+  monthly,
+  both;
+
+  bool? get canGeneralRental {
+    return switch (this) {
+      _RentalFlagSelection.general || _RentalFlagSelection.both => true,
+      _RentalFlagSelection.monthly => null,
+    };
+  }
+
+  bool? get canMonthlyRental {
+    return switch (this) {
+      _RentalFlagSelection.monthly || _RentalFlagSelection.both => true,
+      _RentalFlagSelection.general => null,
+    };
+  }
+
+  String get title {
+    return switch (this) {
+      _RentalFlagSelection.general => '일대차만',
+      _RentalFlagSelection.monthly => '월대차만',
+      _RentalFlagSelection.both => '일대차 + 월대차',
+    };
+  }
+
+  String get description {
+    return switch (this) {
+      _RentalFlagSelection.general => 'IMS 일대차만 다시 켭니다.',
+      _RentalFlagSelection.monthly => 'IMS 월대차만 다시 켭니다.',
+      _RentalFlagSelection.both => 'IMS 일대차와 월대차를 모두 다시 켭니다.',
+    };
+  }
+
+  String get progressMessage {
+    return switch (this) {
+      _RentalFlagSelection.general => 'IMS 차량 일대차를 다시 켜는 중입니다.',
+      _RentalFlagSelection.monthly => 'IMS 차량 월대차를 다시 켜는 중입니다.',
+      _RentalFlagSelection.both => 'IMS 차량 일대차와 월대차를 다시 켜는 중입니다.',
+    };
+  }
+
+  String get successMessage {
+    return switch (this) {
+      _RentalFlagSelection.general => '일대차 배차가능 처리했습니다.',
+      _RentalFlagSelection.monthly => '월대차 배차가능 처리했습니다.',
+      _RentalFlagSelection.both => '일대차/월대차 배차가능 처리했습니다.',
+    };
+  }
+}
 
 String _carDisplayLabel(StatusBoardRecord car) {
   final name = car.carName.trim();
@@ -5367,6 +5414,69 @@ class _DialogTextField extends StatelessWidget {
           suffixIcon: suffixIcon,
         ),
       ),
+    );
+  }
+}
+
+class _RentalFlagSelectionDialog extends StatefulWidget {
+  const _RentalFlagSelectionDialog();
+
+  @override
+  State<_RentalFlagSelectionDialog> createState() =>
+      _RentalFlagSelectionDialogState();
+}
+
+class _RentalFlagSelectionDialogState
+    extends State<_RentalFlagSelectionDialog> {
+  _RentalFlagSelection _selection = _RentalFlagSelection.both;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      icon: Icon(Icons.task_alt_rounded, color: colorScheme.primary),
+      title: const Text('배차가능'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text('다시 켤 IMS 대차 구분을 선택하세요.'),
+          ),
+          const SizedBox(height: 8),
+          for (final option in _RentalFlagSelection.values)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                _selection == option
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: _selection == option ? colorScheme.primary : null,
+              ),
+              title: Text(option.title),
+              subtitle: Text(option.description),
+              onTap: () => setState(() => _selection = option),
+            ),
+          const SizedBox(height: 4),
+          Text(
+            '확인 시 OPS 차량 상태는 대기중으로 전환됩니다.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_selection),
+          child: const Text('확인'),
+        ),
+      ],
     );
   }
 }

@@ -52,16 +52,24 @@ class ImsReservationClient {
 
   Future<ImsReservationExecutionResult> updateVehicleRentalFlags({
     required String carNumber,
-    required bool canGeneralRental,
-    required bool canMonthlyRental,
+    bool? canGeneralRental,
+    bool? canMonthlyRental,
   }) async {
+    if (canGeneralRental == null && canMonthlyRental == null) {
+      throw const ImsReservationClientException(
+        'IMS 차량 일대차 또는 월대차 설정값이 필요합니다.',
+      );
+    }
+    final body = <String, dynamic>{'carNumber': carNumber.trim()};
+    if (canGeneralRental != null) {
+      body['canGeneralRental'] = canGeneralRental;
+    }
+    if (canMonthlyRental != null) {
+      body['canMonthlyRental'] = canMonthlyRental;
+    }
     return _postIms(
       path: '/ims/update-vehicle-rental-flags',
-      body: {
-        'carNumber': carNumber.trim(),
-        'canGeneralRental': canGeneralRental,
-        'canMonthlyRental': canMonthlyRental,
-      },
+      body: body,
       timeoutMessage: 'IMS 차량 배차가능 설정 응답 시간이 초과되었습니다.',
       failureMessage: 'IMS 차량 배차가능 설정 호출에 실패했습니다.',
     );

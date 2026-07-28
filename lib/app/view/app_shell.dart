@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/app/domain/ops_layer.dart';
+import 'package:rentcar00_ops/data/models/reservation_cancellation_notice.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/features/auth/shared/auth_providers.dart';
 import 'package:rentcar00_ops/app/router/app_routes.dart';
@@ -21,6 +22,7 @@ final homepageLauncherProvider = Provider<Future<bool> Function(Uri)>((ref) {
 });
 
 final _lastHomepagePendingCountProvider = StateProvider<int?>((ref) => null);
+final _lastCancellationNoticeCountProvider = StateProvider<int?>((ref) => null);
 
 enum _HomepageQuickAction { openHomepage, reviewReservations }
 
@@ -148,6 +150,11 @@ class AppShell extends ConsumerWidget {
     final homepagePending = ref
         .watch(homepagePendingReservationsProvider)
         .valueOrNull;
+    final cancellationNotices = ref
+        .watch(reservationCancellationNoticesProvider)
+        .valueOrNull;
+    final reservationCheckCount =
+        (homepagePending?.length ?? 0) + (cancellationNotices?.length ?? 0);
     ref.listen<AsyncValue<int>>(homepagePendingCountProvider, (_, next) {
       final current = next.valueOrNull;
       if (current == null) return;
@@ -160,6 +167,25 @@ class AppShell extends ConsumerWidget {
       final message = delta == 1
           ? '홈페이지 예약이 새로 들어왔습니다.'
           : '홈페이지 예약 $delta건이 새로 들어왔습니다.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    });
+    ref.listen<AsyncValue<int>>(reservationCancellationNoticeCountProvider, (
+      _,
+      next,
+    ) {
+      final current = next.valueOrNull;
+      if (current == null) return;
+      final previous = ref.read(_lastCancellationNoticeCountProvider);
+      ref.read(_lastCancellationNoticeCountProvider.notifier).state = current;
+      if (!canAccessOwnerOnlyOps || previous == null || current <= previous) {
+        return;
+      }
+      final delta = current - previous;
+      final message = delta == 1
+          ? '외부예약 취소 알림이 새로 들어왔습니다.'
+          : '외부예약 취소 알림 $delta건이 새로 들어왔습니다.';
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(message)));
@@ -203,7 +229,7 @@ class AppShell extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(right: 4),
               child: _HomepagePendingButton(
-                count: homepagePending?.length ?? 0,
+                count: reservationCheckCount,
                 onPressed: () => _openHomepageActionMenu(context, ref),
               ),
             ),
@@ -330,6 +356,15 @@ class _HomepageReservationListSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final reservationsAsync = ref.watch(homepagePendingReservationsProvider);
+    final cancellationsAsync = ref.watch(
+      reservationCancellationNoticesProvider,
+    );
+    final reservations = reservationsAsync.valueOrNull ?? const [];
+    final cancellations = cancellationsAsync.valueOrNull ?? const [];
+    final loading = reservationsAsync.isLoading || cancellationsAsync.isLoading;
+    final error = reservationsAsync.hasError
+        ? reservationsAsync.error
+        : cancellationsAsync.error;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -353,38 +388,166 @@ class _HomepageReservationListSheet extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
               Flexible(
-                child: reservationsAsync.when(
-                  data: (items) => items.isEmpty
-                      ? const Center(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 32),
-                            child: Text('확인할 예약이 없습니다.'),
-                          ),
-                        )
-                      : ListView.separated(
-                          shrinkWrap: true,
-                          itemCount: items.length,
-                          separatorBuilder: (context, index) =>
-                              const SizedBox(height: 8),
-                          itemBuilder: (context, index) =>
-                              _HomepageReservationCard(
-                                reservation: items[index],
-                              ),
+                child: loading
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 32),
+                          child: CircularProgressIndicator(),
                         ),
-                  loading: () => const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32),
-                      child: CircularProgressIndicator(),
+                      )
+                    : error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 32),
+                          child: Text('확인 예약을 불러오지 못했습니다.\n$error'),
+                        ),
+                      )
+                    : cancellations.isEmpty && reservations.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 32),
+                          child: Text('확인할 예약이 없습니다.'),
+                        ),
+                      )
+                    : ListView(
+                        shrinkWrap: true,
+                        children: [
+                          if (cancellations.isNotEmpty) ...[
+                            const _ReservationCheckSectionTitle('취소 알림'),
+                            for (final notice in cancellations)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _CancellationNoticeCard(notice: notice),
+                              ),
+                          ],
+                          if (reservations.isNotEmpty) ...[
+                            const _ReservationCheckSectionTitle('신규/확인 예약'),
+                            for (final reservation in reservations)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: _HomepageReservationCard(
+                                  reservation: reservation,
+                                ),
+                              ),
+                          ],
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReservationCheckSectionTitle extends StatelessWidget {
+  const _ReservationCheckSectionTitle(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 6),
+      child: Text(
+        label,
+        style: Theme.of(
+          context,
+        ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900),
+      ),
+    );
+  }
+}
+
+class _CancellationNoticeCard extends StatelessWidget {
+  const _CancellationNoticeCard({required this.notice});
+
+  final ReservationCancellationNotice notice;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final carLabel = [
+      notice.carNumber,
+      notice.carName,
+    ].where((item) => item.trim().isNotEmpty).join(' · ');
+    final period = notice.pickupAt == null || notice.returnAt == null
+        ? '-'
+        : '${_formatHomepageReservationDateTime(notice.pickupAt!)} → ${_formatHomepageReservationDateTime(notice.returnAt!)}';
+    final providerLabel = switch (notice.provider) {
+      'carmore' => '카모아',
+      'zzimcar' => '찜카',
+      _ => '외부예약',
+    };
+    final externalNo = notice.sourceReservationNo.trim().isEmpty
+        ? notice.sourceReservationId
+        : notice.sourceReservationNo;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      color: const Color(0xFFFFF4F4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          if (notice.hasCandidate) {
+            final router = GoRouter.of(context);
+            Navigator.of(context).pop();
+            router.push('/reservation/${notice.candidateReservationId}');
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('연결 후보 예약이 없습니다. 예약 목록에서 직접 확인하세요.')),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      notice.customerName.trim().isEmpty
+                          ? '고객명 미확인'
+                          : notice.customerName.trim(),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: Colors.red.shade800,
+                      ),
                     ),
                   ),
-                  error: (error, _) => Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 32),
-                      child: Text('확인 예약을 불러오지 못했습니다.\n$error'),
-                    ),
+                  Badge(
+                    backgroundColor: Colors.red.shade700,
+                    label: Text('$providerLabel 취소'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              if (notice.customerPhoneLast4.trim().isNotEmpty)
+                Text('전화끝4 ${notice.customerPhoneLast4.trim()}'),
+              if (carLabel.isNotEmpty) Text(carLabel),
+              Text(period),
+              if (externalNo.trim().isNotEmpty) Text('외부예약 $externalNo'),
+              if (notice.hasCandidate)
+                Text(
+                  notice.candidateCount > 1
+                      ? '후보 ${notice.candidateCount}건 · 예약상세에서 직접 취소'
+                      : '후보 예약 ${notice.candidateReservationNumber.isEmpty ? notice.candidateReservationId : notice.candidateReservationNumber} · 직접 취소',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.red.shade800,
+                    fontWeight: FontWeight.w800,
+                  ),
+                )
+              else
+                Text(
+                  '자동 매칭 후보 없음 · 직접 검색 필요',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.red.shade800,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
             ],
           ),
         ),
