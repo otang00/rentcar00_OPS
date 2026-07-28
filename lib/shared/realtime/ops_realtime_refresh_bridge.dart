@@ -142,6 +142,7 @@ class _OpsRealtimeRefreshBridgeState
       if (!mounted) return;
       ref.invalidate(allReservationsProvider);
       ref.invalidate(allStatusBoardRecordsProvider);
+      ref.invalidate(reservationCancellationNoticesRawProvider);
     });
   }
 
@@ -163,4 +164,5 @@ const _coreRealtimeTables = [
   'rc00_ops_reservation_states',
   'rc00_ops_schedules',
   'rc00_ops_cars',
+  'rc00_ops_reservation_events',
 ];
