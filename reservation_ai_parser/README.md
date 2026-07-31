@@ -282,7 +282,7 @@ Response:
         "customerName": "강영욱",
         "customerPhone": "01000000000",
         "rentalAt": "2026-05-19 13:04",
-        "returnAt": ""
+        "returnAt": "2026-05-22 10:00"
       }
     ]
   }
@@ -292,6 +292,8 @@ Response:
 주의:
 - 조회 전용이다. IMS 상태를 변경하지 않는다.
 - 날짜 query key는 `startDate/endDate`가 아니라 `startdate/enddate` 소문자를 사용해야 필터가 적용된다.
+- 목록 row에서 `returnAt`이 비어 있으면 `GET /v2/rencar-claims/{claimId}` 상세를 추가 조회한다.
+- `returnAt`은 IMS 보험 claim의 반납예정일 후보를 우선 사용하며, top-level 값이 없으면 차량번호가 일치하는 계약/상세 row의 반납예정일 후보를 사용한다.
 
 ### POST /ims/change-reservation-car
 IMS에 이미 생성된 예약의 차량을 변경한다.

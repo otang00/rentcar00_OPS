@@ -6,7 +6,13 @@
 - 과태료 실전 MVP는 큰 `pa all` 트랙이 아니라 작은 increment별 승인으로 진행한다.
 - 코드/DB/parser restart/APK/commit/외부 제출은 문서에 적혀 있어도 별도 승인 전 실행하지 않는다.
 - Parser API Auth Hardening 이후 OPS 앱용 parser/IMS/과태료 endpoint는 `X-Ops-Parser-Token` 가드를 사용한다. 홈페이지 예약 이벤트는 기존 HMAC 인증을 유지한다.
-- 코드/앱 header 변경은 로컬 반영됐지만 운영 `.env`, parser restart, APK build/upload, commit은 별도 승인 전 실행하지 않는다.
+- 2026-07-31 기준 parser는 `127.0.0.1:43110`에서 final active PID `53630`으로 재시작 확인됐다. 추가 runtime 변경/APK/commit은 별도 승인 전 실행하지 않는다.
+
+## 문서 드리프트 정리 준비
+- `rentcar00_OPS_doc_drift_fix_preparation_20260731.md`
+  - 상태: `Prepared`
+  - 역할: b55/b57/+58, HEAD, parser runtime, HARNESS/GOAL/PHASE stale 표현을 전체 정리하기 전 확인된 기준점과 수정 후보를 고정한다.
+  - 다음 승인 후보: 전체 문서 드리프트 정리 실행.
 
 ## 과태료 남은 PM
 - `rentcar00_OPS-fine-notice-next-operational-phases-pm.md`
@@ -17,7 +23,7 @@
 
 - `rentcar00_OPS-fine-notice-contract-search-boundary-correction-pm.md`
   - 상태: `Local Implementation Verified / DB apply and deployment pending`
-  - 남은 일: remote migration은 2026-07-11 기준 적용 확인됐으며, 필요 시 후속 운영 smoke만 남았다. b53 과태료 APK build/upload은 완료했고, 최신 직원 배포본은 b55다.
+  - 남은 일: remote migration은 2026-07-11 기준 적용 확인됐으며, 필요 시 후속 운영 smoke만 남았다. b53 과태료 APK build/upload은 완료했고, 최신 완료 배포 기록은 b57다.
   - 다음 승인 후보: 운영 게이트 기준 `pa fine-notice-next-db-apply`.
   - 문서 단독 alias: `pa workflow-integrity-db-apply`.
 
@@ -67,7 +73,7 @@
 - `docs/COMPLETED/COMPLETE_20260707_rentcar00_OPS_ims_insurance_longterm_dispatch_lifecycle_pm.md`
   - IMS 보험배차 가져오기를 예약원장 lifecycle에 연결하고 배차완료 후 차량 상태 `보험` 유지 정책을 반영했다.
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`
-  - b51 상단 메뉴/API parser hotfix PM. b52 APK build/upload 완료 기록이며, 최신 직원 배포는 b55다.
+  - b51 상단 메뉴/API parser hotfix PM. b52 APK build/upload 완료 기록이며, 최신 완료 배포 기록은 b57다.
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_mvp_foundation_pm.md`
   - 기존 과태료 MVP foundation 로드맵.
 - `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_intake_policy_and_rollback_pm.md`

@@ -8,6 +8,10 @@ import fontkit from '@pdf-lib/fontkit';
 import { buildConfig, loadEnvFile, parseReservationInput, validateConfig } from './parser-core.js';
 import { mapHomepageReservationPayload } from './homepage-reservation-mapper.js';
 import {
+  mergeImsInsuranceClaimListAndDetail,
+  toImsInsuranceClaimImportItem,
+} from './ims-insurance-claim-import-item.js';
+import {
   buildConfig as buildFineNoticeConfig,
   parseFineNoticeInput,
 } from '../../fine_notice_ai_parser/src/parser-core.js';
@@ -1533,7 +1537,15 @@ async function searchImsInsuranceClaimsForDispatch(payload, tokenOverride = null
     for (const claim of claimList) {
       const matchesCar = !normalizedCar || normalizeText(claim?.rent_car_number) === normalizedCar;
       const matchesDate = extractDate(claim?.delivered_at) === payload.rentalDate;
-      if (matchesCar && matchesDate) items.push(toImsInsuranceClaimImportItem(claim));
+      if (matchesCar && matchesDate) {
+        const listItem = toImsInsuranceClaimImportItem(claim);
+        if (listItem.returnAt) {
+          items.push(listItem);
+          continue;
+        }
+        const detail = await fetchImsInsuranceClaimDetail({ token, claimId: claim?.id });
+        items.push(toImsInsuranceClaimImportItem(mergeImsInsuranceClaimListAndDetail(claim, detail)));
+      }
     }
 
     totalPage = Number(json?.totalPage || json?.total_page || 1);
@@ -3818,6 +3830,18 @@ async function fetchImsPartnerRentRequestDetail({ token, requestId }) {
   return json?.data || json;
 }
 
+async function fetchImsInsuranceClaimDetail({ token, claimId }) {
+  const id = stringifyNullable(claimId);
+  if (!id) return null;
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/rencar-claims/${encodeURIComponent(id)}`,
+    { headers: buildImsApiHeaders(token) },
+  );
+  const json = await readJsonResponse(response);
+  if (!response.ok) return null;
+  return json?.datas || json?.data || json?.claim || json;
+}
+
 function mergeImsScheduleForImport(detail, listSchedule, requestDetail = null) {
   const reservation = detail?.reservation || listSchedule?.reservation || listSchedule?.detail || null;
   const detailInfo = detail?.detail || listSchedule?.detail || null;
@@ -3853,29 +3877,6 @@ function toImsReservationImportItem(schedule) {
     dropoffLocation: stringifyNullable(reservation?.dropoff_address || detail?.dropoff_address || request?.dropoff_address),
     recommenderName: stringifyNullable(reservation?.recommender?.name || reservation?.recommender_name || detail?.recommender_name || request?.orderer),
     title: stringifyNullable(schedule?.title || schedule?.memo || reservation?.reservation_memo),
-  };
-}
-
-function toImsInsuranceClaimImportItem(claim) {
-  return {
-    sourceType: 'ims_insurance_claim',
-    claimId: stringifyNullable(claim?.id),
-    status: stringifyNullable(claim?.claim_state),
-    carNumber: stringifyNullable(claim?.rent_car_number),
-    carName: stringifyNullable(claim?.car_model),
-    customerName: stringifyNullable(claim?.customer_name),
-    customerPhone: digitsOnly(claim?.customer_contact),
-    residentRegistrationNo: stringifyNullable(claim?.customer_id_number || claim?.registration_number),
-    driverLicenseNo: stringifyNullable(claim?.driver_license_number || claim?.license_number),
-    rentalAt: normalizeImsDateTime(claim?.delivered_at),
-    returnAt: normalizeImsDateTime(claim?.expect_return_date || claim?.return_date),
-    pickupLocation: stringifyNullable(claim?.customer_address),
-    insuranceCompany: stringifyNullable(claim?.claim_user_company),
-    claimUserName: stringifyNullable(claim?.claim_user_name),
-    title: [
-      stringifyNullable(claim?.business_name),
-      stringifyNullable(claim?.claim_state),
-    ].filter((value) => value.trim()).join(' | '),
   };
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readImsInsuranceClaimExpectedReturnAt } from './ims-insurance-claim-import-item.js';
 import { buildConfig, loadEnvFile } from './parser-core.js';
 import {
   fetchImsAccessToken,
@@ -79,7 +80,9 @@ export function normalizeUsingCarSnapshotRow(sourceType, row = {}, { seenAt = ne
       ? text(normalReservation?.customer_name || row?.customer_name)
       : text(row?.customer_name),
     rental_at: normalizeImsDateTime(isNormal ? row?.start_at : row?.delivered_at),
-    return_at: normalizeImsDateTime(isNormal ? row?.end_at : row?.expect_return_date || row?.return_date),
+    return_at: isNormal
+      ? normalizeImsDateTime(row?.end_at)
+      : readImsInsuranceClaimExpectedReturnAt(row),
     raw_status: isNormal
       ? text(row?.status || row?.state || normalReservation?.status || normalReservation?.state)
       : text(row?.claim_state || row?.state || row?.status),

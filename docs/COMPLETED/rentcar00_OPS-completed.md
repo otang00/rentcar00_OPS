@@ -5,6 +5,40 @@
 
 ---
 
+## 2026-07-31 — IMS 보험배차 반납예정일 import hotfix
+
+### 사용자 표면
+- 차량 상세의 `배차 > 보험` IMS 보험배차 가져오기에서 목록 응답의 반납일이 비어 있어도 반납예정일이 채워진다.
+- 확인 건 `2026-07-31 / 20하3779 / claimId 3136931`은 `returnAt = 2026-08-07 15:42`로 조회된다.
+
+### 실제 동작
+- `/v2/rencar-claims` 목록 row에서 `returnAt`이 비어 있으면 `/v2/rencar-claims/{claimId}` 상세를 추가 조회한다.
+- 상세의 `expect_return_date`를 우선 사용하되, 차량번호/대여일 등 목록 기준 값은 유지한다.
+- 보험 claim import 매핑과 IMS using-car snapshot 정규화가 같은 반납예정일 후보 reader를 사용한다.
+- parser를 재시작해 새 코드가 43110 런타임에 반영됐다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/ims-insurance-claim-import-item.js`
+- `reservation_ai_parser/src/ims-using-car-snapshot-diff.js`
+- `reservation_ai_parser/test/ims-insurance-claim-import-item.test.js`
+- `reservation_ai_parser/test/ims-using-car-snapshot-diff.test.js`
+- `docs/COMPLETED/2026-07-31_OPS_ims_insurance_claim_expected_return_import_hotfix.md`
+
+### 검증
+- `node --test reservation_ai_parser/test/ims-insurance-claim-import-item.test.js` 통과: 4 tests
+- `node --test reservation_ai_parser/test/*.test.js` 통과: 23 tests
+- `npm --prefix reservation_ai_parser run check` 통과
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `git diff --check` 통과
+- runtime smoke: `POST /ims/search-insurance-claims` with `2026-07-31 / 20하3779` -> `returnAt: 2026-08-07 15:42`
+
+### 남은 확인
+- commit은 아직 하지 않았다.
+- 이 hotfix는 조회/import 전용이며, OPS 반납일 변경 시 IMS 반납예정일을 write로 갱신하는 기능은 별도 phase다.
+
+---
+
 ## 2026-07-27 — IMS authority / 빠른 예약 흐름 b57 배포
 
 ### 사용자 표면

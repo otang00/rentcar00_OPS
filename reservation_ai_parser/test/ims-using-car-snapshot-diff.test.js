@@ -65,6 +65,21 @@ test('normalizes normal and insurance using-car list rows without using car numb
   assert.equal(rows[1].car_number, '101하9300');
 });
 
+test('normalizes insurance using-car nested expected return date', () => {
+  const rows = normalizeUsingCarSnapshotRows({
+    insuranceRows: [{
+      id: 'claim-nested',
+      claim_state: 'using_car',
+      delivered_at: '2026-07-26 09:00:00',
+      rent_car_number: '101하9300',
+      contracts: [{ rent_car_number: '101하9300', return_due_at: '2026-07-29T10:20:00+09:00' }],
+    }],
+    seenAt,
+  });
+
+  assert.equal(rows[0].return_at, '2026-07-29 10:20');
+});
+
 test('first valid snapshot bootstraps without lifecycle candidates', () => {
   const currentRows = normalizeUsingCarSnapshotRows({
     normalRows: [normalRow('schedule-1')],

@@ -27,6 +27,7 @@ intake 재정의와 롤백 기준은 `docs/COMPLETED/COMPLETE_20260619_rentcar00
 - 과태료 원장 저장/조회 repository 연결
 - IMS 일반/보험 계약 후보 검색 MVP 구현
 - IMS 보험배차 가져오기 건을 예약원장 lifecycle에 연결하고, 가져온 직후 배차완료/차량상태 `보험` 유지/반납완료 대기 흐름으로 정리
+- IMS 보험배차 가져오기에서 목록 row 반납일이 비어 있으면 claim 상세의 `expect_return_date`를 조회해 `returnAt`으로 채우는 parser hotfix 반영
 - 계약자 수동 확정값 저장과 action log 기록
 - 확정 계약의 IMS 계약서 PDF 저장 endpoint와 OPS 버튼 구현
 - b53 과태료 문서패키지 MVP APK 배포
@@ -108,9 +109,11 @@ IMS 배차중 snapshot diff 구현물은 보관용 로컬 산출물이며 `send-
 ## 현재 기준점
 - repository: `rentcar00_OPS`
 - branch: `fix/ops-return-complete-end-at`
-- APK code commit: `19770c0 feat: add homepage reservation action modal`
-- 앱 버전/build: `1.0.0+55`
-- 업로드 상태: GDrive `rentcar00_OPS/apk/`에 `rentcar00_ops-app-release-arm64-b55-19770c0.apk`가 있으며, 직원 사용 상태를 사장님이 확인했다.
+- HEAD: `b8c87cb fix: refresh cancellation notices in realtime`
+- working tree app version/build: `1.0.0+58`
+- 최신 완료 배포 기록: b57, `docs/COMPLETED/rentcar00_OPS-completed.md` 기준
+- 2026-07-31 parser runtime: final active PID `53630`, `127.0.0.1:43110`, health OK
+- 2026-07-31 미커밋 parser hotfix: IMS 보험배차 claim 상세 `expect_return_date` fallback으로 `20하3779` returnAt `2026-08-07 15:42` runtime 확인
 - 문서 구조: `docs/GOAL`, `docs/PHASE`, `docs/COMPLETED`, `docs/ARCHIVE` 네 영역만 사용
 - `docs/current`, `docs/completed`, `docs/past` 구조는 더 이상 active 기준으로 쓰지 않는다.
 - 파일 보관 정책:
@@ -227,11 +230,11 @@ IMS 배차중 snapshot diff 구현물은 보관용 로컬 산출물이며 `send-
 - 수동 입력 유지 / 자동 계산 도입 / DB 정책 테이블 도입 중 하나를 선택
 - 승인된 phase 전까지 코드/DB/운영 반영 없음
 
-### 5순위: b55 최신 APK 실사용 확인
-- `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md` 완료 문서 참고
+### 5순위: 최신 완료 APK 실사용 확인
+- `docs/COMPLETED/rentcar00_OPS-completed.md`의 b57 완료 배포 기록 참고
 - 상단 메뉴 icon-first 구조 육안 확인
 - 과태료 AI parser 연결상태와 실제 고지서 사진 파싱 확인
-- b55 APK의 홈페이지 진입/예약확인 모달과 기존 과태료 문서패키지 흐름 확인
+- 최신 완료 APK의 홈페이지 진입/예약확인 모달과 기존 과태료 문서패키지 흐름 확인
 
 ### 6순위: 실전 투입 피드백 반영
 - UI/데이터/시간/IMS 문제를 짧은 phase로 처리한다.
