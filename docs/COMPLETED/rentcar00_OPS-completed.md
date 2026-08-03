@@ -5,6 +5,46 @@
 
 ---
 
+## 2026-08-04 — 외부예약 IMS 기존예약 검색/폴백 보강
+
+### 사용자 표면
+- 카모아/찜카 paid 외부예약 handoff에서 1일미만·동일일 예약이 IMS에 이미 있으면 새 IMS 예약을 만들지 않고 기존 IMS schedule을 재사용한다.
+- 확인 건 `carmore/2172_2026080301000`은 기존 IMS `4431253`에 linked 되었고 OPS 예약/배차/반납 일정이 생성됐다.
+
+### 실제 동작
+- IMS 기존예약 검색은 exact date window뿐 아니라 동일일/1일미만 예약에서 `startDate - 1`부터 `endDate + 1`까지 확장 검색한다.
+- `date_option=start_at`과 `date_option=end_at`를 모두 시도하고 schedule id로 후보를 dedupe한다.
+- 최종 연결은 detail 조회 후 차량번호, 대여/반납 시각, 고객명, 전화번호, 주소 기준으로 확정한다.
+- 기존 120페이지 무필터 schedule list 폴백은 기존예약 lookup 경로에서 제거했다.
+- parser를 재시작해 새 코드가 `127.0.0.1:43110` runtime에 반영됐다.
+- target recovery는 1건만 실행했고 IMS 신규 생성 없이 `reused=true`로 완료했다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/ims-existing-reservation-search-strategy.js`
+- `reservation_ai_parser/test/ims-existing-reservation-search-strategy.test.js`
+- `docs/COMPLETED/rentcar00_OPS-external-reservation-ims-existing-search-fallback_PM_COMPLETE_20260804.md`
+
+### 검증
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `node --test reservation_ai_parser/test/*.test.js` 통과: 28 tests
+- `git diff --check` 통과
+- read-only IMS 검증:
+  - exact same-day `2026-08-08~2026-08-08` 검색은 0건
+  - widened `2026-08-07~2026-08-09` 검색은 IMS `4431253` 확인
+- runtime smoke: `/health` OK, active PID `54807`
+- live recovery readback:
+  - OPS event `imported`
+  - OPS reservation 1건, schedule 2건
+  - OPS IMS link `external_reservation_id=4431253`, `external_status=linked`
+  - booking-system intake `ops_handoff_status=completed`, `ims_action_status=linked`, `ims_reservation_id=4431253`
+
+### 남은 확인
+- 다음 카모아/찜카 1일미만 신규 유입 시 launchd orchestrator가 같은 경로를 timeout 없이 완료하는지 모니터링한다.
+- sender 5초 timeout 값, `.env`, launchd plist, DB schema, 외부 provider write는 변경하지 않았다.
+
+---
+
 ## 2026-07-31 — IMS 보험배차 반납예정일 import hotfix
 
 ### 사용자 표면

@@ -12,6 +12,13 @@ import {
   toImsInsuranceClaimImportItem,
 } from './ims-insurance-claim-import-item.js';
 import {
+  addDaysToDateText as addDaysToDateTextFromSearchStrategy,
+  buildImsReservationSearchQueries,
+  dedupeImsSchedulesById,
+  extractDateText,
+  normalizeImsScheduleId,
+} from './ims-existing-reservation-search-strategy.js';
+import {
   buildConfig as buildFineNoticeConfig,
   parseFineNoticeInput,
 } from '../../fine_notice_ai_parser/src/parser-core.js';
@@ -3406,7 +3413,7 @@ async function createImsReservationDirect(payload, { allowExistingLink = false }
   let matchedSchedule = null;
 
   if (!scheduleId) {
-    matchedSchedule = await findCreatedImsReservationByApi({ token, payload });
+    matchedSchedule = await findCreatedImsReservationByApi({ token, payload, maxAttempts: 4 });
     scheduleId = matchedSchedule?.id;
     detailId = matchedSchedule?.reservation?.id;
   }
@@ -3705,17 +3712,20 @@ async function findAvailableImsCar({ token, payload }) {
   return null;
 }
 
-async function findCreatedImsReservationByApi({ token, payload }) {
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
+async function findCreatedImsReservationByApi({ token, payload, maxAttempts = 1, retryDelayMs = 1200 }) {
+  const attempts = Math.max(1, Number(maxAttempts || 1));
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const fastMatches = [];
-    const candidates = await findImsReservationsBySearchApi({ token, payload });
+    const candidates = await findImsReservationCandidatesBySearchApi({ token, payload });
     for (const schedule of candidates) {
       const sameCar = normalizeText(schedule?.car?.car_identity || schedule?.car_identity || schedule?.car_number || schedule?.car) === normalizeText(payload.carNumber);
       const sameStart = normalizeImsDateTime(schedule?.start_at || schedule?.start) === normalizeImsDateTime(payload.rentalAt);
       const sameEnd = normalizeImsDateTime(schedule?.end_at || schedule?.end) === normalizeImsDateTime(payload.returnAt);
       if (!sameCar || !sameStart || !sameEnd) continue;
 
-      const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id || schedule.schedule_id });
+      const scheduleId = normalizeImsScheduleId(schedule);
+      if (!scheduleId) continue;
+      const detail = await fetchImsScheduleDetail({ token, scheduleId });
       if (isCreatedImsReservationDetailMatch({ detail, schedule, payload })) fastMatches.push(detail);
     }
 
@@ -3724,24 +3734,7 @@ async function findCreatedImsReservationByApi({ token, payload }) {
       throw new ApiError(409, 'ims_existing_match_ambiguous', 'multiple IMS reservations match the same provider reservation');
     }
 
-    const matches = await findImsReservationsByListApi({
-      token,
-      predicate: async (schedule) => {
-        const sameCar = normalizeText(schedule?.car?.car_identity || schedule?.car_identity || schedule?.car_number) === normalizeText(payload.carNumber);
-        const sameStart = normalizeImsDateTime(schedule?.start_at) === normalizeImsDateTime(payload.rentalAt);
-        const sameEnd = normalizeImsDateTime(schedule?.end_at) === normalizeImsDateTime(payload.returnAt);
-        if (!sameCar || !sameStart || !sameEnd) return null;
-
-        const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id });
-        return isCreatedImsReservationDetailMatch({ detail, schedule, payload }) ? detail : null;
-      },
-    });
-
-    if (matches.length === 1) return matches[0];
-    if (matches.length > 1) {
-      throw new ApiError(409, 'ims_existing_match_ambiguous', 'multiple IMS reservations match the same provider reservation');
-    }
-    await delay(1200 * attempt);
+    if (attempt < attempts) await delay(Number(retryDelayMs || 0) * attempt);
   }
   return null;
 }
@@ -3761,15 +3754,26 @@ function isCreatedImsReservationDetailMatch({ detail, schedule, payload }) {
   return sameDetailCar && sameCustomer && samePhone && sameAddress && sameWindow;
 }
 
-async function findImsReservationsBySearchApi({ token, payload, page = 1 }) {
-  const startDate = extractDate(payload.rentalAt || payload.rentalDate || payload.startDate);
-  const endDate = extractDate(payload.returnAt || payload.endDate || payload.returnDate) || startDate;
+async function findImsReservationsBySearchApi({
+  token,
+  payload,
+  page = 1,
+  baseDate: queryBaseDate = null,
+  startDate: queryStartDate = null,
+  endDate: queryEndDate = null,
+  dateOption: queryDateOption = null,
+}) {
+  const query = buildImsReservationSearchQueries(payload)[0] || {};
+  const startDate = queryStartDate || query.startDate || extractDate(payload.rentalAt || payload.rentalDate || payload.startDate);
+  const endDate = queryEndDate || query.endDate || extractDate(payload.returnAt || payload.endDate || payload.returnDate) || startDate;
+  const baseDate = queryBaseDate || query.baseDate || startDate;
+  const dateOption = queryDateOption || query.dateOption || 'start_at';
   const url = new URL('https://api.rencar.co.kr/v2/company-car-schedules/reservations');
   url.searchParams.set('page', String(page));
-  url.searchParams.set('base_date', startDate);
+  url.searchParams.set('base_date', baseDate);
   url.searchParams.set('rental_type', 'all');
   url.searchParams.set('status', 'all');
-  url.searchParams.set('date_option', 'start_at');
+  url.searchParams.set('date_option', dateOption);
   url.searchParams.set('start', startDate);
   url.searchParams.set('end', endDate);
   if (payload.carNumber) {
@@ -3785,27 +3789,13 @@ async function findImsReservationsBySearchApi({ token, payload, page = 1 }) {
   return Array.isArray(json?.schedules) ? json.schedules : [];
 }
 
-async function findImsReservationsByListApi({ token, predicate, maxPages = 120 }) {
-  const matches = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const url = new URL('https://api.rencar.co.kr/v2/company-car-schedules');
-    url.searchParams.set('page', String(page));
-    const response = await fetch(url, { headers: buildImsApiHeaders(token) });
-    const json = await readJsonResponse(response);
-    if (!response.ok) {
-      throw new Error(resolveApiErrorMessage(json, response.status, 'IMS schedule list lookup failed'));
-    }
-
-    const schedules = Array.isArray(json?.schedules) ? json.schedules : [];
-    for (const schedule of schedules) {
-      const match = await predicate(schedule);
-      if (match) matches.push(match);
-    }
-
-    const totalPage = Number(json?.total_page || 0);
-    if (schedules.length === 0 || (totalPage > 0 && page >= totalPage)) break;
+async function findImsReservationCandidatesBySearchApi({ token, payload }) {
+  const schedules = [];
+  const queries = buildImsReservationSearchQueries(payload);
+  for (const query of queries) {
+    schedules.push(...await findImsReservationsBySearchApi({ token, payload, ...query }));
   }
-  return matches;
+  return dedupeImsSchedulesById(schedules);
 }
 
 async function fetchImsScheduleDetail({ token, scheduleId }) {
@@ -4015,19 +4005,11 @@ function buildLinkKey(payload) {
 }
 
 function extractDate(value) {
-  return String(value || '').trim().split(/\s+/)[0] || '';
+  return extractDateText(value);
 }
 
 function addDaysToDateText(value, days) {
-  const text = extractDate(value);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return text;
-  const utc = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  utc.setUTCDate(utc.getUTCDate() + Number(days || 0));
-  const y = utc.getUTCFullYear();
-  const m = String(utc.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(utc.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return addDaysToDateTextFromSearchStrategy(value, days);
 }
 
 function normalizeImsDateTime(value) {

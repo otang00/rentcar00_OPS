@@ -6,7 +6,7 @@
 - 과태료 실전 MVP는 큰 `pa all` 트랙이 아니라 작은 increment별 승인으로 진행한다.
 - 코드/DB/parser restart/APK/commit/외부 제출은 문서에 적혀 있어도 별도 승인 전 실행하지 않는다.
 - Parser API Auth Hardening 이후 OPS 앱용 parser/IMS/과태료 endpoint는 `X-Ops-Parser-Token` 가드를 사용한다. 홈페이지 예약 이벤트는 기존 HMAC 인증을 유지한다.
-- 2026-07-31 기준 parser는 `127.0.0.1:43110`에서 final active PID `53630`으로 재시작 확인됐다. 추가 runtime 변경/APK/commit은 별도 승인 전 실행하지 않는다.
+- 2026-08-04 기준 parser는 `127.0.0.1:43110`에서 active PID `54807`로 재시작 확인됐다. 추가 runtime 변경/APK/commit은 별도 승인 전 실행하지 않는다.
 
 ## 문서 드리프트 정리 준비
 - `rentcar00_OPS_doc_drift_fix_preparation_20260731.md`
@@ -64,6 +64,8 @@
   - 과태료 MVP와 별개다. 코드/DB/운영 반영은 아직 승인되지 않았다.
 
 ## 완료로 이동한 PM
+- `docs/COMPLETED/rentcar00_OPS-external-reservation-ims-existing-search-fallback_PM_COMPLETE_20260804.md`
+  - 카모아/찜카 외부예약 handoff의 동일일·1일미만 IMS 기존예약 검색 window와 폴백을 보강했다. target `2172_2026080301000`은 기존 IMS `4431253` 재사용으로 OPS 예약/일정/link와 booking-system intake `completed/linked` 확인 완료.
 - `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_homepage_reservation_action_modal_pm.md`
   - 상단 홈페이지 버튼을 액션 모달로 바꾸고 홈페이지 예약 카드 리스트/예약상세 이동을 추가했다.
 - `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_three_pm_bundle_execution_plan.md`
