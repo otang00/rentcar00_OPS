@@ -365,7 +365,7 @@ class SupabaseOpsRepository {
     final rows = await _client
         .from('rc00_ops_reservations')
         .select(
-          'reservation_id, reservation_number, customer_name, start_at, end_at',
+          'reservation_id, reservation_number, customer_name, start_at, end_at, reservation_status',
         )
         .eq('car_number', normalizedCarNumber);
 
@@ -375,6 +375,11 @@ class SupabaseOpsRepository {
           .trim();
       if (otherReservationId.isEmpty ||
           otherReservationId == normalizedReservationId) {
+        continue;
+      }
+      final reservationStatus = (row['reservation_status'] as String? ?? '')
+          .trim();
+      if (reservationStatus == '예약취소' || reservationStatus == '완료') {
         continue;
       }
       final otherStartAt = _parseDateTime(row['start_at']);
