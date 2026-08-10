@@ -1,8 +1,9 @@
 # rentcar00_OPS 전체 상태 문서 드리프트 수정 준비
 
 - Date: 2026-07-31
-- Status: prepared
-- Scope: 문서 기준점 정리 준비. 코드/DB/deploy/commit 범위 아님
+- Revised: 2026-08-10
+- Status: prepared / b59 baseline refreshed
+- Scope: 문서 기준점 정리 준비. 2026-08-10에는 승인된 b59 배포 이후 문서 기준점만 갱신했다.
 
 ## 목적
 현재 repo의 실제 상태와 active 문서 기준이 일부 어긋나 있다.
@@ -11,14 +12,13 @@
 ## 확인된 현재 상태
 - repository: `rentcar00_OPS`
 - branch: `fix/ops-return-complete-end-at`
-- HEAD: `b8c87cb fix: refresh cancellation notices in realtime`
-- `pubspec.yaml`: `version: 1.0.0+58`
-- 최신 완료 배포 기록: b57
+- 최신 앱 코드 커밋: `a5bb856 fix: ignore terminal reservation overlaps`
+- `pubspec.yaml`: `version: 1.0.0+59`
+- 최신 완료 배포 기록: b59
   - 문서: `docs/COMPLETED/rentcar00_OPS-completed.md`
-  - APK: `rentcar00_ops-app-release-arm64-b57-5d4183b.apk`
-- 2026-07-31 parser runtime:
-  - 이전 PID: `22718`
-  - final active PID: `53630`
+  - APK: `rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+- 2026-08-10 parser runtime read-only check:
+  - active PID: `54807`
   - bind: `127.0.0.1:43110`
   - health: OK
 - 2026-07-31 parser hotfix:
@@ -29,22 +29,22 @@
 ## 확인된 드리프트 후보
 
 ### 1. GOAL current의 앱/APK 기준
-`docs/GOAL/rentcar00_OPS-current.md`에 과거 b55 기준이 남아 있었다.
-이번 hotfix 문서화에서 현재 기준점은 다음으로 갱신했다.
+`docs/GOAL/rentcar00_OPS-current.md`에 과거 b55/b57/+58 기준이 남아 있었다.
+2026-08-10 차량변경 hotfix 문서화에서 현재 기준점은 다음으로 갱신했다.
 
 ```txt
-HEAD: b8c87cb
-working tree app version/build: 1.0.0+58
-latest completed APK record: b57
-parser runtime: final active PID 53630
+latest app code commit: a5bb856
+working tree app version/build: 1.0.0+59
+latest completed APK record: b59
+parser runtime: active PID 54807
 ```
 
 ### 2. PHASE README의 최신 배포 표기
-`docs/PHASE/README.md` 일부 항목이 최신 직원 배포를 b55로 설명한다.
-완료 문서 기준 최신 완료 배포는 b57이다.
+`docs/PHASE/README.md` 일부 항목이 최신 직원 배포를 b55/b57로 설명했다.
+완료 문서 기준 최신 완료 배포는 b59다.
 
 수정 준비:
-- `최신 직원 배포본은 b55다` 표현을 b57 기준으로 정리
+- `최신 직원 배포본은 b55다` 또는 `최신 완료 배포 기록은 b57다` 표현을 b59 기준으로 정리
 - Parser API Auth Hardening PM은 완료 기록과 active PM 상태가 섞여 있으므로 완료/보류 범위를 재분류
 
 ### 3. HARNESS 문서의 오래된 기준점

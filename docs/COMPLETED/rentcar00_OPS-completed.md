@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-08-10 — 예약상세 차량변경 취소/완료 overlap 제외 + b59 배포
+
+### 사용자 표면
+- 예약상세 차량변경에서 대상 차량의 겹치는 예약이 `예약취소` 또는 `완료` 상태면 차량 점유로 보지 않는다.
+- 확인 건 `101하6688 -> 101하9300`은 `101하9300`의 취소 예약 row 때문에 막히지 않는다.
+
+### 실제 동작
+- `fetchReservationVehicleOverlaps()`가 `reservation_status`를 함께 조회한다.
+- overlap 비교 전에 `예약취소`, `완료` row를 제외한다.
+- 그 외 상태, 빈 status, 알 수 없는 status는 기존처럼 시간대가 겹치면 차량변경을 차단한다.
+- DB data/schema, IMS write, parser runtime restart는 변경하지 않았다.
+
+### 배포물
+- 버전: `1.0.0+59`
+- 코드 커밋: `a5bb856 fix: ignore terminal reservation overlaps`
+- APK: `build/releases/rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+- Google Drive: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+- 파일 크기: `20,702,419 bytes`
+- SHA-256: `890566762434b942161b46f958f41baadf901c11638cbb4a8f067ba58d19af0a`
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `pubspec.yaml`
+- `docs/COMPLETED/rentcar00_OPS_vehicle_availability_active_reservation_policy_PM_COMPLETE_20260810.md`
+
+### 검증
+- read-only Supabase 비교:
+  - 기존 overlap 로직은 `101하9300`의 `예약취소` row 1건을 반환했다.
+  - terminal-status 제외 조건은 active overlap 0건을 반환했다.
+- `flutter analyze lib/data/repositories/supabase_ops_repository.dart` 통과
+- `flutter test` 통과: 24 tests
+- `flutter build apk --release --target-platform android-arm64` 통과
+- Google Drive 업로드 후 최종 remote 확인:
+  - `rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+  - `20702419 rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+
+### 남은 확인
+- 실기기에서 b59 설치 후 실제 예약상세 `101하6688 -> 101하9300` 변경 흐름을 1회 확인하면 된다.
+- 전체 차량점유 확인 consumer 통합은 이번 hotfix 범위가 아니며 별도 PM으로 분리한다.
+
+---
+
 ## 2026-08-04 — 외부예약 IMS 기존예약 검색/폴백 보강
 
 ### 사용자 표면

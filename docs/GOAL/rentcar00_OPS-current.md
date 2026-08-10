@@ -109,10 +109,11 @@ IMS 배차중 snapshot diff 구현물은 보관용 로컬 산출물이며 `send-
 ## 현재 기준점
 - repository: `rentcar00_OPS`
 - branch: `fix/ops-return-complete-end-at`
-- HEAD: `b8c87cb fix: refresh cancellation notices in realtime`
-- working tree app version/build: `1.0.0+58`
-- 최신 완료 배포 기록: b57, `docs/COMPLETED/rentcar00_OPS-completed.md` 기준
-- 2026-07-31 parser runtime: final active PID `53630`, `127.0.0.1:43110`, health OK
+- 최신 앱 코드 커밋: `a5bb856 fix: ignore terminal reservation overlaps`
+- working tree app version/build: `1.0.0+59`
+- 최신 완료 배포 기록: b59, `docs/COMPLETED/rentcar00_OPS-completed.md` 기준
+- 최신 APK: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+- 2026-08-10 parser runtime read-only check: active PID `54807`, `127.0.0.1:43110`, health OK
 - 2026-07-31 미커밋 parser hotfix: IMS 보험배차 claim 상세 `expect_return_date` fallback으로 `20하3779` returnAt `2026-08-07 15:42` runtime 확인
 - 문서 구조: `docs/GOAL`, `docs/PHASE`, `docs/COMPLETED`, `docs/ARCHIVE` 네 영역만 사용
 - `docs/current`, `docs/completed`, `docs/past` 구조는 더 이상 active 기준으로 쓰지 않는다.
@@ -231,7 +232,8 @@ IMS 배차중 snapshot diff 구현물은 보관용 로컬 산출물이며 `send-
 - 승인된 phase 전까지 코드/DB/운영 반영 없음
 
 ### 5순위: 최신 완료 APK 실사용 확인
-- `docs/COMPLETED/rentcar00_OPS-completed.md`의 b57 완료 배포 기록 참고
+- `docs/COMPLETED/rentcar00_OPS-completed.md`의 b59 완료 배포 기록 참고
+- 예약상세에서 `101하6688 -> 101하9300` 차량변경이 `예약취소` row 때문에 막히지 않는지 확인
 - 상단 메뉴 icon-first 구조 육안 확인
 - 과태료 AI parser 연결상태와 실제 고지서 사진 파싱 확인
 - 최신 완료 APK의 홈페이지 진입/예약확인 모달과 기존 과태료 문서패키지 흐름 확인
