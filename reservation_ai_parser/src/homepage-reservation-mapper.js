@@ -14,6 +14,8 @@ export function mapHomepageReservationPayload(body = {}) {
   const bookingOrderId = firstText(input.bookingOrderId, booking.bookingOrderId);
   const sourceReservationId = firstText(
     input.sourceReservationId,
+    input.imsReservationId,
+    input.ims_reservation_id,
     input.externalReservationId,
     input.external_reservation_id,
     input.providerReservationId,
@@ -26,6 +28,10 @@ export function mapHomepageReservationPayload(body = {}) {
     input.sourceReservationNo,
     input.externalReservationNo,
     input.external_reservation_no,
+    input.externalDetailId,
+    input.external_detail_id,
+    input.imsDetailId,
+    input.ims_detail_id,
     input.providerReservationNo,
     booking.sourceReservationNo,
     booking.externalReservationNo,
@@ -63,7 +69,9 @@ export function mapHomepageReservationPayload(body = {}) {
     body.provider_check_status,
   ));
   const createdVia = sourceProvider === 'homepage' ? 'homepage_reservation_event' : 'sync_reservation_event';
-  const providerLabel = sourceProvider === 'homepage' ? '홈페이지' : sourceProvider;
+  const providerLabel = sourceProvider === 'homepage'
+    ? '홈페이지'
+    : firstText(input.partnerName, input.partner_name, sourceProvider === 'ims_partner' ? 'IMS파트너' : sourceProvider);
 
   return {
     reservationId,
@@ -92,6 +100,8 @@ export function mapHomepageReservationPayload(body = {}) {
       source_provider: sourceProvider,
       source_reservation_id: sourceReservationId || null,
       provider_check_status: providerCheckStatus,
+      partner_name: firstText(input.partnerName, input.partner_name) || null,
+      rental_type: firstText(input.rentalType, input.rental_type) || null,
       admin_booking_url: firstText(links.adminBookingUrl) || null,
       homepage_review: sourceProvider === 'homepage' ? 'pending' : null,
       reservation_input: input,
@@ -142,6 +152,7 @@ function normalizeSourceProvider(value) {
   const text = firstText(value).toLowerCase();
   if (text === 'carmore' || text === '카모아') return 'carmore';
   if (text === 'zzimcar' || text === '찜카') return 'zzimcar';
+  if (['ims_partner', 'ims-partner', 'imspartner', 'ims partner', 'ims'].includes(text)) return 'ims_partner';
   return 'homepage';
 }
 

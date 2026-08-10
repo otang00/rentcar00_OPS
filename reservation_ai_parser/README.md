@@ -81,8 +81,8 @@ OPS_APP_PARSER_TOKEN
 - parser token guard가 먼저 켜지고 구버전 OPS 앱이 남아 있으면 AI parser/IMS/과태료 기능이 실패한다.
 - 홈페이지 예약 이벤트는 기존 HMAC 인증을 계속 사용하며 이 token guard 대상이 아니다.
 
-## 홈페이지 예약 이벤트 수신
-홈페이지 예약 확정 시 `reservation.created` 이벤트를 받아 Supabase inbox에 저장하고 OPS 원장에 자동 등록한다.
+## 예약 이벤트 수신
+홈페이지, 카모아, 찜카, IMS partner projection에서 보내는 `reservation.created` 이벤트를 받아 Supabase inbox에 저장하고 IMS exact binding을 먼저 확보한 뒤 OPS 원장에 projection한다.
 
 Endpoint:
 ```txt
@@ -123,13 +123,18 @@ rc00_ops_reservation_events
 rc00_ops_reservations
 rc00_ops_reservation_states
 rc00_ops_schedules
+rc00_ops_external_reservation_links
 ```
 
 원장 생성 기준:
 - `reservationInput`을 우선 매핑하고, 없으면 `booking`으로 fallback한다.
+- OPS 예약/state/schedule 생성 전 IMS create/reuse 또는 existing IMS binding을 먼저 확인한다.
+- IMS create/reuse 또는 exact IMS binding이 실패하면 OPS projection을 fallback 생성하지 않는다.
+- `sourceProvider=homepage`는 `reservation_id=WEB-*`, `referral_source=홈페이지`, `check_payload_json.homepage_review=pending`으로 등록한다.
+- `sourceProvider=carmore|zzimcar`는 `reservation_id=EXT-<provider>-<externalId>`로 등록하고 provider source review metadata를 남긴다.
+- `sourceProvider=ims_partner`는 기존 IMS id를 source로 사용하고, 신규 IMS create를 호출하지 않는다.
+- 이미 같은 IMS id가 다른 OPS 예약에 linked 상태면 duplicate projection을 만들지 않고 conflict로 거부한다.
 - `reservation_status`: `예약중`
-- `referral_source`: `홈페이지`
-- `check_payload_json.homepage_review`: `pending`
 - `needs_attention`: `true`
 - 배차/반납 일정 2건을 같이 생성한다.
 
@@ -138,6 +143,7 @@ rc00_ops_schedules
 - secret 값은 문서/채팅/로그에 남기지 않는다.
 - 운영 parser에 코드 반영 후 launchd restart가 필요하다.
 - FCM/앱 종료 상태 푸시는 이 흐름에 포함하지 않는다.
+- 2026-08-10 IMS partner 5684 / IMS `4452946` smoke는 신규 projection 성공이 아니다. 이미 기존 OPS 예약과 IMS link가 있어 duplicate-link 409로 안전 거부됐고, `WEB-ims-partner-4452946`/`EXT-ims_partner-4452946`는 생성되지 않았다.
 
 ## 실행
 ```bash

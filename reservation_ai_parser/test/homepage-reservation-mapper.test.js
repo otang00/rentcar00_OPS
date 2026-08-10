@@ -100,3 +100,35 @@ test('mapHomepageReservationPayload keeps homepage reservation id compatibility'
   assert.equal(mapped.referralSource, '홈페이지');
   assert.equal(mapped.metaJson.homepage_review, 'pending');
 });
+
+test('mapHomepageReservationPayload maps IMS partner source without falling back to homepage', () => {
+  const mapped = mapHomepageReservationPayload({
+    eventId: 'reservation.created:ims-partner:IMS-5684',
+    provider: 'ims_partner',
+    reservationInput: {
+      sourceProvider: 'ims_partner',
+      imsReservationId: 'IMS-5684',
+      externalDetailId: 'DETAIL-5684',
+      partnerName: '카카오',
+      rentalType: 'daily',
+      customerName: '홍길동',
+      customerPhone: '010-1234-5684',
+      carNumber: '12가5684',
+      pickupAt: '2026-08-10 18:00:00+09:00',
+      returnAt: '2026-08-10 21:00:00+09:00',
+    },
+    booking: {
+      bookingOrderId: 'ims-partner:IMS-5684',
+    },
+  });
+
+  assert.equal(mapped.reservationId, 'EXT-ims_partner-IMS-5684');
+  assert.equal(mapped.sourceProvider, 'ims_partner');
+  assert.equal(mapped.sourceReservationId, 'IMS-5684');
+  assert.equal(mapped.reservationNumber, 'DETAIL-5684');
+  assert.equal(mapped.createdVia, 'sync_reservation_event');
+  assert.equal(mapped.referralSource, '카카오');
+  assert.equal(mapped.metaJson.homepage_review, null);
+  assert.equal(mapped.metaJson.partner_name, '카카오');
+  assert.equal(mapped.metaJson.rental_type, 'daily');
+});

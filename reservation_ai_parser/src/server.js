@@ -549,63 +549,134 @@ async function importReservationCreatedEvent(payload) {
 
   const carRef = await findOpsCarByNumber(mapped.carNumber);
   const existingReservation = await findReservationByReservationId(mapped.reservationId);
+  const imsPrepared = await prepareImsBindingBeforeOpsProjection({ mapped });
   if (existingReservation?.id) {
     await backfillReservationCarRef({ reservationRefId: existingReservation.id, mapped, carRef });
     const scheduleSummary = await ensureOpsReservationProjection({
       mapped,
       reservationRefId: existingReservation.id,
     });
-    const ims = await ensureImsReservationForImportedEvent({
+    await upsertExternalReservationLink({
       mapped,
       reservationRefId: existingReservation.id,
-      reused: true,
-      allowCreate: mapped.sourceProvider !== 'homepage',
+      imsPayload: imsPrepared.imsPayload,
+      imsResult: sanitizeImsResultForStorage(imsPrepared.imsBindingResult),
+      externalStatus: 'linked',
+      errorText: null,
     });
+    const ims = buildImsImportResultFromBinding(imsPrepared.imsBindingResult);
     return buildReservationImportResult({ mapped, reservationRefId: existingReservation.id, reused: true, scheduleSummary, ims, carRef });
   }
 
-  if (mapped.sourceProvider !== 'homepage') {
-    const imsPayload = buildImsReservationPayloadFromMappedReservation(mapped);
-    const imsCreateResult = await createImsReservationDirect(imsPayload, { allowExistingLink: true });
-    const imsBindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: imsCreateResult });
-    const imsLinked = imsBindingResult?.externalStatus === 'linked' && Boolean(imsBindingResult?.externalReservationId);
-    if (!imsLinked) {
-      throw new ApiError(409, 'ims_create_required_before_ops', stringifyErrorText(imsBindingResult?.errorText || imsBindingResult?.message) || 'IMS 생성 성공 전에는 OPS 예약을 생성하지 않습니다.');
+  const reservation = await createOpsReservationRows({ mapped, carRef });
+  await upsertExternalReservationLink({
+    mapped,
+    reservationRefId: reservation.reservationRefId,
+    imsPayload: imsPrepared.imsPayload,
+    imsResult: sanitizeImsResultForStorage(imsPrepared.imsBindingResult),
+    externalStatus: 'linked',
+    errorText: null,
+  });
+  const ims = buildImsImportResultFromBinding(imsPrepared.imsBindingResult);
+  return buildReservationImportResult({ mapped, reservationRefId: reservation.reservationRefId, reused: false, scheduleSummary: reservation.scheduleSummary, ims, carRef });
+}
+
+async function prepareImsBindingBeforeOpsProjection({ mapped } = {}) {
+  if (!mapped) throw new ApiError(400, 'mapped_reservation_missing', 'mapped reservation is required');
+
+  const existingLink = await findExternalReservationLinkByReservationId(mapped.reservationId);
+  if (existingLink?.external_status === 'linked' && existingLink?.external_reservation_id) {
+    if (mapped.sourceProvider === 'ims_partner') {
+      const expectedBinding = buildExistingImsPartnerBinding(mapped);
+      if (String(expectedBinding.externalReservationId) !== String(existingLink.external_reservation_id)) {
+        throw new ApiError(409, 'ims_binding_conflict', `IMS partner event points to ${expectedBinding.externalReservationId}, but OPS reservation is linked to ${existingLink.external_reservation_id}`);
+      }
     }
+    return { imsPayload: {}, imsBindingResult: buildImsBindingFromExistingLink(existingLink) };
+  }
+
+  if (mapped.sourceProvider === 'ims_partner') {
+    const imsBindingResult = buildExistingImsPartnerBinding(mapped);
     await assertImsBindingAvailable({
       externalReservationId: imsBindingResult.externalReservationId,
       reservationId: mapped.reservationId,
     });
-
-    const reservation = await createOpsReservationRows({ mapped, carRef });
-    await upsertExternalReservationLink({
-      mapped,
-      reservationRefId: reservation.reservationRefId,
-      imsPayload,
-      imsResult: sanitizeImsResultForStorage(imsBindingResult),
-      externalStatus: 'linked',
-      errorText: null,
-    });
-    return buildReservationImportResult({
-      mapped,
-      reservationRefId: reservation.reservationRefId,
-      reused: false,
-      scheduleSummary: reservation.scheduleSummary,
-      ims: {
-        attempted: true,
-        created: imsBindingResult.reusedExisting !== true,
-        reused: imsBindingResult.reusedExisting === true,
-        externalReservationId: imsBindingResult.externalReservationId || '',
-        externalDetailId: imsBindingResult.externalDetailId || '',
-        externalStatus: 'linked',
-        error: null,
-      },
-      carRef,
-    });
+    return { imsPayload: {}, imsBindingResult };
   }
 
-  const reservation = await createOpsReservationRows({ mapped, carRef });
-  return buildReservationImportResult({ mapped, reservationRefId: reservation.reservationRefId, reused: false, scheduleSummary: reservation.scheduleSummary, ims: { attempted: false, created: false, skipped: true, reason: 'homepage_source', error: null }, carRef });
+  const imsPayload = buildImsReservationPayloadFromMappedReservation(mapped);
+  const imsCreateResult = await createImsReservationDirect(imsPayload, { allowExistingLink: true });
+  const imsBindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: imsCreateResult });
+  const imsLinked = imsBindingResult?.externalStatus === 'linked' && Boolean(imsBindingResult?.externalReservationId);
+  if (!imsLinked) {
+    throw new ApiError(409, 'ims_create_required_before_ops', stringifyErrorText(imsBindingResult?.errorText || imsBindingResult?.message) || 'IMS 생성 성공 전에는 OPS 예약을 생성하지 않습니다.');
+  }
+  await assertImsBindingAvailable({
+    externalReservationId: imsBindingResult.externalReservationId,
+    reservationId: mapped.reservationId,
+  });
+  return { imsPayload, imsBindingResult };
+}
+
+function buildImsBindingFromExistingLink(existingLink = {}) {
+  return {
+    attempted: false,
+    created: false,
+    reused: true,
+    reusedExisting: true,
+    externalReservationId: existingLink.external_reservation_id || '',
+    externalDetailId: existingLink.external_detail_id || '',
+    externalStatus: existingLink.external_status || 'linked',
+    sourceType: existingLink.source_type || 'normal_schedule',
+    linkKey: existingLink.link_key || '',
+    error: null,
+  };
+}
+
+function buildExistingImsPartnerBinding(mapped = {}) {
+  const input = mapped.metaJson?.reservation_input && typeof mapped.metaJson.reservation_input === 'object'
+    ? mapped.metaJson.reservation_input
+    : {};
+  const externalReservationId = firstNonEmpty(
+    mapped.sourceReservationId,
+    input.imsReservationId,
+    input.externalReservationId,
+    input.external_reservation_id,
+  );
+  if (!externalReservationId) {
+    throw new ApiError(400, 'ims_partner_identity_required', 'IMS partner event requires an existing IMS reservation id');
+  }
+  const externalDetailId = firstNonEmpty(
+    input.externalDetailId,
+    input.external_detail_id,
+    input.imsDetailId,
+    input.ims_detail_id,
+    mapped.reservationNumber,
+  );
+  return {
+    attempted: false,
+    created: false,
+    reused: true,
+    reusedExisting: true,
+    externalReservationId,
+    externalDetailId,
+    externalStatus: 'linked',
+    sourceType: 'normal_schedule',
+    linkKey: `IMS:${externalReservationId}`,
+    error: null,
+  };
+}
+
+function buildImsImportResultFromBinding(bindingResult = {}) {
+  return {
+    attempted: bindingResult.attempted !== false,
+    created: bindingResult.reusedExisting !== true,
+    reused: bindingResult.reusedExisting === true || bindingResult.reused === true,
+    externalReservationId: bindingResult.externalReservationId || '',
+    externalDetailId: bindingResult.externalDetailId || '',
+    externalStatus: bindingResult.externalStatus || 'linked',
+    error: null,
+  };
 }
 
 async function createOpsReservationRows({ mapped, carRef } = {}) {
@@ -728,8 +799,8 @@ function buildReservationImportResult({ mapped, reservationRefId, reused, schedu
 }
 
 async function ensureImsReservationForImportedEvent({ mapped, reservationRefId, reused = false, allowCreate = true } = {}) {
-  if (!mapped || mapped.sourceProvider === 'homepage') {
-    return { attempted: false, created: false, skipped: true, reason: 'homepage_source', error: null };
+  if (!mapped) {
+    return { attempted: false, created: false, skipped: true, reason: 'mapped_reservation_missing', error: null };
   }
 
   const existingLink = await findExternalReservationLinkByReservationId(mapped.reservationId);
@@ -866,7 +937,8 @@ function buildReservationCheckPayload(mapped) {
   checkPayload.provider_check_status = mapped.providerCheckStatus || 'found';
   checkPayload.provider_reservation_id = mapped.sourceReservationId || '';
   checkPayload[`${mapped.sourceProvider}_check_status`] = mapped.providerCheckStatus || 'found';
-  checkPayload.ims_create_status = 'not_started';
+  if (mapped.sourceProvider === 'ims_partner') checkPayload.ims_link_status = 'linked_source';
+  else checkPayload.ims_create_status = 'not_started';
   return checkPayload;
 }
 

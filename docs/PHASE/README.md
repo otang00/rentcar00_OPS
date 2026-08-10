@@ -8,6 +8,7 @@
 - Parser API Auth Hardening 이후 OPS 앱용 parser/IMS/과태료 endpoint는 `X-Ops-Parser-Token` 가드를 사용한다. 홈페이지 예약 이벤트는 기존 HMAC 인증을 유지한다.
 - 2026-08-04 기준 parser는 `127.0.0.1:43110`에서 active PID `54807`로 재시작 확인됐다. 추가 runtime 변경/APK/commit은 별도 승인 전 실행하지 않는다.
 - 2026-08-10 기준 최신 완료 앱 배포는 b59 `rentcar00_ops-app-release-arm64-b59-a5bb856.apk`다.
+- 2026-08-10 예약 이벤트 runtime 기준: parser는 `reservation.created`에서 IMS exact binding을 먼저 확보한 뒤 OPS projection을 만든다. 홈페이지/카모아/찜카는 imported/link/schedule evidence가 있고, IMS partner 5684 / IMS `4452946`은 기존 OPS link 때문에 duplicate-link 409로 안전 거부되어 신규 projection 성공 대상에서 제외됐다.
 
 ## 문서 드리프트 정리 준비
 - `rentcar00_OPS_doc_drift_fix_preparation_20260731.md`
@@ -65,6 +66,8 @@
   - 과태료 MVP와 별개다. 코드/DB/운영 반영은 아직 승인되지 않았다.
 
 ## 완료로 이동한 PM
+- Booking docs `docs/COMPLETED/2026-08-10_RESERVATION_EVENT_RUNTIME_ACTIVATION_RELEASE_AND_DOC_DRIFT_PM_COMPLETE_20260810.md`
+  - 홈페이지/카모아/찜카 reservation event runtime을 IMS-first OPS projection 기준으로 검증했다. IMS partner는 자동 bulk가 아니라 candidate-report + target-only project-ops로 운용하며, 5684는 기존 linked target으로 기록했다.
 - `docs/COMPLETED/rentcar00_OPS_vehicle_availability_active_reservation_policy_PM_COMPLETE_20260810.md`
   - 예약상세 차량변경 overlap 검사에서 `예약취소`/`완료`를 차량 점유에서 제외하고 b59 APK build/upload까지 완료했다.
 - `docs/COMPLETED/rentcar00_OPS-external-reservation-ims-existing-search-fallback_PM_COMPLETE_20260804.md`
