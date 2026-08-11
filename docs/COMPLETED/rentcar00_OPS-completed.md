@@ -5,6 +5,763 @@
 
 ---
 
+## 2026-08-10 — 예약상세 차량변경 취소/완료 overlap 제외 + b59 배포
+
+### 사용자 표면
+- 예약상세 차량변경에서 대상 차량의 겹치는 예약이 `예약취소` 또는 `완료` 상태면 차량 점유로 보지 않는다.
+- 확인 건 `101하6688 -> 101하9300`은 `101하9300`의 취소 예약 row 때문에 막히지 않는다.
+
+### 실제 동작
+- `fetchReservationVehicleOverlaps()`가 `reservation_status`를 함께 조회한다.
+- overlap 비교 전에 `예약취소`, `완료` row를 제외한다.
+- 그 외 상태, 빈 status, 알 수 없는 status는 기존처럼 시간대가 겹치면 차량변경을 차단한다.
+- DB data/schema, IMS write, parser runtime restart는 변경하지 않았다.
+
+### 배포물
+- 버전: `1.0.0+59`
+- 코드 커밋: `a5bb856 fix: ignore terminal reservation overlaps`
+- APK: `build/releases/rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+- Google Drive: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+- 파일 크기: `20,702,419 bytes`
+- SHA-256: `890566762434b942161b46f958f41baadf901c11638cbb4a8f067ba58d19af0a`
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `pubspec.yaml`
+- `docs/COMPLETED/rentcar00_OPS_vehicle_availability_active_reservation_policy_PM_COMPLETE_20260810.md`
+
+### 검증
+- read-only Supabase 비교:
+  - 기존 overlap 로직은 `101하9300`의 `예약취소` row 1건을 반환했다.
+  - terminal-status 제외 조건은 active overlap 0건을 반환했다.
+- `flutter analyze lib/data/repositories/supabase_ops_repository.dart` 통과
+- `flutter test` 통과: 24 tests
+- `flutter build apk --release --target-platform android-arm64` 통과
+- Google Drive 업로드 후 최종 remote 확인:
+  - `rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+  - `20702419 rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
+
+### 남은 확인
+- 실기기에서 b59 설치 후 실제 예약상세 `101하6688 -> 101하9300` 변경 흐름을 1회 확인하면 된다.
+- 전체 차량점유 확인 consumer 통합은 이번 hotfix 범위가 아니며 별도 PM으로 분리한다.
+
+---
+
+## 2026-08-04 — 외부예약 IMS 기존예약 검색/폴백 보강
+
+### 사용자 표면
+- 카모아/찜카 paid 외부예약 handoff에서 1일미만·동일일 예약이 IMS에 이미 있으면 새 IMS 예약을 만들지 않고 기존 IMS schedule을 재사용한다.
+- 확인 건 `carmore/2172_2026080301000`은 기존 IMS `4431253`에 linked 되었고 OPS 예약/배차/반납 일정이 생성됐다.
+
+### 실제 동작
+- IMS 기존예약 검색은 exact date window뿐 아니라 동일일/1일미만 예약에서 `startDate - 1`부터 `endDate + 1`까지 확장 검색한다.
+- `date_option=start_at`과 `date_option=end_at`를 모두 시도하고 schedule id로 후보를 dedupe한다.
+- 최종 연결은 detail 조회 후 차량번호, 대여/반납 시각, 고객명, 전화번호, 주소 기준으로 확정한다.
+- 기존 120페이지 무필터 schedule list 폴백은 기존예약 lookup 경로에서 제거했다.
+- parser를 재시작해 새 코드가 `127.0.0.1:43110` runtime에 반영됐다.
+- target recovery는 1건만 실행했고 IMS 신규 생성 없이 `reused=true`로 완료했다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/ims-existing-reservation-search-strategy.js`
+- `reservation_ai_parser/test/ims-existing-reservation-search-strategy.test.js`
+- `docs/COMPLETED/rentcar00_OPS-external-reservation-ims-existing-search-fallback_PM_COMPLETE_20260804.md`
+
+### 검증
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `node --test reservation_ai_parser/test/*.test.js` 통과: 28 tests
+- `git diff --check` 통과
+- read-only IMS 검증:
+  - exact same-day `2026-08-08~2026-08-08` 검색은 0건
+  - widened `2026-08-07~2026-08-09` 검색은 IMS `4431253` 확인
+- runtime smoke: `/health` OK, active PID `54807`
+- live recovery readback:
+  - OPS event `imported`
+  - OPS reservation 1건, schedule 2건
+  - OPS IMS link `external_reservation_id=4431253`, `external_status=linked`
+  - booking-system intake `ops_handoff_status=completed`, `ims_action_status=linked`, `ims_reservation_id=4431253`
+
+### 남은 확인
+- 다음 카모아/찜카 1일미만 신규 유입 시 launchd orchestrator가 같은 경로를 timeout 없이 완료하는지 모니터링한다.
+- sender 5초 timeout 값, `.env`, launchd plist, DB schema, 외부 provider write는 변경하지 않았다.
+
+---
+
+## 2026-07-31 — IMS 보험배차 반납예정일 import hotfix
+
+### 사용자 표면
+- 차량 상세의 `배차 > 보험` IMS 보험배차 가져오기에서 목록 응답의 반납일이 비어 있어도 반납예정일이 채워진다.
+- 확인 건 `2026-07-31 / 20하3779 / claimId 3136931`은 `returnAt = 2026-08-07 15:42`로 조회된다.
+
+### 실제 동작
+- `/v2/rencar-claims` 목록 row에서 `returnAt`이 비어 있으면 `/v2/rencar-claims/{claimId}` 상세를 추가 조회한다.
+- 상세의 `expect_return_date`를 우선 사용하되, 차량번호/대여일 등 목록 기준 값은 유지한다.
+- 보험 claim import 매핑과 IMS using-car snapshot 정규화가 같은 반납예정일 후보 reader를 사용한다.
+- parser를 재시작해 새 코드가 43110 런타임에 반영됐다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/ims-insurance-claim-import-item.js`
+- `reservation_ai_parser/src/ims-using-car-snapshot-diff.js`
+- `reservation_ai_parser/test/ims-insurance-claim-import-item.test.js`
+- `reservation_ai_parser/test/ims-using-car-snapshot-diff.test.js`
+- `docs/COMPLETED/2026-07-31_OPS_ims_insurance_claim_expected_return_import_hotfix.md`
+
+### 검증
+- `node --test reservation_ai_parser/test/ims-insurance-claim-import-item.test.js` 통과: 4 tests
+- `node --test reservation_ai_parser/test/*.test.js` 통과: 23 tests
+- `npm --prefix reservation_ai_parser run check` 통과
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `git diff --check` 통과
+- runtime smoke: `POST /ims/search-insurance-claims` with `2026-07-31 / 20하3779` -> `returnAt: 2026-08-07 15:42`
+
+### 남은 확인
+- commit은 아직 하지 않았다.
+- 이 hotfix는 조회/import 전용이며, OPS 반납일 변경 시 IMS 반납예정일을 write로 갱신하는 기능은 별도 phase다.
+
+---
+
+## 2026-07-27 — IMS authority / 빠른 예약 흐름 b57 배포
+
+### 사용자 표면
+- IMS authority 정리와 OPS 빠른 예약 생성 흐름을 포함한 Android arm64 APK를 설치할 수 있다.
+- 홈페이지 예약 버튼 문구는 현재 UI의 `예약확인` 기준으로 검증한다.
+
+### 배포물
+- 버전: `1.0.0+57`
+- 코드 커밋: `5d4183b chore: prepare b57 release`
+- APK: `build/releases/rentcar00_ops-app-release-arm64-b57-5d4183b.apk`
+- Google Drive: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b57-5d4183b.apk`
+- 파일 크기: `20,702,379 bytes`
+- SHA-256: `b4ad52ad8eef1340ddbc93f8798bd30c0d0d29ba0c0aee57f6498b55083abeb6`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test` 전체 24개 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- IMS snapshot diff 테스트 11개 통과
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=57` 통과
+- Google Drive 업로드 후 파일명과 크기 재확인
+
+### 남은 확인
+- 실기기 설치 후 빠른 예약 생성과 IMS 연동 예약 흐름을 확인해야 한다.
+- parser restart, Supabase migration 적용, 운영 DB 변경은 이번 배포 범위에 포함하지 않았다.
+
+
+## 2026-07-24 — Parser API Auth Hardening / b56 배포
+### 사용자 표면
+- OPS 앱의 AI 파서, IMS 연동, 과태료 parser 기능은 새 b56 APK에서 parser token header를 포함해 호출한다.
+- token 없는 외부 parser 요청은 차단된다.
+
+### 실제 동작
+- parser 보호 경로에 `X-Ops-Parser-Token` 가드를 추가했다.
+- `/health`는 공개 유지했다.
+- 홈페이지 예약 이벤트 endpoint는 기존 HMAC 인증을 유지했다.
+- 앱 `.env`에는 `OPS_PARSER_API_TOKEN`, parser `.env`에는 `OPS_APP_PARSER_TOKEN`을 추가했고 두 값은 같은 토큰이다. 값은 문서에 기록하지 않는다.
+- parser launchd 서비스 `ai.otang.reservation-ai-parser`를 재시작했다.
+- Android build number는 `1.0.0+56`이다.
+- GDrive `rentcar00_OPS/apk/`에 `rentcar00_ops-app-release-arm64-b56-657c52b.apk`를 업로드했다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/parser-core.js`
+- `lib/shared/config/ops_parser_headers.dart`
+- parser/IMS/과태료 client 파일들
+- `reservation_ai_parser/README.md`
+- `docs/PHASE/README.md`
+
+### 검증
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `node --check reservation_ai_parser/src/parser-core.js` 통과
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter analyze` 통과
+- `git diff --check` 통과
+- public smoke:
+  - `/health` → 200
+  - token 없는 `/parse-reservation` → 401
+  - token 있는 `/parse-reservation` → route 진입 확인
+
+### 남은 확인
+- 직원 단말에서 b56 설치 후 AI 파서/IMS/과태료 parser 기능을 1회 실기기 확인해야 한다.
+- commit은 아직 하지 않았다.
+
+---
+
+
+## 2026-07-10 — 홈페이지 예약 상단 액션 모달
+### 사용자 표면
+- 상단 홈페이지 배지/버튼을 누르면 `홈페이지 진입`과 `예약확인` 선택 모달이 열린다.
+- `예약확인`을 누르면 홈페이지 pending 예약만 카드 리스트로 확인할 수 있다.
+- 예약 카드를 누르면 해당 예약상세로 이동한다.
+
+### 실제 동작
+- 기존 외부 홈페이지 열기는 `홈페이지 진입` 선택지로 유지했다.
+- `homepagePendingReservationsProvider`를 카드 리스트 모달에서 직접 watch한다.
+- pending 0건, loading, error 상태를 모달 안에서 처리한다.
+- Android build number는 `1.0.0+55`다.
+- GDrive `rentcar00_OPS/apk/`의 최신 APK는 `rentcar00_ops-app-release-arm64-b55-19770c0.apk`이며, 파일 크기는 `20,636,679 bytes`다.
+
+### 핵심 파일
+- `lib/app/view/app_shell.dart`
+- `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_homepage_reservation_action_modal_pm.md`
+- `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_three_pm_bundle_execution_plan.md`
+
+### 검증
+- `git diff --check` 통과
+- `flutter analyze` 통과
+- widget test는 홈페이지 버튼 → 액션 모달 → `홈페이지 진입` 선택 → 외부 URL 호출 경로를 검증한다.
+
+### 남은 확인
+- 실기기에서 홈페이지 진입, 예약확인 리스트, 카드 선택 상세 이동을 1회 확인해야 한다.
+- b55 APK는 GDrive 업로드 및 직원 사용 상태를 사장님이 확인했다.
+
+---
+
+## 2026-07-10 — 홈페이지 예약 foreground 인앱알림
+### 사용자 표면
+- 앱이 켜져 있는 동안 홈페이지 예약 pending 건수가 늘어나면 인앱 SnackBar 알림이 표시된다.
+- 앱 시작 시 기존 pending 건은 조용히 배지만 표시하고, 이후 증가분만 알린다.
+
+### 실제 동작
+- `homepagePendingCountProvider` 변화를 감지해 이전 count보다 증가한 경우에만 알림을 띄운다.
+- 사장님 권한 UI에서만 홈페이지 예약 알림을 표시한다.
+- FCM/OS 푸쉬, 기기 token, Firebase 설정은 추가하지 않았다.
+
+### 핵심 파일
+- `lib/app/view/app_shell.dart`
+- `docs/COMPLETED/COMPLETE_20260710_rentcar00_OPS_homepage_reservation_inapp_notification_pm.md`
+
+### 검증
+- `git diff --check` 통과
+- `flutter analyze` 통과
+
+### 남은 확인
+- 실기기 foreground 상태에서 실제 홈페이지 예약 유입 시 SnackBar 알림을 1회 확인해야 한다.
+- 앱 백그라운드/종료 상태 알림은 이번 범위가 아니며 FCM PM이 필요하다.
+
+---
+
+## 2026-07-10 — IMS 보험배차 예약 lifecycle 통합
+### 사용자 표면
+- IMS 보험배차 가져오기 건도 예약원장 lifecycle에 올라가며, 가져온 직후 배차완료 상태가 된다.
+- 보험배차 가져오기 후 예약상세에서는 배차완료가 아니라 반납완료 흐름으로 이어진다.
+- 같은 IMS 보험 claim은 중복 생성하지 않고 기존 예약으로 안내한다.
+
+### 실제 동작
+- `completeSchedule()`의 배차완료 차량 상태 전환을 정책 인자로 분리했다.
+- 일반 예약 배차완료 기본값은 차량 상태 `일반`으로 유지한다.
+- 보험배차 IMS 가져오기는 예약원장/배차일정/반납일정을 생성한 뒤 배차 일정을 자동 완료하고 차량 상태를 `보험`으로 유지한다.
+- IMS 보험 claim link key는 `ims-insurance-claim:{claimId}` 기준으로 저장/중복 확인한다.
+
+### 핵심 파일
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `docs/COMPLETED/COMPLETE_20260707_rentcar00_OPS_ims_insurance_longterm_dispatch_lifecycle_pm.md`
+
+### 검증
+- `flutter analyze` 통과
+
+### 남은 확인
+- 실제 IMS 보험 claim 후보 선택 후 실기기에서 예약상세 `반납완료` 노출을 1회 확인해야 한다.
+- 운영 DB backfill, Supabase schema 변경, parser restart, APK build/upload는 이번 범위에 포함하지 않았다.
+
+---
+## 2026-06-26 — 홈페이지 🌐 링크 + 미확인 배지 동작 정정
+### 사용자 표면
+- 관리자/admin 상단 🌐 버튼은 항상 메인 홈페이지 `https://rentcar00.com`을 연다.
+- 홈페이지 미확인 예약이 있으면 같은 🌐 버튼에 숫자 배지를 표시한다.
+- 미확인 건이 없으면 숫자 없이 일반 🌐 버튼으로 보인다.
+- staff는 기존 owner-only UI 규칙대로 홈페이지 버튼을 보지 않는다.
+
+### 실제 동작
+- 기존 🌐 버튼의 첫 미확인 예약 상세 이동 로직을 제거했다.
+- `url_launcher`의 external application launch로 메인 홈페이지를 연다.
+- 테스트용 `homepageLauncherProvider`를 두어 URL 호출과 상세 화면 미진입을 widget test로 검증한다.
+- 메뉴/분기/bottom sheet/예약상세 shortcut은 추가하지 않았다.
+- Android build number를 `1.0.0+54`로 올렸다.
+- arm64 release APK를 빌드했다.
+- 당시 GDrive `rentcar00_OPS/apk/`에는 b54 APK를 최신 배포본으로 유지했다.
+
+### 핵심 파일
+- `lib/app/view/app_shell.dart`
+- `test/widget_test.dart`
+- `pubspec.yaml`
+- `build/releases/rentcar00_ops-app-release-arm64-b54-200ec98.apk`
+- `docs/COMPLETED/COMPLETE_20260626_rentcar00_OPS_homepage_link_with_pending_badge_pm.md`
+
+### 검증
+- `git diff --check` 통과
+- `flutter analyze` 통과
+- `flutter test test/widget_test.dart` 통과: 5 tests passed
+- `flutter test` 전체 통과: 24 tests passed
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=54` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b54-200ec98.apk` 1개만 존재
+- GDrive 업로드 확인 용량: `20,570,999 bytes`
+- 로컬 SHA-256: `e3676721eee238e0c0297c228d3e81f6fd1a1a8eca7903274aa35be11794ae7a`
+
+### 남은 확인
+- 실제 외부 브라우저 열림은 플랫폼 `url_launcher` 동작에 의존하므로 실기기 설치 후 1회 확인이 필요하다.
+- 이번 변경은 앱 UI/APK 배포만이며 DB/RLS/런타임은 변경하지 않았다.
+
+---
+
+## 2026-06-26 — 사장님 전용 과태료/홈페이지 UI 접근 제한
+### 사용자 표면
+- 상단의 긴 `홈페이지 N` 버튼을 🌐 아이콘+숫자 배지로 줄여 탭 영역과 겹치지 않게 정리했다.
+- 직원 계정은 과태료 탭과 홈페이지 확인 진입점을 앱에서 누를 수 없게 막았다.
+- 사장님 권한은 현재 앱 권한 모델 기준 `admin`으로 해석한다.
+
+### 실제 동작
+- `StaffAccount.canAccessOwnerOnlyOps`를 추가해 owner-only UI 권한 기준을 한 곳으로 모았다.
+- AppShell에서 staff는 과태료 layer 목록과 홈페이지 pending action을 보지 못한다.
+- staff 상태에서 과태료 layer가 선택되어 있으면 안전한 statusBoard layer로 되돌린다.
+- `FineNoticePage` 내부에도 관리자 전용 차단 화면을 추가해 직접 렌더 경로를 막았다.
+
+### 핵심 파일
+- `lib/features/auth/domain/staff_account.dart`
+- `lib/app/view/app_shell.dart`
+- `lib/features/fines/presentation/fine_notice_page.dart`
+- `test/widget_test.dart`
+- `docs/COMPLETED/COMPLETE_20260626_rentcar00_OPS_owner_admin_ui_access_control_pm.md`
+
+### 검증
+- `git diff --check` 통과
+- `flutter analyze` 통과
+- `flutter test test/widget_test.dart` 통과
+- `flutter test` 전체 통과: 23 tests passed
+
+### 남은 확인
+- 이번 변경은 UI 접근 제한이다. Supabase/RLS 서버 보안 경계가 필요하면 별도 DB/RLS phase 승인이 필요하다.
+- 별도 `owner` role은 아직 없으며 현재는 `admin`을 사장님 권한으로 사용한다.
+
+---
+
+## 2026-06-25 — 홈페이지 예약 importer 생년월일 정규화 및 중간서버 역할 문서화
+### 사용자 표면
+- 홈페이지 자동 유입 예약의 생년월일이 `19840528` 같은 raw 값으로 저장되어 IMS추가 전 앱 검증에서 막히던 문제를 수정했다.
+- `reservation_ai_parser`가 현재 AI파서 단독이 아니라 OPS integration server 역할도 한다는 점을 README에 명확히 기록했다.
+
+### 실제 동작
+- 홈페이지 예약 payload mapper를 `reservation_ai_parser/src/homepage-reservation-mapper.js`로 분리했다.
+- `customerBirthDate`를 OPS 저장 기준 `YYYY-MM-DD`로 정규화한다.
+- 지원 형식: `YYYYMMDD`, `YYYY-MM-DD`, `YYYY.MM.DD`, `YYYY/MM/DD`, `YYYY MM DD`.
+- 유효하지 않은 실제 날짜는 빈값으로 처리해 IMS 검증 통과값처럼 저장하지 않는다.
+- 기존 문제 예약 `WEB-3207061c-9085-404d-bab1-ee72b6520508`의 `customer_birth_date`를 `19840528`에서 `1984-05-28`로 단건 보정했다.
+- launchd 서비스 `ai.otang.reservation-ai-parser`를 restart해 변경 코드를 운영 parser에 반영했다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/homepage-reservation-mapper.js`
+- `reservation_ai_parser/test/homepage-reservation-mapper.test.js`
+- `reservation_ai_parser/README.md`
+- `docs/PHASE/rentcar00_OPS-homepage-reservation-importer-normalization-pm.md`
+
+### 검증
+- `node --test reservation_ai_parser/test/homepage-reservation-mapper.test.js` 통과: 5 tests pass
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `node --check reservation_ai_parser/src/homepage-reservation-mapper.js` 통과
+- `git diff --check` 통과
+- DB readback: 대상 예약 `customer_birth_date = 1984-05-28` 확인
+- Runtime smoke: `GET http://127.0.0.1:43110/health` → `{"ok":true,"service":"reservation_ai_parser"}`
+
+### 남은 확인
+- 신규 실제 홈페이지 예약 유입 E2E는 운영 DB에 가짜 예약을 만들지 않기 위해 수행하지 않았다. 다음 실제 홈페이지 예약 발생 시 `customer_birth_date` 저장값을 확인한다.
+- 6자리 생년월일은 세기 판단이 불명확해 자동 변환하지 않는다. 정책 확정 시 별도 phase로 보강한다.
+- 장기적으로 `reservation_ai_parser` 디렉터리/서비스명을 `ops_integration_server` 계열로 분리하는 PM이 필요하다.
+
+---
+
+## 2026-06-20 — b53 과태료 문서패키지 MVP APK 배포 완료
+### 사용자 표면
+- 과태료 원장을 엑셀식 리스트로 확인하고, 상세 모달에서 고지서수정/계약서 재검색/문서생성/공유를 실행할 수 있는 APK를 배포했다.
+- 문서생성 후 고지서묶음 폴더 기준 파일목록을 내려받아 휴대폰 공유 시트로 넘길 수 있다.
+
+### 실제 동작
+- Android build number를 `1.0.0+53`으로 올렸다.
+- arm64 release APK를 빌드했다.
+- GDrive `rentcar00_OPS/apk/`에 b53 APK를 업로드했다.
+- 기존 b52 APK를 삭제하고 GDrive APK 폴더에는 최신 b53 APK 1개만 남겼다.
+
+### 핵심 파일
+- `build/releases/rentcar00_ops-app-release-arm64-b53-a8f3e63.apk`
+- `pubspec.yaml`
+- `lib/features/fines/`
+- `reservation_ai_parser/src/server.js`
+- `docs/PHASE/rentcar00_OPS-fine-notice-app-document-package-mvp-pm.md`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/fine_notice_models_test.dart` 통과
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=53` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b53-a8f3e63.apk` 1개만 존재
+- GDrive 업로드 확인 용량: `20,636,535 bytes`
+- 로컬 SHA-256: `168bbe05ff5750d9697bbcbd1ae017092a2e4ede5454f08b221ff7471f66cfc4`
+
+### 남은 확인
+- 실기기 설치 후 과태료 리스트/문서생성/공유 시트 동작 확인 필요.
+- 외부 기관 제출 자동화는 아직 포함하지 않았다.
+
+---
+
+## 2026-06-19 — 과태료 workflow integrity correction 로컬 구현/검증
+### 사용자 표면
+- 과태료 계약검색은 예약검색이 아니라 `POST /ims/search-fine-notice-contracts` 전용 API를 사용하도록 정정했다.
+- 우리 소유/관리 차량이 아닌 경우 `not_our_vehicle` 공식 status로 유지하는 방향을 잠갔다.
+- 계약서 PDF 저장은 별도 내부 비밀번호 없이 기존 parser/Supabase/storage 설정으로 바로 저장 시도하도록 열었다.
+
+### 실제 동작
+- `/ims/search-reservations`에서 과태료 전용 `mode`와 normal-contract group enrichment를 제거했다.
+- `/ims/search-fine-notice-contracts`가 일반계약 `/v2/normal-contracts/group`과 보험계약 `/v2/rencar-claims` 후보를 통합 반환한다.
+- 일반계약 후보는 PDF-safe `contractId`, 보험계약 후보는 `claimId`를 source id로 사용한다.
+- `not_our_vehicle`을 status constraint에 추가하는 migration draft를 작성했다. remote DB apply는 아직 하지 않았다.
+- 앱 PDF 저장 client는 `fineNoticeId`만 보내고, 서버는 기존 설정 확인 후 IMS PDF 다운로드와 파일/DB metadata 저장을 진행한다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/parser-core.js`
+- `lib/features/fines/data/fine_notice_contract_matching_client.dart`
+- `lib/features/fines/domain/fine_notice_models.dart`
+- `lib/features/fines/data/fine_notice_contract_pdf_client.dart`
+- `lib/shared/config/app_env.dart`
+- `supabase/migrations/20260619190000_add_not_our_vehicle_fine_notice_status.sql`
+- `docs/PHASE/rentcar00_OPS-fine-notice-contract-search-boundary-correction-pm.md`
+
+### 검증
+- `npm --prefix reservation_ai_parser run check` 통과
+- `flutter test test/fine_notice_models_test.dart` 통과
+- `flutter analyze` 통과
+- 임시 local parser smoke:
+  - `/ims/search-reservations`: reservation source만 반환, `contractId` 없음
+  - `/ims/search-fine-notice-contracts`: `ims_normal_contract` 후보 반환, `contractId` 있음
+
+### 남은 확인
+- remote Supabase migration apply는 `pa workflow-integrity-db-apply` 별도 승인 필요.
+- parser restart, 실제 원장 PDF 저장, APK build/upload, commit은 아직 하지 않았다.
+- 보험계약 후보 hit가 있는 샘플 smoke는 추가 확인이 필요하다.
+
+---
+
+## 2026-06-19 — 과태료 문서생성 MVP PM 작성 및 IMS 문서 probe
+### 사용자 표면
+- 과태료 원장에서 계약자 확정 후 계약서/명의변경 통보·신청서/차량리스트를 manual-ready 제출 패키지로 만드는 PM을 분리했다.
+- 경찰 공문과 신청서는 별도 문서가 아니라 같은 `renter_change_application` 문서이며, 제출처에 따라 `수신 - 참조`만 바꾸는 기준으로 정정했다.
+- 계약서 PDF 저장 시 계약자명, 주민번호 또는 면허번호, 실제 주소, 전화번호를 DB에 구조화 축적해야 한다는 기준을 반영했다.
+
+### 실제 동작
+- IMS 계약 source를 일반계약/보험계약/파트너일반 후보로 보고, 각 source에서 필요한 계약자 정보를 가져올 수 있는지 먼저 확인하는 `mvp-doc-probe` gate를 만들고 1차 read-only 확인을 진행했다.
+- 계약서 원본과 별도로 원본대조필 도장+회사 인장이 찍힌 `contract_with_stamps` 산출물을 분리하는 기준을 세웠다.
+- 최종 신청서 상단 회사명 칸에도 회사 인감 도장 이미지가 들어가야 한다는 요구를 문서생성 PM에 반영했다.
+- 일반/보험 후보 조회에서 이름/전화/주소 후보는 확인했지만, 후보 응답에는 주민번호/면허번호가 없음을 확인했다.
+- 보험계약 PDF 텍스트에서는 주소/면허/전화/생년월일 후보 키워드를 확인했다.
+- 일반계약 PDF는 현재 import용 `detailId` 직접 호출 시 403이므로 `/v2/normal-contracts/group` 기반 PDF id 경로 보강이 필요하다고 잠갔다.
+- 일반계약 PDF id 경로를 보강했다. `/v2/normal-contracts/group`의 `contractList[].id` 또는 `details[].normal_contract_id`를 PDF용 id로 사용하고, 과태료 전용 계약검색 후보에는 `contractId`를 붙인다.
+- 기존에 detail id로 확정된 일반계약 원장은 PDF 저장 시 group fallback으로 PDF용 id를 다시 찾도록 했다.
+- 파트너일반은 일반계약 경로 안의 rent request detail/recommender 단서로 확인되며, 별도 source type 분리는 아직 미확정이다.
+
+### 핵심 파일
+- `docs/PHASE/rentcar00_OPS-fine-notice-document-generation-mvp-pm.md`
+- `docs/PHASE/rentcar00_OPS-fine-notice-integrated-intake-to-submission-pm.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+
+### 검증
+- `npm --prefix reservation_ai_parser run check` 통과
+- local `GET /health` 통과
+- normal/insurance sample read-only probe 통과
+- insurance contract PDF text probe 통과
+- normal direct PDF probe는 403으로 gap 확인
+- normal contract group read-only probe 통과
+- 임시 local server smoke에서 `POST /ims/search-fine-notice-contracts` 일반계약 후보 `contractId` 반환 확인
+- `flutter test test/fine_notice_models_test.dart` 통과
+- `flutter analyze` 통과
+- `git diff --check` 대상
+
+### 남은 확인
+- 실제 fine notice 원장 1건으로 일반계약 PDF 저장 runtime 확인이 필요하다.
+- 다음은 계약자 스냅샷 DB schema와 문서 생성 구현 범위 확정이다.
+- DB migration, stamp asset registration, stamped PDF generation, APK build/upload, live submission, commit은 별도 승인 대상이다.
+
+---
+
+## 2026-06-19 — 과태료 제출정책 매핑 초안 생성
+### 사용자 표면
+- 과태료/주정차/통행료 처리의 핵심 병목인 제출 채널/필요서류 매핑 초안을 만들었다.
+- profile별로 `LOCKED / CANDIDATE / UNKNOWN` 상태를 분리해 정책이 잠긴 부분과 확인이 필요한 부분을 구분했다.
+
+### 실제 동작
+- IMS 과태료 공개정보, 문서24, 이파인, 하이패스, 민자도로/지자체 공개 안내를 기준으로 초기 매핑표를 작성했다.
+- 자동 제출은 금지하고, 실전 MVP는 `manual-ready package`부터 진행하는 기준을 유지했다.
+- 사장님이 제공한 기존 공문 샘플을 기반으로 경찰/교통 과태료 명의변경통보 공문 후보 템플릿을 추가했다.
+
+### 핵심 파일
+- `docs/PHASE/rentcar00_OPS-fine-notice-submission-policy-mapping-draft.md`
+- `docs/PHASE/rentcar00_OPS-fine-notice-traffic-police-name-change-letter-template.md`
+- `docs/PHASE/rentcar00_OPS-fine-notice-integrated-intake-to-submission-pm.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+
+### 검증
+- `git diff --check` 대상
+
+### 남은 확인
+- 첫 실전 MVP profile을 선택해 공식 제출 경로와 실제 접수 서류를 확인해야 한다.
+- DB migration, code change, parser restart, APK build/upload, live submission, commit은 별도 승인 대상이다.
+
+---
+
+## 2026-06-19 — 과태료 실전 MVP 모드 전환
+### 사용자 표면
+- 과태료 남은 대형 phase 진행을 일시정지하고, 실전 MVP를 먼저 굴리면서 정책을 잠그는 방식으로 전환했다.
+- `pa all`식 전체 phase 진행이 아니라 MVP increment별 승인/검증으로 진행한다.
+
+### 실제 동작
+- 통합 PM의 상태를 `Phase Map Paused / Real MVP Execution Mode`로 바꿨다.
+- 남은 Phase 4-9는 실행 대기열이 아니라 참고 지도 역할로 낮췄다.
+- batch/group 추적과 문서리스트 출력은 필수로 유지하되, 정확한 schema는 실전 MVP 경로에서 잠그기로 했다.
+
+### 핵심 파일
+- `docs/PHASE/rentcar00_OPS-fine-notice-integrated-intake-to-submission-pm.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+
+### 검증
+- `git diff --check` 대상
+
+### 남은 확인
+- 첫 실전 MVP increment를 선택해야 한다.
+- DB migration, parser restart, APK build/upload, commit은 여전히 별도 승인 대상이다.
+
+---
+
+## 2026-06-19 — 과태료 통합 PM Phase 1-3 구현 완료
+### 사용자 표면
+- 과태료 등록 모달에서 AI파서가 충분히 읽은 경우 단일/다중 고지서가 자동 저장 흐름으로 넘어간다.
+- AI파서가 필수값을 못 채운 경우 자동 저장하지 않고, 읽힌 값만 모달에 채워 사용자가 수동 저장한다.
+- 강남순환도로처럼 한 장에 여러 건이 있는 고지서는 row별 독립 원장 draft로 분리된다.
+
+### 실제 동작
+- parser 결과를 `autoSingle` / `autoMulti` / `parseFailedManualPrefill`로 판정하는 intake mapper를 추가했다.
+- `rawCandidate.items[]`가 완전하면 각 row를 독립 `FineNoticeCase` draft로 만든다.
+- row 날짜/금액/차량번호/profile/type 등 필수값이 부족하면 `parse_failed` warning을 붙이고 모달 prefill만 수행한다.
+- 저장 단계에서는 각 draft마다 기존 소유/관리 차량 guard를 그대로 적용한다.
+
+### 핵심 파일
+- `lib/features/fines/domain/fine_notice_models.dart`
+- `lib/features/fines/presentation/fine_notice_page.dart`
+- `test/fine_notice_models_test.dart`
+- `docs/PHASE/rentcar00_OPS-fine-notice-integrated-intake-to-submission-pm.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+
+### 검증
+- `dart format lib/features/fines/domain/fine_notice_models.dart lib/features/fines/presentation/fine_notice_page.dart test/fine_notice_models_test.dart` 통과
+- `flutter analyze` 통과
+- `flutter test test/fine_notice_models_test.dart` 통과
+- `flutter test` 통과
+
+### 남은 확인
+- 실기기 APK 재빌드/업로드는 아직 하지 않았다.
+- phase map은 현재 일시정지됐고, 실전 MVP increment에서 batch/grouping schema와 문서리스트 출력 기준을 잠근다.
+- 기관별 제출 정책, 문서 패키지, 외부 제출 자동화는 아직 미구현/보호 구간이다.
+
+---
+
+## 2026-06-19 — 과태료 PM 문서 통합 정리
+### 사용자 표면
+- fine notice PM 문서가 여러 개로 섞여 보이던 상태를 정리했다.
+- 다음 실행 기준은 통합 PM 하나로 본다.
+
+### 실제 동작
+- 완료된 intake 정책/롤백 PM과 강남순환도로 다중 parser micro PM을 `docs/COMPLETED/`로 이동했다.
+- 통합 PM으로 대체된 예전 fine notice PM 문서는 `docs/ARCHIVE/fine-notice-superseded-2026-06-19/`로 이동했다.
+- 새 active 통합 PM을 만들었다.
+
+### 핵심 파일
+- `docs/PHASE/rentcar00_OPS-fine-notice-integrated-intake-to-submission-pm.md`
+- `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_intake_policy_and_rollback_pm.md`
+- `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_gangnam_multi_parser_micro_pm.md`
+- `docs/ARCHIVE/fine-notice-superseded-2026-06-19/`
+- `docs/PHASE/README.md`
+- `docs/README.md`
+
+### 검증
+- `git diff --check` 대상
+
+### 남은 확인
+- 통합 PM Phase 1-3은 2026-06-19에 후속 구현 완료 처리됐다.
+- 다음 실행 후보는 Phase 4가 아니라 실전 MVP increment다.
+- DB migration, parser restart, APK build/upload, commit은 별도 승인 대상이다.
+
+---
+
+## 2026-06-19 — 과태료 intake 정책 Phase 1-3 완료
+### 사용자 표면
+- 과태료 intake가 다중 row, 비소유 차량, profile별 서류 차이로 커지기 전에 정책/롤백 PM을 분리했다.
+- 납부기한은 핵심 처리정보가 아니므로 primary flow에서 제거했다.
+- 우리 소유/관리 차량이 아닌 경우 `우리 소유/관리 차량이 아닙니다. 지사/외부 차량 처리 대상입니다.` 메시지를 띄우고 계약검색을 막는다.
+
+### 실제 동작
+- PM 문서 `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_intake_policy_and_rollback_pm.md`의 Phase 1-3을 완료했다.
+- 최초 rollback 기준을 `05efdba` / b50 APK 기준으로 문서화했다.
+- next operational phases PM에 intake 정책 PM이 선행 gate임을 추가했다.
+- 과태료 리스트/등록 모달에서 납부기한 노출을 제거했다.
+- fine notice parser는 raw `dueDate`를 보존할 수 있지만 `dueDate_missing` 경고는 내지 않는다.
+- 저장 전과 계약검색 전 차량번호를 `rc00_ops_cars.car_number`에서 확인한다.
+- 관리 차량이 아니면 `not_our_vehicle` 상태와 경고로 저장하고 IMS 계약검색으로 넘어가지 않는다.
+- public parser route 반영을 위해 `reservation_ai_parser` 프로세스를 재시작했다.
+- 강남순환도로 4건 다중 고지서 실사진을 fixture image로 보관하고, 기대 row 4건 검증 스크립트를 추가했다.
+- 실제 public parser smoke에서는 4 row 개수/차량/장소/금액은 잡았지만 row별 날짜가 누락되는 기준선을 확인했다.
+
+### 핵심 파일
+- `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_intake_policy_and_rollback_pm.md`
+- `docs/PHASE/rentcar00_OPS-fine-notice-next-operational-phases-pm.md`
+- `docs/PHASE/rentcar00_OPS-fine-notice-document-generation-mvp-pm.md`
+- `docs/GOAL/rentcar00_OPS-current.md`
+- `lib/features/fines/data/fine_notice_repository.dart`
+- `lib/features/fines/domain/fine_notice_models.dart`
+- `lib/features/fines/presentation/fine_notice_page.dart`
+- `fine_notice_ai_parser/src/parser-core.js`
+- `fine_notice_ai_parser/src/fixture-check.js`
+- `fine_notice_ai_parser/src/fixtures/images/gangnam_sunhwan_4rows_20260506_20260512.jpg`
+
+### 검증
+- `flutter analyze` 통과
+- `flutter test test/fine_notice_models_test.dart` 통과
+- `npm --prefix fine_notice_ai_parser run check` 통과
+- `npm --prefix fine_notice_ai_parser run fixture-check` 통과
+- public `POST https://parser.00rentcar.com/parse-fine-notice` fixture smoke에서 `warnings: []` 확인
+- public parser 실사진 smoke:
+  - `itemCount: 4`
+  - `carNumber: 142호2673`
+  - `totalAmount: 7600`
+  - row dates: missing
+
+### 남은 확인
+- APK 재빌드/업로드는 아직 하지 않았다.
+- 다중 row split/batch 모델은 실전 MVP increment에서 별도 승인 후 진행한다.
+- 강남순환도로 profile은 row별 날짜 파싱 보강 전까지 split ledger 저장 UI로 넘기지 않는다.
+- OCR 공백/오독은 사람이 수동 수정해야 하며, 차량 guard는 수정된 차량번호 기준으로 다시 판단한다.
+
+---
+
+## 2026-06-19 — b52 UI/parser hotfix APK 배포 완료
+### 사용자 표면
+- b51에서 깨지던 상단 업무 메뉴를 아이콘 중심 compact switcher로 바꿨다.
+- 과태료 AI파서 연결이 `parser.00rentcar.com/parse-fine-notice`에서 JSON 응답으로 동작하도록 고쳤다.
+- HTML/404 응답이 와도 앱에서 raw `FormatException` 대신 이해 가능한 오류를 보여주도록 했다.
+
+### 실제 동작
+- Android build number를 `1.0.0+52`로 올렸다.
+- `reservation_ai_parser`에 fine notice parser core를 additive route로 연결했다.
+- local `reservation_ai_parser` 프로세스를 재시작했다.
+- arm64 release APK를 빌드했다.
+- GDrive `rentcar00_OPS/apk/`에 b52 APK를 업로드했다.
+- GDrive APK 폴더에는 최신 b52 APK 1개만 남겼다.
+
+### 핵심 파일
+- `pubspec.yaml`
+- `lib/app/view/app_shell.dart`
+- `lib/features/fines/data/fine_notice_ai_parser_client.dart`
+- `reservation_ai_parser/src/server.js`
+- `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`
+- `build/releases/rentcar00_ops-app-release-arm64-b52-05efdba.apk`
+
+### 검증
+- `npm --prefix reservation_ai_parser run check` 통과
+- `npm --prefix fine_notice_ai_parser run check` 통과
+- `flutter analyze` 통과
+- `flutter test` 통과
+- `git diff --check` 통과
+- public `GET https://parser.00rentcar.com/health` 통과
+- public `POST https://parser.00rentcar.com/parse-fine-notice` fixture smoke 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b52-05efdba.apk` 1개만 존재
+- GDrive 업로드 확인 용량: `20,420,547 bytes`
+- 로컬 SHA-256: `2fc8b742fa6b41bb679e21da3290670cc29e02551144cea29f76c9935bab7bf5`
+
+### 남은 확인
+- 실기기에서 상단 메뉴가 깨지지 않는지 육안 확인 필요.
+- 실제 고지서 사진 1장으로 AI파서 결과 확인 필요.
+- 변경분은 아직 commit되지 않았다.
+
+---
+
+## 2026-06-19 — 과태료 MVP foundation PM 문서 완료 처리
+### 사용자 표면
+- 과태료/주정차/통행료 임차인 변경 MVP foundation 로드맵을 완료 문서로 닫았다.
+- 남은 후속 작업은 별도 PM 문서로 분리해 다음 승인 범위를 명확히 했다.
+
+### 실제 동작
+- 기존 로드맵을 `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_mvp_foundation_pm.md`로 이동했다.
+- 남은 Phase 11-15는 `docs/PHASE/rentcar00_OPS-fine-notice-next-operational-phases-pm.md`와 `docs/PHASE/rentcar00_OPS-fine-notice-document-generation-mvp-pm.md` 기준으로 재정리했다.
+- b51 실기기 확인 문제는 `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`로 완료 처리했다.
+
+### 핵심 파일
+- `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_fine_notice_mvp_foundation_pm.md`
+- `docs/PHASE/rentcar00_OPS-fine-notice-next-operational-phases-pm.md`
+- `docs/PHASE/rentcar00_OPS-fine-notice-document-generation-mvp-pm.md`
+- `docs/COMPLETED/COMPLETE_20260619_rentcar00_OPS_b51_ui_parser_hotfix_pm.md`
+
+### 검증
+- 문서 경로와 active/current 문서 참조를 정리했다.
+
+### 남은 확인
+- b51/b52 hotfix PM은 완료 처리됐고, 남은 과태료 작업은 `docs/PHASE/README.md`의 현재 남은 PM 기준으로 진행한다.
+
+---
+
+## 2026-06-19 — b51 APK 배포 완료
+### 사용자 표면
+- 과태료/주정차/통행료 임차인 변경 MVP 작업분이 포함된 b51 APK를 설치 테스트할 수 있다.
+- 과태료 탭, 수동 입력, AI파서 보조, IMS 계약검색, 계약서 PDF 저장 버튼이 포함된다.
+
+### 실제 동작
+- Android build number를 `1.0.0+51`로 올렸다.
+- arm64 release APK를 빌드했다.
+- GDrive `rentcar00_OPS/apk/`에 b51 APK를 업로드했다.
+- GDrive APK 폴더에는 최신 b51 APK 1개만 남겼다.
+
+### 핵심 파일
+- `pubspec.yaml`
+- `lib/features/fines/`
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/parser-core.js`
+- `build/releases/rentcar00_ops-app-release-arm64-b51-05efdba.apk`
+
+### 검증
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=51` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b51-05efdba.apk` 1개만 존재
+- GDrive 업로드 확인 용량: `20,420,583 bytes`
+- 로컬 SHA-256: `cba8035bd31549f093bd4c8cf968deb57754d74e772b77a5022f7d352981ff0e`
+
+### 남은 확인
+- 실기기 설치 후 과태료 탭 진입, 수동 입력, AI파서 연결, 계약검색, 계약서 PDF 저장 버튼 동작 확인 필요.
+- APK 파일명은 현재 HEAD `05efdba` 기준이며, 과태료 MVP 변경분은 아직 commit되지 않은 작업분을 포함한다.
+
+---
+
+## 2026-06-15 — b50 APK 배포 완료
+### 사용자 표면
+- 차량상세 5주 캘린더 개선분이 포함된 b50 APK를 설치 테스트할 수 있다.
+- 예약 없는 단독 일정은 점으로 표시하며, 배차/반납/기타 일정 색상을 각각 파랑/빨강/초록으로 구분한다.
+- 예약 추가 AI파서에서 선택 차량이 있을 때 `carNumber_missing` 경고가 뜨지 않는다.
+
+### 실제 동작
+- Android build number를 `1.0.0+50`으로 올렸다.
+- arm64 release APK를 빌드했다.
+- GDrive `rentcar00_OPS/apk/`에 b50 APK를 업로드했다.
+- GDrive APK 폴더에는 최신 b50 APK 1개만 남겼다.
+
+### 핵심 파일
+- `pubspec.yaml`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `build/releases/rentcar00_ops-app-release-arm64-b50-74649e2.apk`
+
+### 검증
+- `flutter test test/ims_reservation_payload_test.dart test/widget_test.dart` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- GDrive 확인: `rentcar00_ops-app-release-arm64-b50-74649e2.apk` 1개만 존재
+
+### 남은 확인
+- 실기기에서 차량상세 5주 캘린더 점 색상과 APK 설치 확인 필요.
+
+---
+
 ## 2026-05-28 — 문서 구조 정리 및 앱 수정 전 기준점 고정
 ### 사용자 표면
 - 앱 수정 전 문서 구조를 `GOAL / PHASE / COMPLETED / ARCHIVE` 네 영역으로 정리했다.

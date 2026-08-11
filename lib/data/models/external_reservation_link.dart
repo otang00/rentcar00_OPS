@@ -9,6 +9,7 @@ class ExternalReservationLink {
     required this.linkKey,
     required this.lastPayloadJson,
     required this.lastResultJson,
+    this.sourceType = '',
     this.reservationRefId = '',
     this.externalReservationId = '',
     this.externalDetailId = '',
@@ -25,6 +26,7 @@ class ExternalReservationLink {
   final String externalReservationId;
   final String externalDetailId;
   final String externalStatus;
+  final String sourceType;
   final String linkKey;
   final Map<String, dynamic> lastPayloadJson;
   final Map<String, dynamic> lastResultJson;
@@ -48,6 +50,7 @@ class ExternalReservationLink {
       externalReservationId: row['external_reservation_id']?.toString() ?? '',
       externalDetailId: row['external_detail_id']?.toString() ?? '',
       externalStatus: row['external_status']?.toString() ?? 'failed',
+      sourceType: row['source_type']?.toString() ?? '',
       linkKey: row['link_key']?.toString() ?? '',
       lastPayloadJson: _jsonMap(row['last_payload_json']),
       lastResultJson: _jsonMap(row['last_result_json']),

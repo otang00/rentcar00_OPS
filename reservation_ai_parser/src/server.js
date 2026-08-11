@@ -1,13 +1,33 @@
 import http from 'node:http';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { PDFDocument, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import { buildConfig, loadEnvFile, parseReservationInput, validateConfig } from './parser-core.js';
+import { mapHomepageReservationPayload } from './homepage-reservation-mapper.js';
+import {
+  mergeImsInsuranceClaimListAndDetail,
+  toImsInsuranceClaimImportItem,
+} from './ims-insurance-claim-import-item.js';
+import {
+  addDaysToDateText as addDaysToDateTextFromSearchStrategy,
+  buildImsReservationSearchQueries,
+  dedupeImsSchedulesById,
+  extractDateText,
+  normalizeImsScheduleId,
+} from './ims-existing-reservation-search-strategy.js';
+import {
+  buildConfig as buildFineNoticeConfig,
+  parseFineNoticeInput,
+} from '../../fine_notice_ai_parser/src/parser-core.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 await loadEnvFile(path.resolve(__dirname, '../.env'));
 
 const config = buildConfig(process.env);
+const fineNoticeConfig = buildFineNoticeConfig(process.env);
 
 if (process.argv.includes('--check')) {
   console.log(JSON.stringify({
@@ -16,7 +36,11 @@ if (process.argv.includes('--check')) {
     host: config.host,
     port: config.port,
     timeoutMs: config.timeoutMs,
+    fineNoticeStorageRoot: config.fineNoticeStorageRoot,
+    fineNoticeOpenAiModel: fineNoticeConfig.openAiModel,
+    fineNoticeTimeoutMs: fineNoticeConfig.timeoutMs,
     hasOpsReservationEventSecret: Boolean(config.opsReservationEventSecret),
+    hasOpsParserToken: Boolean(config.opsParserToken),
     hasSupabaseUrl: Boolean(config.supabaseUrl),
     hasSupabaseServiceRoleKey: Boolean(config.supabaseServiceRoleKey),
     reservationEventTimestampToleranceMs: config.reservationEventTimestampToleranceMs
@@ -28,6 +52,8 @@ validateConfig(config);
 
 const server = http.createServer(async (req, res) => {
   try {
+    const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const pathname = requestUrl.pathname;
     if (req.url === '/health') {
       if (req.method !== 'GET') {
         return sendMethodNotAllowed(res, ['GET']);
@@ -44,12 +70,25 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, result);
     }
 
+    if (isOpsParserProtectedPath(pathname)) {
+      requireOpsParserToken(req);
+    }
+
     if (req.url === '/parse-reservation') {
       if (req.method !== 'POST') {
         return sendMethodNotAllowed(res, ['POST']);
       }
       const body = await readJsonBody(req);
       const result = await parseReservationInput({ text: body?.text }, config);
+      return sendJson(res, 200, result);
+    }
+
+    if (req.url === '/parse-fine-notice') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req, 12 * 1024 * 1024);
+      const result = await parseFineNoticeInput(body, fineNoticeConfig);
       return sendJson(res, 200, result);
     }
 
@@ -79,6 +118,16 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, payload, result });
     }
 
+    if (req.url === '/ims/search-fine-notice-contracts') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeFineNoticeContractSearchPayload(body);
+      const result = await searchFineNoticeContracts(payload);
+      return sendJson(res, 200, { ok: true, payload, result });
+    }
+
     if (req.url === '/ims/search-insurance-claims') {
       if (req.method !== 'POST') {
         return sendMethodNotAllowed(res, ['POST']);
@@ -89,6 +138,54 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, payload, result });
     }
 
+    if (req.url === '/fine-notices/save-contract-pdf') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeFineNoticeContractPdfPayload(body);
+      const file = await saveFineNoticeContractPdf(payload);
+      return sendJson(res, 200, { ok: true, file: toFineNoticeGeneratedFileResponse(file) });
+    }
+
+    if (req.url === '/fine-notices/generate-documents') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeFineNoticeDocumentPackagePayload(body);
+      const result = await generateFineNoticeDocumentPackage(payload);
+      return sendJson(res, 200, { ok: true, ...result });
+    }
+
+    if (req.url === '/fine-notices/merge-bundle') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeFineNoticeBundleMergePayload(body);
+      const result = await mergeFineNoticeBundle(payload);
+      return sendJson(res, 200, { ok: true, ...result });
+    }
+
+    if (pathname === '/fine-notice-file-packages') {
+      if (req.method !== 'GET') {
+        return sendMethodNotAllowed(res, ['GET']);
+      }
+      const fineNoticeId = stringifyNullable(requestUrl.searchParams.get('fineNoticeId')).trim();
+      const result = await listFineNoticeFilePackage({ fineNoticeId });
+      return sendJson(res, 200, { ok: true, ...result });
+    }
+
+    if (pathname === '/fine-notice-files/download') {
+      if (req.method !== 'GET') {
+        return sendMethodNotAllowed(res, ['GET']);
+      }
+      const fileId = stringifyNullable(requestUrl.searchParams.get('fileId')).trim();
+      const result = await prepareFineNoticeFileDownload({ fileId });
+      return sendLocalFile(res, result);
+    }
+
     if (req.url === '/ims/change-reservation-car') {
       if (req.method !== 'POST') {
         return sendMethodNotAllowed(res, ['POST']);
@@ -96,6 +193,17 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const payload = normalizeImsChangeCarPayload(body);
       const result = await changeImsReservationCarDirect(payload);
+      const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
+      return sendJson(res, ok ? 200 : 422, { ok, payload, result });
+    }
+
+    if (req.url === '/ims/update-vehicle-rental-flags') {
+      if (req.method !== 'POST') {
+        return sendMethodNotAllowed(res, ['POST']);
+      }
+      const body = await readJsonBody(req);
+      const payload = normalizeImsVehicleRentalFlagsPayload(body);
+      const result = await updateImsVehicleRentalFlagsDirect(payload);
       const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
       return sendJson(res, ok ? 200 : 422, { ok, payload, result });
     }
@@ -111,24 +219,15 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, ok ? 200 : 422, { ok, payload, result });
     }
 
-    if (req.url === '/ims/complete-reservation-return') {
-      if (req.method !== 'POST') {
-        return sendMethodNotAllowed(res, ['POST']);
-      }
-      const body = await readJsonBody(req);
-      const payload = normalizeImsCompleteReturnPayload(body);
-      const result = await completeImsReservationReturnDirect(payload);
-      const ok = result?.code === 'SUCCESS' || result?.code === 'DRY_RUN';
-      return sendJson(res, ok ? 200 : 422, { ok, payload, result });
-    }
-
     return sendJson(res, 404, { ok: false, error: 'not_found' });
   } catch (error) {
     const status = resolveErrorStatus(error);
+    const details = error?.details && typeof error.details === 'object' ? error.details : {};
     return sendJson(res, status, {
       ok: false,
       error: resolveErrorCode(error),
-      message: error?.message || 'unknown error'
+      message: error?.message || 'unknown error',
+      ...details,
     });
   }
 });
@@ -137,12 +236,12 @@ server.listen(config.port, config.host, () => {
   console.log(`reservation_ai_parser listening on http://${config.host}:${config.port}`);
 });
 
-function readJsonBody(req) {
+function readJsonBody(req, maxBytes = 5 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', (chunk) => {
       data += chunk;
-      if (data.length > 5 * 1024 * 1024) {
+      if (Buffer.byteLength(data, 'utf8') > maxBytes) {
         reject(new Error('payload_too_large'));
         req.destroy();
       }
@@ -183,8 +282,8 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
   const timestamp = getHeader(req, 'x-rentcar00-timestamp');
   const signature = getHeader(req, 'x-rentcar00-signature');
 
-  if (eventType !== 'reservation.created') {
-    throw new ApiError(400, 'invalid_event_type', 'X-Rentcar00-Event-Type must be reservation.created');
+  if (!['reservation.created', 'reservation.cancelled'].includes(eventType)) {
+    throw new ApiError(400, 'invalid_event_type', 'X-Rentcar00-Event-Type must be reservation.created or reservation.cancelled');
   }
   if (!eventId) throw new ApiError(400, 'missing_event_id', 'X-Rentcar00-Event-Id is required');
   validateReservationEventTimestamp(timestamp);
@@ -196,10 +295,12 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
   } catch {
     throw new ApiError(400, 'invalid_json', 'request body must be valid JSON');
   }
-  const payload = normalizeReservationCreatedEventPayload({ body, eventId, eventType });
+
+  const payload = eventType === 'reservation.cancelled'
+    ? normalizeReservationCancelledEventPayload({ body, eventId, eventType })
+    : normalizeReservationCreatedEventPayload({ body, eventId, eventType });
 
   const existing = await findStoredReservationEvent(eventId);
-  if (existing?.status === 'imported') return { ok: true, deduped: true, imported: true };
 
   if (!existing) {
     try {
@@ -209,16 +310,39 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
     }
   }
 
+  if (eventType === 'reservation.cancelled') {
+    return {
+      ok: true,
+      eventId: payload.eventId,
+      eventType: payload.eventType,
+      provider: payload.provider || null,
+      sourceReservationId: payload.sourceReservationId || null,
+      deduped: Boolean(existing),
+      imported: false,
+      reviewRequired: true,
+    };
+  }
+
   try {
     const importResult = await importReservationCreatedEvent(payload);
     await markReservationEventImported(payload.eventId, importResult);
-    return { ok: true, deduped: Boolean(existing), imported: true, reservationId: importResult.reservationId };
+    return {
+      ok: true,
+      eventId: payload.eventId,
+      provider: importResult.provider || null,
+      sourceReservationId: importResult.sourceReservationId || null,
+      deduped: Boolean(existing),
+      imported: true,
+      reservationId: importResult.reservationId,
+      reservationRefId: importResult.reservationRefId,
+      ops: importResult.ops,
+      ims: importResult.ims,
+    };
   } catch (error) {
     await markReservationEventFailed(payload.eventId, error);
     throw error;
   }
 }
-
 
 function ensureReservationEventReceiverConfigured() {
   const missing = [];
@@ -274,11 +398,37 @@ function normalizeReservationCreatedEventPayload({ body, eventId, eventType }) {
   }
   const booking = body?.booking && typeof body.booking === 'object' ? body.booking : null;
   if (!booking) throw new ApiError(400, 'invalid_payload', 'booking object is required');
+  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
 
-  const bookingOrderId = stringifyNullable(booking.bookingOrderId).trim();
-  const reservationCode = stringifyNullable(booking.reservationCode).trim();
-  if (!bookingOrderId && !reservationCode) {
-    throw new ApiError(400, 'invalid_payload', 'booking.bookingOrderId or booking.reservationCode is required');
+  const bookingOrderId = firstNonEmpty(
+    booking.bookingOrderId,
+    input.bookingOrderId,
+  );
+  const sourceReservationId = firstNonEmpty(
+    booking.sourceReservationId,
+    booking.externalReservationId,
+    booking.external_reservation_id,
+    booking.providerReservationId,
+    input.sourceReservationId,
+    input.externalReservationId,
+    input.external_reservation_id,
+    input.providerReservationId,
+  );
+  const reservationCode = firstNonEmpty(
+    booking.reservationCode,
+    booking.reservationNumber,
+    input.reservationCode,
+    input.reservationNumber,
+    booking.sourceReservationNo,
+    booking.externalReservationNo,
+    booking.external_reservation_no,
+    input.sourceReservationNo,
+    input.externalReservationNo,
+    input.external_reservation_no,
+    sourceReservationId,
+  );
+  if (!bookingOrderId && !reservationCode && !sourceReservationId) {
+    throw new ApiError(400, 'invalid_payload', 'booking bookingOrderId, reservationCode or sourceReservationId is required');
   }
 
   return {
@@ -288,6 +438,66 @@ function normalizeReservationCreatedEventPayload({ body, eventId, eventType }) {
     reservationCode,
     payload: body,
     status: 'received',
+  };
+}
+
+function normalizeReservationCancelledEventPayload({ body, eventId, eventType }) {
+  const bodyEventId = stringifyNullable(body?.eventId).trim();
+  const bodyEventType = stringifyNullable(body?.eventType).trim();
+  if (bodyEventId && bodyEventId !== eventId) {
+    throw new ApiError(400, 'event_id_mismatch', 'header and body eventId do not match');
+  }
+  if (bodyEventType && bodyEventType !== eventType) {
+    throw new ApiError(400, 'event_type_mismatch', 'header and body eventType do not match');
+  }
+
+  const booking = body?.booking && typeof body.booking === 'object' ? body.booking : {};
+  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
+  const provider = firstNonEmpty(
+    body?.provider,
+    booking.sourceProvider,
+    input.sourceProvider,
+  );
+  const sourceReservationId = firstNonEmpty(
+    booking.sourceReservationId,
+    booking.externalReservationId,
+    booking.external_reservation_id,
+    input.sourceReservationId,
+    input.externalReservationId,
+    input.external_reservation_id,
+  );
+  const reservationCode = firstNonEmpty(
+    booking.reservationCode,
+    booking.reservationNumber,
+    booking.sourceReservationNo,
+    booking.externalReservationNo,
+    booking.external_reservation_no,
+    input.reservationCode,
+    input.reservationNumber,
+    input.sourceReservationNo,
+    input.externalReservationNo,
+    input.external_reservation_no,
+    sourceReservationId,
+  );
+  const bookingOrderId = firstNonEmpty(
+    booking.bookingOrderId,
+    input.bookingOrderId,
+    provider && sourceReservationId ? `external-provider:${provider}:${sourceReservationId}` : '',
+  );
+
+  if (!provider || !sourceReservationId) {
+    throw new ApiError(400, 'invalid_payload', 'provider and source reservation id are required for cancellation event');
+  }
+
+  return {
+    eventId,
+    eventType,
+    bookingOrderId,
+    reservationCode,
+    provider,
+    sourceReservationId,
+    payload: body,
+    status: 'pending_review',
   };
 }
 
@@ -337,20 +547,149 @@ async function importReservationCreatedEvent(payload) {
     throw new ApiError(400, 'invalid_payload', 'reservation id could not be derived');
   }
 
+  const carRef = await findOpsCarByNumber(mapped.carNumber);
   const existingReservation = await findReservationByReservationId(mapped.reservationId);
+  const imsPrepared = await prepareImsBindingBeforeOpsProjection({ mapped });
   if (existingReservation?.id) {
-    return { reservationId: mapped.reservationId, reservationRefId: existingReservation.id, reused: true };
+    await backfillReservationCarRef({ reservationRefId: existingReservation.id, mapped, carRef });
+    const scheduleSummary = await ensureOpsReservationProjection({
+      mapped,
+      reservationRefId: existingReservation.id,
+    });
+    await upsertExternalReservationLink({
+      mapped,
+      reservationRefId: existingReservation.id,
+      imsPayload: imsPrepared.imsPayload,
+      imsResult: sanitizeImsResultForStorage(imsPrepared.imsBindingResult),
+      externalStatus: 'linked',
+      errorText: null,
+    });
+    const ims = buildImsImportResultFromBinding(imsPrepared.imsBindingResult);
+    return buildReservationImportResult({ mapped, reservationRefId: existingReservation.id, reused: true, scheduleSummary, ims, carRef });
   }
 
+  const reservation = await createOpsReservationRows({ mapped, carRef });
+  await upsertExternalReservationLink({
+    mapped,
+    reservationRefId: reservation.reservationRefId,
+    imsPayload: imsPrepared.imsPayload,
+    imsResult: sanitizeImsResultForStorage(imsPrepared.imsBindingResult),
+    externalStatus: 'linked',
+    errorText: null,
+  });
+  const ims = buildImsImportResultFromBinding(imsPrepared.imsBindingResult);
+  return buildReservationImportResult({ mapped, reservationRefId: reservation.reservationRefId, reused: false, scheduleSummary: reservation.scheduleSummary, ims, carRef });
+}
+
+async function prepareImsBindingBeforeOpsProjection({ mapped } = {}) {
+  if (!mapped) throw new ApiError(400, 'mapped_reservation_missing', 'mapped reservation is required');
+
+  const existingLink = await findExternalReservationLinkByReservationId(mapped.reservationId);
+  if (existingLink?.external_status === 'linked' && existingLink?.external_reservation_id) {
+    if (mapped.sourceProvider === 'ims_partner') {
+      const expectedBinding = buildExistingImsPartnerBinding(mapped);
+      if (String(expectedBinding.externalReservationId) !== String(existingLink.external_reservation_id)) {
+        throw new ApiError(409, 'ims_binding_conflict', `IMS partner event points to ${expectedBinding.externalReservationId}, but OPS reservation is linked to ${existingLink.external_reservation_id}`);
+      }
+    }
+    return { imsPayload: {}, imsBindingResult: buildImsBindingFromExistingLink(existingLink) };
+  }
+
+  if (mapped.sourceProvider === 'ims_partner') {
+    const imsBindingResult = buildExistingImsPartnerBinding(mapped);
+    await assertImsBindingAvailable({
+      externalReservationId: imsBindingResult.externalReservationId,
+      reservationId: mapped.reservationId,
+    });
+    return { imsPayload: {}, imsBindingResult };
+  }
+
+  const imsPayload = buildImsReservationPayloadFromMappedReservation(mapped);
+  const imsCreateResult = await createImsReservationDirect(imsPayload, { allowExistingLink: true });
+  const imsBindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: imsCreateResult });
+  const imsLinked = imsBindingResult?.externalStatus === 'linked' && Boolean(imsBindingResult?.externalReservationId);
+  if (!imsLinked) {
+    throw new ApiError(409, 'ims_create_required_before_ops', stringifyErrorText(imsBindingResult?.errorText || imsBindingResult?.message) || 'IMS 생성 성공 전에는 OPS 예약을 생성하지 않습니다.');
+  }
+  await assertImsBindingAvailable({
+    externalReservationId: imsBindingResult.externalReservationId,
+    reservationId: mapped.reservationId,
+  });
+  return { imsPayload, imsBindingResult };
+}
+
+function buildImsBindingFromExistingLink(existingLink = {}) {
+  return {
+    attempted: false,
+    created: false,
+    reused: true,
+    reusedExisting: true,
+    externalReservationId: existingLink.external_reservation_id || '',
+    externalDetailId: existingLink.external_detail_id || '',
+    externalStatus: existingLink.external_status || 'linked',
+    sourceType: existingLink.source_type || 'normal_schedule',
+    linkKey: existingLink.link_key || '',
+    error: null,
+  };
+}
+
+function buildExistingImsPartnerBinding(mapped = {}) {
+  const input = mapped.metaJson?.reservation_input && typeof mapped.metaJson.reservation_input === 'object'
+    ? mapped.metaJson.reservation_input
+    : {};
+  const externalReservationId = firstNonEmpty(
+    mapped.sourceReservationId,
+    input.imsReservationId,
+    input.externalReservationId,
+    input.external_reservation_id,
+  );
+  if (!externalReservationId) {
+    throw new ApiError(400, 'ims_partner_identity_required', 'IMS partner event requires an existing IMS reservation id');
+  }
+  const externalDetailId = firstNonEmpty(
+    input.externalDetailId,
+    input.external_detail_id,
+    input.imsDetailId,
+    input.ims_detail_id,
+    mapped.reservationNumber,
+  );
+  return {
+    attempted: false,
+    created: false,
+    reused: true,
+    reusedExisting: true,
+    externalReservationId,
+    externalDetailId,
+    externalStatus: 'linked',
+    sourceType: 'normal_schedule',
+    linkKey: `IMS:${externalReservationId}`,
+    error: null,
+  };
+}
+
+function buildImsImportResultFromBinding(bindingResult = {}) {
+  return {
+    attempted: bindingResult.attempted !== false,
+    created: bindingResult.reusedExisting !== true,
+    reused: bindingResult.reusedExisting === true || bindingResult.reused === true,
+    externalReservationId: bindingResult.externalReservationId || '',
+    externalDetailId: bindingResult.externalDetailId || '',
+    externalStatus: bindingResult.externalStatus || 'linked',
+    error: null,
+  };
+}
+
+async function createOpsReservationRows({ mapped, carRef } = {}) {
   const reservation = await insertSupabaseRow('rc00_ops_reservations', {
     reservation_id: mapped.reservationId,
     reservation_number: mapped.reservationNumber || null,
+    car_id: carRef?.id || null,
     car_number: mapped.carNumber || null,
-    car_name: mapped.carName || null,
+    car_name: mapped.carName || carRef?.car_name || null,
     customer_name: mapped.customerName || null,
     customer_phone: mapped.customerPhone || null,
     customer_birth_date: mapped.customerBirthDate || null,
-    referral_source: '홈페이지',
+    referral_source: mapped.referralSource || '홈페이지',
     payment_amount: mapped.paymentAmount || null,
     start_at: mapped.startAt || null,
     end_at: mapped.endAt || null,
@@ -363,71 +702,244 @@ async function importReservationCreatedEvent(payload) {
   const reservationRefId = reservation?.id;
   if (!reservationRefId) throw new ApiError(502, 'reservation_insert_failed', 'reservation insert did not return id');
 
+  const scheduleSummary = await ensureOpsReservationProjection({ mapped, reservationRefId });
+
+  await insertSupabaseRow('rc00_ops_action_logs', {
+    reservation_id: mapped.reservationId,
+    reservation_ref_id: reservationRefId,
+    action_key: 'reservation.sync_imported',
+    target_type: 'reservation',
+    message_text: `${mapped.referralSource} 예약원장과 배차/반납 일정을 생성`,
+    result_status: 'success',
+    meta_json: {
+      created_via: mapped.createdVia,
+      source_provider: mapped.sourceProvider,
+      source_reservation_id: mapped.sourceReservationId || null,
+    },
+  }, 'id');
+
+  return { reservationRefId, scheduleSummary };
+}
+
+async function ensureOpsReservationProjection({ mapped, reservationRefId } = {}) {
+  if (!mapped?.reservationId || !reservationRefId) {
+    throw new ApiError(500, 'ops_projection_identity_required', 'OPS projection identity is required');
+  }
+  const checkPayload = buildReservationCheckPayload(mapped);
+  await insertSupabaseRowsIfMissing('rc00_ops_reservation_states', {
+    reservation_id: mapped.reservationId,
+    reservation_ref_id: reservationRefId,
+    tab_key: deriveReservationTabKey(mapped.startAt, mapped.endAt),
+    needs_attention: Object.values(checkPayload).includes('pending') || mapped.sourceProvider !== 'homepage',
+    warning_level: Object.values(checkPayload).includes('pending') || mapped.sourceProvider !== 'homepage' ? 'warning' : null,
+    check_payload_json: checkPayload,
+    memo_text: mapped.sourceProvider === 'homepage' ? '홈페이지 예약 확인 필요' : `${mapped.referralSource} 예약 확인 필요`,
+    last_action_at: new Date().toISOString(),
+  }, { onConflict: 'reservation_id', select: 'id' });
+
+  await insertSupabaseRowsIfMissing('rc00_ops_schedules', [
+    buildHomepageScheduleRow({ mapped, type: '배차', at: mapped.startAt, location: mapped.pickupLocation }),
+    buildHomepageScheduleRow({ mapped, type: '반납', at: mapped.endAt, location: mapped.dropoffLocation || mapped.pickupLocation }),
+  ], { onConflict: 'schedule_id', select: 'id' });
+
+  return fetchReservationScheduleSummary(mapped.reservationId);
+}
+
+async function findOpsCarByNumber(carNumber) {
+  const normalized = stringifyNullable(carNumber).trim();
+  if (!normalized) return null;
+  const url = new URL('/rest/v1/rc00_ops_cars', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('car_number', `eq.${normalized}`);
+  url.searchParams.set('select', 'id,car_number,car_name,status');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'ops_car_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase OPS car lookup failed'));
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function backfillReservationCarRef({ reservationRefId, mapped = {}, carRef } = {}) {
+  if (!reservationRefId) return;
+  const patch = {};
+  if (carRef?.id) patch.car_id = carRef.id;
+  if (mapped.carName) patch.car_name = mapped.carName;
+  if (mapped.customerBirthDate) patch.customer_birth_date = mapped.customerBirthDate;
+  if (Object.keys(patch).length === 0) return;
+  const url = new URL('/rest/v1/rc00_ops_reservations', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${reservationRefId}`);
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...buildSupabaseServiceHeaders(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify(patch),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'reservation_car_ref_update_failed', resolveApiErrorMessage(json, response.status, 'Supabase reservation car ref update failed'));
+}
+
+function buildReservationImportResult({ mapped, reservationRefId, reused, scheduleSummary = {}, ims = {}, carRef = null } = {}) {
+  return {
+    eventId: mapped.metaJson?.event_id || null,
+    provider: mapped.sourceProvider,
+    sourceReservationId: mapped.sourceReservationId || null,
+    reservationId: mapped.reservationId,
+    reservationRefId,
+    reused: Boolean(reused),
+    ops: {
+      created: !reused,
+      reused: Boolean(reused),
+      reservationId: mapped.reservationId,
+      reservationRefId,
+      scheduleCreated: Number(scheduleSummary.scheduleCount || 0) >= 2,
+      scheduleCount: Number(scheduleSummary.scheduleCount || 0),
+      carId: carRef?.id || null,
+      carMatched: Boolean(carRef?.id),
+    },
+    ims,
+  };
+}
+
+async function ensureImsReservationForImportedEvent({ mapped, reservationRefId, reused = false, allowCreate = true } = {}) {
+  if (!mapped) {
+    return { attempted: false, created: false, skipped: true, reason: 'mapped_reservation_missing', error: null };
+  }
+
+  const existingLink = await findExternalReservationLinkByReservationId(mapped.reservationId);
+  if (existingLink?.external_status === 'linked' && existingLink?.external_reservation_id) {
+    return {
+      attempted: false,
+      created: false,
+      reused: true,
+      externalReservationId: existingLink.external_reservation_id,
+      externalDetailId: existingLink.external_detail_id || '',
+      externalStatus: existingLink.external_status,
+      error: null,
+    };
+  }
+
+  if (!allowCreate) {
+    return { attempted: false, created: false, skipped: true, reason: 'existing_ops_no_auto_ims_link', error: null };
+  }
+
+  let imsPayload;
+  try {
+    imsPayload = buildImsReservationPayloadFromMappedReservation(mapped);
+  } catch (error) {
+    const result = buildStructuredImsFailure({ stage: 'build_ims_payload', error });
+    await upsertExternalReservationLink({ mapped, reservationRefId, imsPayload: {}, imsResult: result, externalStatus: 'failed', errorText: result.error?.message || 'ims_payload_build_failed' });
+    return result;
+  }
+
+  try {
+    const createResult = await createImsReservationDirect(imsPayload, { allowExistingLink: true });
+    const bindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: createResult });
+    const linked = bindingResult?.externalStatus === 'linked' && Boolean(bindingResult?.externalReservationId);
+    if (linked) {
+      await assertImsBindingAvailable({
+        externalReservationId: bindingResult.externalReservationId,
+        reservationId: mapped.reservationId,
+      });
+    }
+    await upsertExternalReservationLink({
+      mapped,
+      reservationRefId,
+      imsPayload,
+      imsResult: sanitizeImsResultForStorage(bindingResult),
+      externalStatus: linked ? 'linked' : 'failed',
+      errorText: linked ? null : (bindingResult?.errorText || bindingResult?.message || bindingResult?.code || 'ims_create_failed'),
+    });
+    return {
+      attempted: true,
+      created: linked && bindingResult.reusedExisting !== true,
+      reused: linked && bindingResult.reusedExisting === true,
+      externalReservationId: bindingResult?.externalReservationId || '',
+      externalDetailId: bindingResult?.externalDetailId || '',
+      externalStatus: bindingResult?.externalStatus || (linked ? 'linked' : 'failed'),
+      error: linked ? null : { stage: 'ims_create', code: bindingResult?.code || 'IMS_CREATE_FAILED', message: stringifyErrorText(bindingResult?.errorText || bindingResult?.message) || 'IMS create failed', details: bindingResult?.errorDetails || bindingResult?.apiResult || null },
+    };
+  } catch (error) {
+    const result = buildStructuredImsFailure({ stage: 'ims_create', error });
+    await upsertExternalReservationLink({ mapped, reservationRefId, imsPayload, imsResult: result, externalStatus: 'failed', errorText: result.error?.message || 'ims_create_failed' });
+    return result;
+  }
+}
+
+function buildStructuredImsFailure({ stage, error } = {}) {
+  return {
+    attempted: stage !== 'build_ims_payload',
+    created: false,
+    externalReservationId: '',
+    externalDetailId: '',
+    externalStatus: 'failed',
+    error: {
+      stage: stage || 'ims_create',
+      code: error?.code || error?.name || 'IMS_CREATE_FAILED',
+      message: error?.message || 'IMS create failed',
+    },
+  };
+}
+
+function buildShortImsContractMemo(mapped = {}) {
+  const note = String(mapped.noteText || '').trim();
+  if (!note) return '';
+  const compact = note
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => /^(계약번호|고객명|차량|대여|반납|예약경로|SRC):/.test(line))
+    .join(' / ');
+  const summary = compact || note.replace(/\s+/g, ' ');
+  return summary.length > 160 ? `${summary.slice(0, 157)}...` : summary;
+}
+
+function buildImsReservationPayloadFromMappedReservation(mapped = {}) {
+  const shortContractMemo = buildShortImsContractMemo(mapped);
+  return normalizeImsReservationPayload({
+    rentalAt: formatKstMinute(mapped.startAt),
+    returnAt: formatKstMinute(mapped.endAt),
+    carNumber: mapped.carNumber,
+    totalFee: mapped.paymentAmount,
+    customerName: mapped.customerName,
+    customerPhone: mapped.customerPhone,
+    address: mapped.pickupLocation || '',
+    useDelivery: true,
+    memo: [
+      mapped.referralSource ? `${mapped.referralSource} 자동등록` : '외부예약 자동등록',
+      mapped.sourceReservationId ? `SRC:${mapped.sourceReservationId}` : '',
+      mapped.reservationId ? `OPS:${mapped.reservationId}` : '',
+      shortContractMemo ? `참고:${shortContractMemo}` : '',
+    ].filter(Boolean).join(' | ').slice(0, 240),
+    reservationId: mapped.reservationId,
+  });
+}
+
+function sanitizeImsPayloadForStorage(payload = {}) {
+  return { ...payload, customerPhone: payload.customerPhone ? `***${String(payload.customerPhone).slice(-4)}` : '' };
+}
+
+function sanitizeImsResultForStorage(result = {}) {
+  const { apiResult, requestBody, matchedSchedule, ...safe } = result || {};
+  return safe;
+}
+
+function buildReservationCheckPayload(mapped) {
   const checkPayload = {
-    homepage_review: 'pending',
     customer_name_verified: mapped.customerName ? 'done' : 'pending',
     customer_phone_verified: mapped.customerPhone ? 'done' : 'pending',
     pickup_location_verified: mapped.pickupLocation ? 'done' : 'pending',
   };
-  await insertSupabaseRow('rc00_ops_reservation_states', {
-    reservation_id: mapped.reservationId,
-    reservation_ref_id: reservationRefId,
-    tab_key: deriveReservationTabKey(mapped.startAt, mapped.endAt),
-    needs_attention: true,
-    warning_level: 'warning',
-    check_payload_json: checkPayload,
-    memo_text: '홈페이지 예약 확인 필요',
-    last_action_at: new Date().toISOString(),
-  }, 'id');
-
-  await insertSupabaseRow('rc00_ops_schedules', [
-    buildHomepageScheduleRow({ mapped, type: '배차', at: mapped.startAt, location: mapped.pickupLocation }),
-    buildHomepageScheduleRow({ mapped, type: '반납', at: mapped.endAt, location: mapped.dropoffLocation || mapped.pickupLocation }),
-  ], 'id');
-
-  return { reservationId: mapped.reservationId, reservationRefId, reused: false };
-}
-
-function mapHomepageReservationPayload(body = {}) {
-  const booking = body?.booking && typeof body.booking === 'object' ? body.booking : {};
-  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
-  const links = body?.links && typeof body.links === 'object' ? body.links : {};
-  const bookingOrderId = firstText(input.bookingOrderId, booking.bookingOrderId);
-  const reservationNumber = firstText(input.reservationCode, input.reservationNumber, booking.reservationCode);
-  const seed = bookingOrderId || reservationNumber || firstText(body.eventId);
-  const reservationId = `WEB-${seed}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 120);
-  const startAt = normalizeIsoDate(firstText(input.pickupAt, input.startAt, input.rentalAt, booking.pickupAt));
-  const endAt = normalizeIsoDate(firstText(input.returnAt, input.endAt, booking.returnAt));
-  const pickupLocation = firstText(input.pickupLocation, input.deliveryAddress, input.deliveryAddressSummary, booking.deliveryAddressSummary);
-  const dropoffLocation = firstText(input.dropoffLocation, input.returnLocation, pickupLocation);
-  const customerPhone = normalizePhone(firstText(input.customerPhone, input.phone, booking.customerPhone));
-  const paymentAmount = normalizeAmountText(firstText(input.quotedTotalAmount, input.totalAmount, input.paymentAmount, booking.quotedTotalAmount));
-
-  return {
-    reservationId,
-    reservationNumber,
-    customerName: firstText(input.customerName, input.name, booking.customerName),
-    customerPhone,
-    customerBirthDate: firstText(input.customerBirth, input.customerBirthDate, input.birthDate, booking.customerBirth),
-    carNumber: firstText(input.carNumber, booking.carNumber),
-    carName: firstText(input.carName, booking.carName),
-    startAt,
-    endAt,
-    pickupLocation,
-    dropoffLocation,
-    paymentAmount,
-    noteText: firstText(input.memo, input.note, `홈페이지 예약 ${reservationNumber || bookingOrderId}`),
-    metaJson: {
-      source: 'homepage',
-      event_id: firstText(body.eventId),
-      booking_order_id: bookingOrderId || null,
-      reservation_code: reservationNumber || null,
-      admin_booking_url: firstText(links.adminBookingUrl) || null,
-      homepage_review: 'pending',
-      reservation_input: input,
-      booking,
-    },
-  };
+  if (mapped.sourceProvider === 'homepage') {
+    checkPayload.homepage_review = 'pending';
+    return checkPayload;
+  }
+  checkPayload.provider_source = mapped.sourceProvider;
+  checkPayload.source_provider = mapped.sourceProvider;
+  checkPayload.source_review = 'pending';
+  checkPayload.provider_check_status = mapped.providerCheckStatus || 'found';
+  checkPayload.provider_reservation_id = mapped.sourceReservationId || '';
+  checkPayload[`${mapped.sourceProvider}_check_status`] = mapped.providerCheckStatus || 'found';
+  if (mapped.sourceProvider === 'ims_partner') checkPayload.ims_link_status = 'linked_source';
+  else checkPayload.ims_create_status = 'not_started';
+  return checkPayload;
 }
 
 function buildHomepageScheduleRow({ mapped, type, at, location }) {
@@ -441,9 +953,96 @@ function buildHomepageScheduleRow({ mapped, type, at, location }) {
     schedule_at: at || null,
     schedule_done: false,
     location_text: location || null,
-    detail_text: '홈페이지 예약 자동 생성',
-    payload_json: { created_via: 'homepage_reservation_event', reservation_id: mapped.reservationId, status: type },
+    detail_text: `${mapped.referralSource} 예약 자동 생성`,
+    payload_json: {
+      created_via: mapped.createdVia,
+      reservation_id: mapped.reservationId,
+      source_provider: mapped.sourceProvider,
+      source_reservation_id: mapped.sourceReservationId || null,
+      status: type,
+    },
   };
+}
+
+
+async function fetchReservationScheduleSummary(reservationId) {
+  const url = new URL('/rest/v1/rc00_ops_schedules', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('reservation_id', `eq.${reservationId}`);
+  url.searchParams.set('select', 'id,schedule_type');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'schedule_summary_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase schedule lookup failed'));
+  const rows = Array.isArray(json) ? json : [];
+  return { scheduleCount: rows.length, scheduleTypes: rows.map((row) => row.schedule_type).filter(Boolean) };
+}
+
+async function findExternalReservationLinkByReservationId(reservationId) {
+  const url = new URL('/rest/v1/rc00_ops_external_reservation_links', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('provider', 'eq.ims');
+  url.searchParams.set('reservation_id', `eq.${reservationId}`);
+  url.searchParams.set('select', 'id,reservation_id,external_reservation_id,external_detail_id,external_status,link_key,error_text');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'external_link_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase external link lookup failed'));
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function assertImsBindingAvailable({ externalReservationId, reservationId } = {}) {
+  const externalId = stringifyNullable(externalReservationId).trim();
+  const targetReservationId = stringifyNullable(reservationId).trim();
+  if (!externalId || !targetReservationId) {
+    throw new ApiError(400, 'ims_binding_identity_required', 'IMS external ID and OPS reservation ID are required');
+  }
+  const url = new URL('/rest/v1/rc00_ops_external_reservation_links', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('provider', 'eq.ims');
+  url.searchParams.set('external_status', 'eq.linked');
+  url.searchParams.set('external_reservation_id', `eq.${externalId}`);
+  url.searchParams.set('select', 'reservation_id,external_reservation_id,external_status');
+  url.searchParams.set('limit', '20');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'ims_binding_lookup_failed', resolveApiErrorMessage(json, response.status, 'IMS binding lookup failed'));
+  }
+  const conflicts = (Array.isArray(json) ? json : []).filter((row) => stringifyNullable(row.reservation_id) !== targetReservationId);
+  if (conflicts.length > 0) {
+    throw new ApiError(409, 'ims_binding_conflict', `IMS reservation ${externalId} is already linked to another OPS reservation`);
+  }
+}
+
+async function upsertExternalReservationLink({ mapped, reservationRefId, imsPayload = {}, imsResult = {}, externalStatus = 'failed', errorText = null } = {}) {
+  const url = new URL('/rest/v1/rc00_ops_external_reservation_links', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('on_conflict', 'provider,reservation_id');
+  const now = new Date().toISOString();
+  const body = {
+    reservation_id: mapped.reservationId,
+    reservation_ref_id: reservationRefId || null,
+    provider: 'ims',
+    external_reservation_id: imsResult.externalReservationId || null,
+    external_detail_id: imsResult.externalDetailId || null,
+    external_status: externalStatus,
+    source_type: imsResult.sourceType || 'normal_schedule',
+    link_key: imsResult.linkKey || `OPS:${mapped.reservationId}`,
+    last_payload_json: sanitizeImsPayloadForStorage(imsPayload),
+    last_result_json: sanitizeImsResultForStorage(imsResult),
+    linked_at: externalStatus === 'linked' ? now : null,
+    last_checked_at: now,
+    deleted_at: null,
+    error_text: errorText || null,
+    updated_at: now,
+  };
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) throw new ApiError(502, 'external_link_upsert_failed', resolveApiErrorMessage(json, response.status, 'Supabase external link upsert failed'));
 }
 
 async function findReservationByReservationId(reservationId) {
@@ -472,6 +1071,27 @@ async function insertSupabaseRow(table, body, select = '*') {
   const json = await readJsonResponse(response);
   if (!response.ok) throw new ApiError(502, `${table}_insert_failed`, resolveApiErrorMessage(json, response.status, `Supabase ${table} insert failed`));
   return Array.isArray(json) ? json[0] : json;
+}
+
+async function insertSupabaseRowsIfMissing(table, body, { onConflict, select = '*' } = {}) {
+  if (!onConflict) throw new ApiError(500, 'upsert_conflict_key_required', `Supabase ${table} conflict key is required`);
+  const url = new URL(`/rest/v1/${table}`, normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('on_conflict', onConflict);
+  if (select) url.searchParams.set('select', select);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=ignore-duplicates,return=representation',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, `${table}_ensure_failed`, resolveApiErrorMessage(json, response.status, `Supabase ${table} ensure failed`));
+  }
+  return Array.isArray(json) ? json : [json];
 }
 
 async function markReservationEventImported(eventId, importResult) {
@@ -519,32 +1139,6 @@ function deriveReservationTabKey(startAt, endAt) {
   return 'pending';
 }
 
-function normalizeIsoDate(value) {
-  const text = firstText(value);
-  if (!text) return '';
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
-}
-
-function normalizePhone(value) {
-  return firstText(value).replace(/[^0-9]/g, '');
-}
-
-function normalizeAmountText(value) {
-  const text = firstText(value);
-  if (!text) return '';
-  const num = Number(String(text).replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(num) ? String(Math.round(num)) : text;
-}
-
-function firstText(...values) {
-  for (const value of values) {
-    const text = stringifyNullable(value).trim();
-    if (text) return text;
-  }
-  return '';
-}
-
 function isSupabaseDuplicateError(error) {
   const body = error?.supabaseBody || {};
   return error?.supabaseStatus === 409 || body?.code === '23505';
@@ -562,6 +1156,34 @@ function buildSupabaseServiceHeaders() {
   };
 }
 
+
+function isOpsParserProtectedPath(pathname) {
+  if (pathname === '/parse-reservation') return true;
+  if (pathname === '/parse-fine-notice') return true;
+  if (pathname.startsWith('/ims/')) return true;
+  if (pathname.startsWith('/fine-notices/')) return true;
+  if (pathname === '/fine-notice-file-packages') return true;
+  if (pathname === '/fine-notice-files/download') return true;
+  return false;
+}
+
+function requireOpsParserToken(req) {
+  if (!config.opsParserToken) {
+    throw new ApiError(503, 'parser_token_not_configured', 'OPS parser token is not configured');
+  }
+
+  const actual = getHeader(req, 'x-ops-parser-token');
+  if (!actual) {
+    throw new ApiError(401, 'invalid_ops_parser_token', 'X-Ops-Parser-Token is required');
+  }
+
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(config.opsParserToken);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+    throw new ApiError(401, 'invalid_ops_parser_token', 'invalid OPS parser token');
+  }
+}
+
 function getHeader(req, name) {
   const value = req.headers[name.toLowerCase()];
   if (Array.isArray(value)) return String(value[0] || '').trim();
@@ -569,10 +1191,11 @@ function getHeader(req, name) {
 }
 
 class ApiError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details = {}) {
     super(message || code);
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -587,6 +1210,17 @@ function sendMethodNotAllowed(res, methods) {
     'Allow': methods.join(', ')
   });
   res.end(JSON.stringify({ ok: false, error: 'method_not_allowed' }));
+}
+
+async function sendLocalFile(res, { localPath, mimeType, downloadName }) {
+  const bytes = await fs.readFile(localPath);
+  const safeName = encodeURIComponent(downloadName || path.basename(localPath));
+  res.writeHead(200, {
+    'Content-Type': mimeType || 'application/octet-stream',
+    'Content-Length': String(bytes.length),
+    'Content-Disposition': `attachment; filename*=UTF-8''${safeName}`,
+  });
+  res.end(bytes);
 }
 
 function resolveErrorStatus(error) {
@@ -625,6 +1259,24 @@ function normalizeImsChangeCarPayload(body = {}) {
   return payload;
 }
 
+function normalizeImsVehicleRentalFlagsPayload(body = {}) {
+  const payload = {
+    carNumber: String(body?.carNumber || body?.car_identity || body?.car_number || '').trim(),
+    canGeneralRental: normalizeOptionalBoolean(body?.canGeneralRental ?? body?.can_general_rental, 'canGeneralRental'),
+    canMonthlyRental: normalizeOptionalBoolean(body?.canMonthlyRental ?? body?.can_monthly_rental, 'canMonthlyRental'),
+    dryRun: body?.dryRun === true,
+  };
+
+  if (!payload.carNumber) {
+    throw new Error('missing required ims fields: carNumber');
+  }
+  if (payload.canGeneralRental == null && payload.canMonthlyRental == null) {
+    throw new Error('missing required ims fields: canGeneralRental or canMonthlyRental');
+  }
+
+  return payload;
+}
+
 function normalizeImsReservationSearchPayload(body = {}) {
   const payload = {
     customerName: String(body?.customerName || '').trim(),
@@ -635,6 +1287,20 @@ function normalizeImsReservationSearchPayload(body = {}) {
 
   if (!payload.rentalDate) {
     throw new Error('missing required ims fields: rentalDate');
+  }
+  return payload;
+}
+
+function normalizeFineNoticeContractSearchPayload(body = {}) {
+  const payload = {
+    carNumber: String(body?.carNumber || '').trim(),
+    rentalDate: extractDate(body?.rentalDate || body?.startDate || body?.rentalAt || ''),
+    endDate: extractDate(body?.endDate || body?.returnDate || ''),
+  };
+
+  const missing = ['carNumber', 'rentalDate'].filter((key) => !payload[key]);
+  if (missing.length > 0) {
+    throw new Error(`missing required ims fields: ${missing.join(', ')}`);
   }
   return payload;
 }
@@ -653,29 +1319,43 @@ function normalizeImsInsuranceClaimSearchPayload(body = {}) {
   return payload;
 }
 
-function normalizeImsCompleteReturnPayload(body = {}) {
+function normalizeFineNoticeContractPdfPayload(body = {}) {
   const payload = {
-    contractId: String(body?.contractId || body?.externalDetailId || body?.externalReservationId || '').trim(),
-    doneAt: normalizeImsReturnDoneAt(body?.doneAt || body?.done_at || ''),
-    returnGasCharge: Number(body?.returnGasCharge ?? body?.return_gas_charge ?? 100),
-    drivenDistanceUponReturn: String(body?.drivenDistanceUponReturn || body?.driven_distance_upon_return || '').replace(/[^0-9.]/g, ''),
-    fuelCost: Number(body?.fuelCost ?? body?.fuel_cost),
-    reservationId: String(body?.reservationId || '').trim(),
-    dryRun: body?.dryRun === true,
+    fineNoticeId: String(body?.fineNoticeId || body?.fine_notice_id || '').trim(),
   };
-
-  const missing = ['contractId', 'doneAt', 'drivenDistanceUponReturn'].filter((key) => !payload[key]);
-  if (missing.length > 0) {
-    throw new Error(`missing required ims fields: ${missing.join(', ')}`);
+  if (!payload.fineNoticeId) {
+    throw new ApiError(400, 'missing_fine_notice_id', 'fineNoticeId is required');
   }
-  if (!Number.isFinite(payload.returnGasCharge) || payload.returnGasCharge < 0 || payload.returnGasCharge > 100) {
-    throw new Error('missing required ims fields: returnGasCharge');
-  }
-  if (!Number.isFinite(payload.fuelCost)) {
-    throw new Error('missing required ims fields: fuelCost');
-  }
-
   return payload;
+}
+
+function normalizeFineNoticeDocumentPackagePayload(body = {}) {
+  const payload = {
+    fineNoticeId: String(body?.fineNoticeId || body?.fine_notice_id || '').trim(),
+  };
+  if (!payload.fineNoticeId) {
+    throw new ApiError(400, 'missing_fine_notice_id', 'fineNoticeId is required');
+  }
+  return payload;
+}
+
+function normalizeFineNoticeBundleMergePayload(body = {}) {
+  const rawIds = Array.isArray(body?.fineNoticeIds)
+    ? body.fineNoticeIds
+    : Array.isArray(body?.fine_notice_ids)
+      ? body.fine_notice_ids
+      : [];
+  const fineNoticeIds = [
+    ...new Set(rawIds.map((value) => stringifyNullable(value).trim()).filter(Boolean)),
+  ];
+  if (fineNoticeIds.length < 2) {
+    throw new ApiError(400, 'fine_notice_bundle_minimum_required', '묶기는 고지서 2건 이상을 선택해야 합니다.');
+  }
+  return {
+    fineNoticeIds,
+    dryRun: body?.dryRun !== false && body?.dry_run !== false,
+    forceRebundle: body?.forceRebundle === true || body?.force_rebundle === true,
+  };
 }
 
 function normalizeImsDeleteReservationPayload(body = {}) {
@@ -773,15 +1453,143 @@ async function searchImsReservationsForImport(payload) {
     }
   }
 
+  const items = matches.map((schedule) => toImsReservationImportItem(schedule));
   return {
     code: 'SUCCESS',
-    totalCount: matches.length,
-    items: matches.map((schedule) => toImsReservationImportItem(schedule)),
+    totalCount: items.length,
+    items,
   };
 }
 
-async function searchImsInsuranceClaimsForDispatch(payload) {
+async function searchFineNoticeContracts(payload) {
   const token = await fetchImsAccessToken();
+  const normalMatches = await findImsNormalContractMatchesForFineNotice({
+    token,
+    payload,
+  });
+  const normalItems = normalMatches.map(({ contract, detail }) =>
+    toImsNormalContractGroupImportItem(contract, detail),
+  );
+  const insuranceResult = await searchImsInsuranceClaimsForDispatch(payload, token);
+  const items = [
+    ...normalItems,
+    ...insuranceResult.items,
+  ];
+
+  return {
+    code: 'SUCCESS',
+    totalCount: items.length,
+    items,
+  };
+}
+
+async function findImsNormalContractMatchesForFineNotice({ token, payload, maxPages = 80 }) {
+  const targetDate = extractDate(payload.rentalDate);
+  if (!payload.carNumber || !targetDate) return [];
+
+  const matches = [];
+  let totalPage = 1;
+  for (let page = 1; page <= Math.min(totalPage, maxPages); page += 1) {
+    const url = new URL('https://api.rencar.co.kr/v2/normal-contracts/group');
+    url.searchParams.set('page', String(page));
+    const response = await fetch(url, { headers: buildImsApiHeaders(token) });
+    const json = await readJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(resolveApiErrorMessage(json, response.status, 'IMS normal contract group lookup failed'));
+    }
+
+    const contractList = Array.isArray(json?.contractList) ? json.contractList : [];
+    for (const contract of contractList) {
+      const details = normalizeImsNormalContractDetails(contract);
+      for (const detail of details) {
+        if (isImsNormalContractDetailMatch({ contract, detail, payload, targetDate })) {
+          matches.push({ contract, detail });
+        }
+      }
+    }
+
+    totalPage = Number(json?.totalPage || json?.total_page || 1);
+    if (contractList.length === 0 || page >= totalPage) break;
+  }
+
+  return matches;
+}
+
+function normalizeImsNormalContractDetails(contract) {
+  if (Array.isArray(contract?.details)) return contract.details;
+  if (contract?.details && typeof contract.details === 'object') return [contract.details];
+  return [];
+}
+
+function isImsNormalContractDetailMatch({ contract, detail, payload, targetDate }) {
+  const carNumber = stringifyNullable(
+    detail?.rent_car_number ||
+    detail?.car?.car_identity ||
+    detail?.car_identity ||
+    detail?.car_number ||
+    contract?.rent_car_number ||
+    contract?.car_identity,
+  );
+  if (normalizeText(carNumber) !== normalizeText(payload.carNumber)) return false;
+
+  const startDate = extractDate(
+    detail?.delivered_date ||
+    detail?.delivered_at ||
+    detail?.start_at ||
+    contract?.delivered_at ||
+    contract?.start_at,
+  );
+  const endDate = extractDate(
+    detail?.returned_at ||
+    detail?.expect_return_date ||
+    detail?.end_at ||
+    contract?.returned_at ||
+    contract?.expect_return_date ||
+    contract?.end_at,
+  ) || startDate;
+
+  return isDateWithinRange(targetDate, startDate, endDate);
+}
+
+function isDateWithinRange(targetDate, startDate, endDate) {
+  if (!targetDate || !startDate) return false;
+  if (!endDate) return targetDate === startDate;
+  return startDate <= targetDate && targetDate <= endDate;
+}
+
+function toImsNormalContractGroupImportItem(contract, detail) {
+  const contractId = stringifyNullable(detail?.normal_contract_id || contract?.id);
+  return {
+    sourceType: 'ims_normal_contract',
+    scheduleId: stringifyNullable(detail?.company_car_schedule_id || detail?.schedule_id),
+    detailId: stringifyNullable(detail?.id),
+    contractId,
+    normalContractId: contractId,
+    contractDetailId: stringifyNullable(detail?.id),
+    reservationNumber: stringifyNullable(contractId || detail?.id || contract?.id),
+    status: stringifyNullable(contract?.state || detail?.state),
+    detailStatus: stringifyNullable(detail?.state || contract?.state),
+    reservationType: stringifyNullable(contract?.rent_type || detail?.rent_type),
+    carNumber: stringifyNullable(detail?.rent_car_number || detail?.car_identity || contract?.rent_car_number),
+    carName: stringifyNullable(detail?.rent_car_name || detail?.car_name || contract?.rent_car_name),
+    customerName: stringifyNullable(detail?.customer_name || contract?.customer_name),
+    customerPhone: digitsOnly(detail?.customer_contact || contract?.customer_contact),
+    birthDate: stringifyNullable(detail?.customer_id_number1 || contract?.customer_id_number1),
+    residentRegistrationNo: stringifyNullable(detail?.customer_id_number || contract?.customer_id_number),
+    driverLicenseNo: stringifyNullable(detail?.driver_license_number || detail?.license_number || contract?.driver_license_number || contract?.license_number),
+    price: stringifyNullable(contract?.total_cost || detail?.total_cost || detail?.cost),
+    rentalAt: normalizeImsDateTime(detail?.delivered_date || detail?.delivered_at || contract?.delivered_at),
+    returnAt: normalizeImsDateTime(detail?.returned_at || detail?.expect_return_date || contract?.returned_at || contract?.expect_return_date),
+    pickupLocation: stringifyNullable(detail?.customer_address || contract?.customer_address),
+    dropoffLocation: '',
+    recommenderName: stringifyNullable(contract?.recommender_name || detail?.recommender_name),
+    sourceOrigin: 'normal_contracts_group',
+    title: stringifyNullable(contract?.request_id ? `IMS 일반계약 ${contract.request_id}` : 'IMS 일반계약서'),
+  };
+}
+
+async function searchImsInsuranceClaimsForDispatch(payload, tokenOverride = null) {
+  const token = tokenOverride || await fetchImsAccessToken();
   const items = [];
   const endDate = payload.endDate || payload.rentalDate;
   let totalPage = 1;
@@ -808,7 +1616,15 @@ async function searchImsInsuranceClaimsForDispatch(payload) {
     for (const claim of claimList) {
       const matchesCar = !normalizedCar || normalizeText(claim?.rent_car_number) === normalizedCar;
       const matchesDate = extractDate(claim?.delivered_at) === payload.rentalDate;
-      if (matchesCar && matchesDate) items.push(toImsInsuranceClaimImportItem(claim));
+      if (matchesCar && matchesDate) {
+        const listItem = toImsInsuranceClaimImportItem(claim);
+        if (listItem.returnAt) {
+          items.push(listItem);
+          continue;
+        }
+        const detail = await fetchImsInsuranceClaimDetail({ token, claimId: claim?.id });
+        items.push(toImsInsuranceClaimImportItem(mergeImsInsuranceClaimListAndDetail(claim, detail)));
+      }
     }
 
     totalPage = Number(json?.totalPage || json?.total_page || 1);
@@ -822,8 +1638,1787 @@ async function searchImsInsuranceClaimsForDispatch(payload) {
   };
 }
 
+async function saveFineNoticeContractPdf(payload) {
+  ensureFineNoticeContractPdfConfigured();
 
-async function createImsReservationDirect(payload) {
+  const notice = await findFineNoticeForContractPdf(payload.fineNoticeId);
+  if (!notice) {
+    throw new ApiError(404, 'fine_notice_not_found', 'fine notice not found');
+  }
+
+  const sourceType = stringifyNullable(notice.confirmed_contract_source_type).trim();
+  if (sourceType !== 'ims_normal_contract' && sourceType !== 'ims_insurance_claim') {
+    throw new ApiError(409, 'unsupported_contract_source_type', 'contract source type must be ims_normal_contract or ims_insurance_claim');
+  }
+  const sourceId = sourceType === 'ims_insurance_claim'
+    ? stringifyNullable(notice.ims_claim_id).trim()
+    : stringifyNullable(notice.ims_contract_id).trim();
+  if (!sourceType || !sourceId) {
+    throw new ApiError(409, 'contract_not_confirmed', 'contract must be confirmed before saving PDF');
+  }
+  const bundle = await resolveFineNoticeBundleContext(notice);
+
+  const token = await fetchImsAccessToken();
+  let pdfSourceId = sourceId;
+  const pdf = sourceType === 'ims_insurance_claim'
+    ? await fetchImsInsuranceClaimContractPdf({ token, claimId: sourceId })
+    : await fetchImsNormalContractPdfWithResolution({ token, notice, sourceId });
+  if (sourceType === 'ims_normal_contract') {
+    pdfSourceId = pdf.sourceId || sourceId;
+  }
+  const firstPagePdf = await extractFirstPagePdf(pdf.buffer);
+  const file = await writeFineNoticeContractPdf({
+    fineNoticeId: payload.fineNoticeId,
+    bundle,
+    pdfBuffer: firstPagePdf.buffer,
+    contentType: pdf.contentType,
+    sourceType,
+    sourceId: pdfSourceId,
+    originalPageCount: firstPagePdf.originalPageCount,
+    storedPageCount: firstPagePdf.storedPageCount,
+  });
+  await replaceFineNoticeContractOriginalMetadata(payload.fineNoticeId, file);
+  return file;
+}
+
+function ensureFineNoticeContractPdfConfigured() {
+  const missing = [];
+  if (!config.supabaseUrl) missing.push('SUPABASE_URL');
+  if (!config.supabaseServiceRoleKey) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!config.fineNoticeStorageRoot) missing.push('FINE_NOTICE_STORAGE_ROOT');
+  if (missing.length > 0) {
+    throw new ApiError(503, 'fine_notice_contract_pdf_not_configured', `missing env: ${missing.join(', ')}`);
+  }
+}
+
+async function findFineNoticeForContractPdf(fineNoticeId) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${fineNoticeId}`);
+  url.searchParams.set(
+    'select',
+    'id,created_at,notice_profile,document_number,car_number,occurred_at_text,occurred_at,confirmed_contract_source_type,ims_contract_id,ims_claim_id,renter_snapshot_json,document_list_group_key,source_batch_id',
+  );
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function fetchImsNormalContractPdfWithResolution({ token, notice, sourceId }) {
+  try {
+    const pdf = await fetchImsNormalContractPdf({ token, contractId: sourceId });
+    return { ...pdf, sourceId };
+  } catch (error) {
+    if (!isNormalContractPdfIdResolutionError(error)) throw error;
+    const resolvedId = await resolveImsNormalContractPdfId({ token, notice, sourceId });
+    if (!resolvedId || resolvedId === sourceId) throw error;
+    const pdf = await fetchImsNormalContractPdf({ token, contractId: resolvedId });
+    return { ...pdf, sourceId: resolvedId };
+  }
+}
+
+function isNormalContractPdfIdResolutionError(error) {
+  return [
+    'ims_contract_pdf_download_failed',
+    'ims_contract_pdf_empty',
+    'ims_contract_pdf_invalid',
+  ].includes(error?.code);
+}
+
+async function resolveImsNormalContractPdfId({ token, notice, sourceId }) {
+  const snapshotId = resolveImsNormalContractPdfIdFromSnapshot(notice);
+  if (snapshotId && snapshotId !== sourceId) return snapshotId;
+
+  const matches = await findImsNormalContractMatchesForFineNotice({
+    token,
+    payload: {
+      carNumber: stringifyNullable(notice?.car_number),
+      rentalDate: extractDate(notice?.occurred_at_text || notice?.occurred_at),
+    },
+  });
+  if (matches.length === 0) return '';
+
+  const byDetailId = matches.find(({ detail }) =>
+    stringifyNullable(detail?.id) === sourceId ||
+    stringifyNullable(detail?.normal_contract_id) === sourceId,
+  );
+  const match = byDetailId || (matches.length === 1 ? matches[0] : null);
+  return stringifyNullable(match?.detail?.normal_contract_id || match?.contract?.id);
+}
+
+function resolveImsNormalContractPdfIdFromSnapshot(notice) {
+  const snapshot = notice?.renter_snapshot_json && typeof notice.renter_snapshot_json === 'object'
+    ? notice.renter_snapshot_json
+    : {};
+  const raw = snapshot?.raw && typeof snapshot.raw === 'object' ? snapshot.raw : {};
+  return stringifyNullable(
+    raw?.contractId ||
+    raw?.normalContractId ||
+    snapshot?.contractId ||
+    snapshot?.normalContractId,
+  );
+}
+
+async function fetchImsNormalContractPdf({ token, contractId }) {
+  const response = await fetch(
+    `https://api.rencar.co.kr/normal_contract/get_contract_pdf_from_list/${encodeURIComponent(contractId)}`,
+    { headers: buildImsApiHeaders(token) },
+  );
+  return readPdfResponse(response, 'IMS normal contract PDF download failed');
+}
+
+async function fetchImsInsuranceClaimContractPdf({ token, claimId }) {
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/rencar-claims/${encodeURIComponent(claimId)}/contracts/pdf`,
+    { headers: buildImsApiHeaders(token) },
+  );
+  return readPdfResponse(response, 'IMS insurance contract PDF download failed');
+}
+
+async function readPdfResponse(response, fallbackMessage) {
+  const contentType = response.headers.get('content-type') || 'application/pdf';
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!response.ok) {
+    const preview = buffer.toString('utf8', 0, Math.min(buffer.length, 500));
+    throw new ApiError(502, 'ims_contract_pdf_download_failed', preview || `${fallbackMessage} (${response.status})`);
+  }
+  if (buffer.length === 0) {
+    throw new ApiError(502, 'ims_contract_pdf_empty', 'IMS contract PDF response was empty');
+  }
+  if (!contentType.toLowerCase().includes('pdf') && buffer.subarray(0, 4).toString('utf8') !== '%PDF') {
+    throw new ApiError(502, 'ims_contract_pdf_invalid', 'IMS contract response was not a PDF');
+  }
+  return { buffer, contentType };
+}
+
+async function extractFirstPagePdf(pdfBuffer) {
+  const sourcePdf = await PDFDocument.load(pdfBuffer);
+  const originalPageCount = sourcePdf.getPageCount();
+  if (originalPageCount < 1) {
+    throw new ApiError(502, 'ims_contract_pdf_invalid', 'IMS contract PDF had no pages');
+  }
+
+  const outputPdf = await PDFDocument.create();
+  const [firstPage] = await outputPdf.copyPages(sourcePdf, [0]);
+  outputPdf.addPage(firstPage);
+  const outputBytes = await outputPdf.save();
+  return {
+    buffer: Buffer.from(outputBytes),
+    originalPageCount,
+    storedPageCount: 1,
+  };
+}
+
+async function writeFineNoticeContractPdf({
+  fineNoticeId,
+  bundle,
+  pdfBuffer,
+  contentType,
+  sourceType,
+  sourceId,
+  originalPageCount = null,
+  storedPageCount = null,
+}) {
+  const resolvedPath = buildFineNoticeBundleFilePath(
+    bundle,
+    'original/contract_original.pdf',
+    fineNoticeId,
+  );
+
+  await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+  await fs.writeFile(resolvedPath, pdfBuffer);
+
+  return {
+    fileRole: 'contract_original',
+    localPath: resolvedPath,
+    sha256: crypto.createHash('sha256').update(pdfBuffer).digest('hex'),
+    mimeType: contentType || 'application/pdf',
+    sizeBytes: pdfBuffer.length,
+    sourceType,
+    backupStatus: 'pending',
+    metadataJson: {
+      imsSourceType: sourceType,
+      imsSourceId: sourceId,
+      savedAt: new Date().toISOString(),
+      pagePolicy: 'first_page_only',
+      originalPageCount,
+      storedPageCount,
+      bundleId: bundle?.bundleId || null,
+      noticeDate: bundle?.noticeDate || null,
+      folderKind: 'original',
+      sharePackage: false,
+      displayName: '계약서 원본',
+    },
+  };
+}
+
+async function replaceFineNoticeContractOriginalMetadata(fineNoticeId, file) {
+  await upsertFineNoticeFileMetadata(fineNoticeId, file);
+  await updateFineNoticeRow(fineNoticeId, {
+    contract_pdf_saved_at: file.metadataJson?.savedAt || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function generateFineNoticeDocumentPackage(payload) {
+  ensureFineNoticeContractPdfConfigured();
+  const notice = await findFineNoticeForDocumentPackage(payload.fineNoticeId);
+  if (!notice) {
+    throw new ApiError(404, 'fine_notice_not_found', 'fine notice not found');
+  }
+  if (notice.status !== 'contract_confirmed' && notice.status !== 'document_ready') {
+    throw new ApiError(409, 'contract_not_confirmed', 'contract must be confirmed before document generation');
+  }
+
+  const siblings = await findFineNoticeDocumentListRows(notice);
+  const contractOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'contract_original', {
+    preferredFolderKind: 'original',
+    excludedFolderKind: 'share',
+  });
+  if (!contractOriginal?.local_path) {
+    throw new ApiError(409, 'contract_original_missing', 'contract_original PDF must be saved first');
+  }
+  const noticeOriginal = await findFineNoticeFileByRole(payload.fineNoticeId, 'notice_original', {
+    preferredFolderKind: 'original',
+    excludedFolderKind: 'share',
+  });
+  if (!noticeOriginal?.local_path) {
+    throw new ApiError(409, 'notice_original_missing', 'notice original file must exist before document generation');
+  }
+
+  const renter = await resolveFineNoticeRenterSnapshot(notice);
+  assertFineNoticeDocumentPackageReady({ notice, rows: siblings, renter });
+  const bundle = await resolveFineNoticeBundleContext(notice, siblings);
+  const generatedAt = new Date().toISOString();
+  const packageFiles = [];
+
+  await copyNoticeOriginalIntoBundle({
+    fineNoticeId: payload.fineNoticeId,
+    noticeOriginal,
+    bundle,
+    generatedAt,
+    folderKind: 'original',
+  });
+  const shareNoticeOriginal = await copyNoticeOriginalIntoBundle({
+    fineNoticeId: payload.fineNoticeId,
+    noticeOriginal,
+    bundle,
+    generatedAt,
+    folderKind: 'share',
+  });
+  packageFiles.push(shareNoticeOriginal);
+
+  const bundledContractOriginal = await copyContractOriginalIntoBundle({
+    fineNoticeId: payload.fineNoticeId,
+    contractOriginal,
+    bundle,
+    generatedAt,
+  });
+  await upsertFineNoticeFileMetadata(payload.fineNoticeId, bundledContractOriginal);
+
+  const stampedContract = await generateStampedContractPdf({
+    fineNoticeId: payload.fineNoticeId,
+    bundle,
+    contractOriginalPath: bundledContractOriginal.localPath,
+    generatedAt,
+  });
+  await upsertFineNoticeFileMetadata(payload.fineNoticeId, stampedContract);
+  packageFiles.push(stampedContract);
+
+  const application = await generateRenterChangeApplicationPdf({
+    fineNoticeId: payload.fineNoticeId,
+    bundle,
+    notice,
+    rows: siblings,
+    renter,
+    generatedAt,
+  });
+  await upsertFineNoticeFileMetadata(payload.fineNoticeId, application);
+  packageFiles.push(application);
+
+  if (siblings.length > 1) {
+    const vehicleList = await generateVehicleApplicationListPdf({
+      fineNoticeId: payload.fineNoticeId,
+      bundle,
+      notice,
+      rows: siblings,
+      renter,
+      generatedAt,
+    });
+    await upsertFineNoticeFileMetadata(payload.fineNoticeId, vehicleList);
+    packageFiles.push(vehicleList);
+  } else {
+    await deleteFineNoticeFileMetadataForPath(
+      payload.fineNoticeId,
+      'vehicle_application_list',
+      buildFineNoticeBundleFilePath(bundle, 'share/vehicle_application_list.pdf'),
+    );
+  }
+
+  await updateFineNoticeRow(payload.fineNoticeId, {
+    status: 'document_ready',
+    renter_name: renter.name || null,
+    renter_phone: renter.phone || null,
+    renter_address: renter.address || null,
+    renter_identity_type: renter.identityType || 'unknown',
+    renter_identity_no: renter.identityNo || null,
+    renter_driver_license_no: renter.driverLicenseNo || null,
+    renter_birth_date: renter.birthDate || null,
+    renter_snapshot_source: renter.source || 'ims_contract_candidate',
+    renter_snapshot_confirmed_at: generatedAt,
+    document_package_generated_at: generatedAt,
+    updated_at: generatedAt,
+  });
+
+	  return {
+	    fineNoticeId: payload.fineNoticeId,
+	    bundle,
+	    generatedAt,
+	    files: packageFiles.map(toFineNoticeGeneratedFileResponse),
+	    warnings: buildDocumentGenerationWarnings(renter),
+		  };
+		}
+
+async function mergeFineNoticeBundle(payload) {
+  const rows = await findFineNoticeRowsByIds(payload.fineNoticeIds);
+  const foundIds = new Set(rows.map((row) => stringifyNullable(row.id)));
+  const missingIds = payload.fineNoticeIds.filter((id) => !foundIds.has(id));
+  if (missingIds.length > 0) {
+    throw new ApiError(404, 'fine_notice_rows_not_found', '선택한 고지서 일부를 찾을 수 없습니다.', { missingIds });
+  }
+
+  rows.sort((left, right) => compareFineNoticeOccurredAt(
+    left.occurred_at_text || left.occurred_at || left.created_at,
+    right.occurred_at_text || right.occurred_at || right.created_at,
+  ));
+
+  const validation = validateFineNoticeBundleMergeRows(rows, {
+    forceRebundle: payload.forceRebundle,
+  });
+  const bundleId = validation.bundleId || buildManualFineNoticeBundleId(rows);
+  const noticeDate = resolveFineNoticeBundleDate(rows[0]);
+  const bundle = {
+    bundleId,
+    noticeDate,
+    baseRelativeDir: path.join('notices', noticeDate, bundleId),
+  };
+
+  if (validation.blockedReasons.length > 0) {
+    return {
+      dryRun: payload.dryRun,
+      eligible: false,
+      bundle,
+      warnings: validation.warnings,
+      blockedReasons: validation.blockedReasons,
+      rows: rows.map(toFineNoticeBundleMergeRowResponse),
+    };
+  }
+
+  if (!payload.dryRun) {
+    await updateFineNoticeRows(payload.fineNoticeIds, {
+      document_list_group_key: bundleId,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  return {
+    dryRun: payload.dryRun,
+    eligible: true,
+    bundle,
+    warnings: validation.warnings,
+    blockedReasons: [],
+    rows: rows.map(toFineNoticeBundleMergeRowResponse),
+  };
+}
+
+async function findFineNoticeRowsByIds(fineNoticeIds) {
+  const ids = [...new Set((fineNoticeIds || []).map(stringifyNullable).filter(Boolean))];
+  if (ids.length === 0) return [];
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `in.(${ids.join(',')})`);
+  url.searchParams.set(
+    'select',
+    [
+      'id',
+      'created_at',
+      'status',
+      'notice_profile',
+      'notice_type',
+      'issuer',
+      'document_number',
+      'car_number',
+      'occurred_at_text',
+      'occurred_at',
+      'location',
+      'confirmed_contract_source_type',
+      'ims_contract_id',
+      'ims_claim_id',
+      'renter_snapshot_json',
+      'renter_name',
+      'document_list_group_key',
+      'source_batch_id',
+    ].join(','),
+  );
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_bundle_rows_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice bundle rows lookup failed'));
+  }
+  return Array.isArray(json) ? json : [];
+}
+
+function validateFineNoticeBundleMergeRows(rows, { forceRebundle = false } = {}) {
+  const blockedReasons = [];
+  const warnings = [];
+  addMergeDistinctBlock(blockedReasons, rows, 'car_number', '차량번호가 다른 고지서는 묶을 수 없습니다.');
+  addMergeDistinctBlock(blockedReasons, rows, 'issuer', '발송처가 다른 고지서는 묶을 수 없습니다.');
+  addMergeDistinctBlock(blockedReasons, rows, 'confirmed_contract_source_type', '계약 유형이 다른 고지서는 묶을 수 없습니다.');
+
+  const contractIds = uniqueNonEmptyValues(rows.map(resolveFineNoticeConfirmedContractId));
+  if (contractIds.length !== 1) {
+    blockedReasons.push('계약서가 서로 다르거나 확정되지 않은 고지서는 묶을 수 없습니다.');
+  }
+
+  const blockedStatuses = rows
+    .filter((row) => stringifyNullable(row.status) === 'not_our_vehicle')
+    .map((row) => stringifyNullable(row.document_number || row.id));
+  if (blockedStatuses.length > 0) {
+    blockedReasons.push(`외부/지사 차량 고지서는 묶을 수 없습니다. (${blockedStatuses.join(', ')})`);
+  }
+
+  const existingGroupKeys = uniqueNonEmptyValues(rows.map((row) => row.document_list_group_key));
+  if (existingGroupKeys.length > 1 && !forceRebundle) {
+    blockedReasons.push('이미 서로 다른 묶음에 들어간 고지서는 확인 후 다시 묶어야 합니다.');
+  }
+  if (existingGroupKeys.length > 0) {
+    warnings.push(`기존 묶음 ${existingGroupKeys.join(', ')} 기준을 사용하거나 재묶음합니다.`);
+  }
+
+  return {
+    blockedReasons: [...new Set(blockedReasons)],
+    warnings,
+    bundleId: existingGroupKeys.length === 1 ? sanitizePathSegment(existingGroupKeys[0]) : '',
+  };
+}
+
+function addMergeDistinctBlock(blockedReasons, rows, key, message) {
+  const values = uniqueNonEmptyValues(rows.map((row) => row[key]));
+  if (values.length !== 1) blockedReasons.push(message);
+}
+
+function resolveFineNoticeConfirmedContractId(row) {
+  return stringifyNullable(row.confirmed_contract_source_type) === 'ims_insurance_claim'
+    ? row.ims_claim_id
+    : row.ims_contract_id;
+}
+
+function buildManualFineNoticeBundleId(rows) {
+  const seed = rows
+    .map((row) => stringifyNullable(row.id))
+    .filter(Boolean)
+    .sort()
+    .join('|');
+  const digest = crypto.createHash('sha256').update(seed).digest('hex').slice(0, 16);
+  return `bundle-${digest}`;
+}
+
+function toFineNoticeBundleMergeRowResponse(row) {
+  return {
+    id: stringifyNullable(row.id),
+    status: stringifyNullable(row.status),
+    issuer: stringifyNullable(row.issuer),
+    documentNumber: stringifyNullable(row.document_number),
+    carNumber: stringifyNullable(row.car_number),
+    occurredAt: stringifyNullable(row.occurred_at_text || row.occurred_at),
+    location: stringifyNullable(row.location),
+    contractSourceType: stringifyNullable(row.confirmed_contract_source_type),
+    contractSourceId: stringifyNullable(resolveFineNoticeConfirmedContractId(row)),
+    renterName: stringifyNullable(row.renter_name || row.renter_snapshot_json?.customerName),
+    documentListGroupKey: stringifyNullable(row.document_list_group_key),
+  };
+}
+
+async function findFineNoticeForDocumentPackage(fineNoticeId) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${fineNoticeId}`);
+  url.searchParams.set(
+    'select',
+    [
+	      'id',
+	      'created_at',
+	      'status',
+      'notice_profile',
+      'notice_type',
+      'issuer',
+      'document_number',
+      'car_number',
+      'occurred_at_text',
+      'occurred_at',
+      'location',
+      'total_amount_text',
+      'total_amount',
+      'due_date_text',
+      'memo',
+      'raw_candidate_json',
+      'confirmed_contract_source_type',
+      'ims_contract_id',
+      'ims_claim_id',
+      'renter_snapshot_json',
+      'renter_name',
+      'renter_phone',
+      'renter_address',
+      'renter_identity_type',
+      'renter_identity_no',
+	      'renter_driver_license_no',
+	      'renter_birth_date',
+	      'document_list_group_key',
+	      'source_batch_id',
+	    ].join(','),
+  );
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function findFineNoticeFileByRole(fineNoticeId, fileRole, options = {}) {
+  const rows = await findFineNoticeFilesByRole(fineNoticeId, fileRole, options);
+  return rows[0] || null;
+}
+
+async function findFineNoticeFilesByRole(fineNoticeId, fileRole, options = {}) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
+  url.searchParams.set('file_role', `eq.${fileRole}`);
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json,created_at');
+  url.searchParams.set('order', 'created_at.desc');
+  url.searchParams.set('limit', '20');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file lookup failed'));
+  }
+  const rows = Array.isArray(json) ? json : [];
+  const excludedFolderKind = stringifyNullable(options.excludedFolderKind);
+  const filtered = excludedFolderKind
+    ? rows.filter((file) => resolveFineNoticeFileFolderKind(file) !== excludedFolderKind)
+    : rows;
+  const preferredFolderKind = stringifyNullable(options.preferredFolderKind);
+  if (!preferredFolderKind) return filtered;
+  return [
+    ...filtered.filter((file) => resolveFineNoticeFileFolderKind(file) === preferredFolderKind),
+    ...filtered.filter((file) => resolveFineNoticeFileFolderKind(file) !== preferredFolderKind),
+  ];
+}
+
+async function findFineNoticeDocumentListRows(notice) {
+  const raw = notice?.raw_candidate_json && typeof notice.raw_candidate_json === 'object'
+    ? notice.raw_candidate_json
+    : {};
+  const selected = raw?.selectedItem && typeof raw.selectedItem === 'object' ? raw.selectedItem : {};
+  const rowCount = Number(selected?.rowCount || raw?.rawCandidate?.items?.length || 0);
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('select', 'id,created_at,issuer,document_number,car_number,occurred_at_text,location,total_amount_text,total_amount,notice_profile,notice_type,document_list_group_key,source_batch_id');
+  url.searchParams.set('car_number', `eq.${notice.car_number}`);
+  url.searchParams.set('notice_profile', `eq.${notice.notice_profile}`);
+  if (notice.document_number) url.searchParams.set('document_number', `eq.${notice.document_number}`);
+  url.searchParams.set('order', 'occurred_at_text.asc');
+  url.searchParams.set('limit', rowCount > 0 ? String(Math.max(rowCount, 10)) : '20');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_document_rows_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice rows lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json : [notice];
+}
+
+async function resolveFineNoticeBundleContext(notice, rows = null) {
+  const relatedRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
+  const existingGroupKey = relatedRows
+    .map((row) => stringifyNullable(row.document_list_group_key || row.source_batch_id).trim())
+    .find(Boolean);
+  const bundleId = sanitizePathSegment(
+    existingGroupKey,
+  ) || buildFineNoticeBundleId(notice);
+  const noticeDate = resolveFineNoticeBundleDate(notice);
+  const baseRelativeDir = path.join('notices', noticeDate, bundleId);
+  const missingGroupRows = relatedRows.filter((row) =>
+    stringifyNullable(row.document_list_group_key).trim() !== bundleId,
+  );
+  if (missingGroupRows.length > 0) {
+    await updateFineNoticeRows(
+      missingGroupRows.map((row) => stringifyNullable(row.id)).filter(Boolean),
+      {
+        document_list_group_key: bundleId,
+        updated_at: new Date().toISOString(),
+      },
+    );
+  }
+  return { bundleId, noticeDate, baseRelativeDir };
+}
+
+function buildFineNoticeBundleId(notice) {
+  const seed = [
+    stringifyNullable(notice.notice_profile),
+    stringifyNullable(notice.document_number),
+    stringifyNullable(notice.car_number),
+    resolveFineNoticeBundleDate(notice),
+  ].join('|');
+  const digest = crypto.createHash('sha256').update(seed).digest('hex').slice(0, 16);
+  return `bundle-${digest}`;
+}
+
+function resolveFineNoticeBundleDate(notice) {
+  const candidates = [
+    stringifyNullable(notice.created_at),
+    stringifyNullable(notice.occurred_at_text),
+    stringifyNullable(notice.occurred_at),
+    new Date().toISOString(),
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeBundleDate(candidate);
+    if (normalized) return normalized;
+  }
+  return formatKstDate(new Date().toISOString());
+}
+
+function normalizeBundleDate(value) {
+  const text = stringifyNullable(value).trim();
+  if (!text) return '';
+  const match = text.match(/(\d{4})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})/);
+  if (match) {
+    return `${match[1]}-${String(Number(match[2])).padStart(2, '0')}-${String(Number(match[3])).padStart(2, '0')}`;
+  }
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return formatKstDate(date.toISOString());
+  return '';
+}
+
+function sanitizePathSegment(value) {
+  return stringifyNullable(value)
+    .trim()
+    .replace(/[^0-9A-Za-z._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+async function listFineNoticeFilePackage({ fineNoticeId }) {
+  ensureFineNoticeContractPdfConfigured();
+  if (!fineNoticeId) {
+    throw new ApiError(400, 'fine_notice_id_required', 'fineNoticeId is required');
+  }
+  const notice = await findFineNoticeForDocumentPackage(fineNoticeId);
+  if (!notice) {
+    throw new ApiError(404, 'fine_notice_not_found', 'fine notice not found');
+  }
+  const siblings = await findFineNoticeDocumentListRows(notice);
+  const bundle = await resolveFineNoticeBundleContext(notice, siblings);
+  const files = await findFineNoticeFilesInsideBundle(bundle);
+  return {
+    fineNoticeId,
+    bundle,
+    files: files.map(toFineNoticeFileResponse),
+  };
+}
+
+async function prepareFineNoticeFileDownload({ fileId }) {
+  ensureFineNoticeContractPdfConfigured();
+  if (!fileId) {
+    throw new ApiError(400, 'file_id_required', 'fileId is required');
+  }
+  const file = await findFineNoticeFileById(fileId);
+  if (!file) {
+    throw new ApiError(404, 'fine_notice_file_not_found', 'fine notice file not found');
+  }
+  const localPath = assertPathInsideStorage(file.local_path);
+  await fs.access(localPath);
+  const mimeType = stringifyNullable(file.mime_type) || guessMimeTypeFromExtension(path.extname(localPath));
+  if (!isAllowedFineNoticeDownloadMime(mimeType)) {
+    throw new ApiError(415, 'unsupported_fine_notice_file_type', 'file type is not downloadable');
+  }
+  const notice = await findFineNoticeForDocumentPackage(file.fine_notice_id);
+  if (!notice) {
+    throw new ApiError(404, 'fine_notice_not_found', 'fine notice not found');
+  }
+  const bundle = await resolveFineNoticeBundleContext(notice);
+  const bundleRoot = assertPathInsideStorage(path.join(config.fineNoticeStorageRoot, bundle.baseRelativeDir));
+  const shareRoot = buildFineNoticeBundleFolderPath(bundle, 'share');
+  if (!localPath.startsWith(`${bundleRoot}${path.sep}`)) {
+    throw new ApiError(403, 'file_outside_bundle', 'file is outside the approved fine notice bundle');
+  }
+  if (!localPath.startsWith(`${shareRoot}${path.sep}`) || !isFineNoticeSharePackageFile(file)) {
+    throw new ApiError(403, 'file_not_share_package', 'file is not part of the approved share package');
+  }
+  return {
+    localPath,
+    mimeType,
+    downloadName: `${toFineNoticeFileLabel(file)}${normalizeFileExtension(path.extname(localPath), mimeType)}`,
+  };
+}
+
+async function findFineNoticeFilesInsideBundle(bundle) {
+  const bundleRoot = assertPathInsideStorage(path.join(config.fineNoticeStorageRoot, bundle.baseRelativeDir));
+  const shareRoot = buildFineNoticeBundleFolderPath(bundle, 'share');
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json,created_at');
+  url.searchParams.set('order', 'created_at.asc');
+  url.searchParams.set('limit', '100');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_files_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice files lookup failed'));
+  }
+  const files = (Array.isArray(json) ? json : []).filter((file) => {
+    const localPath = stringifyNullable(file.local_path);
+    if (!localPath) return false;
+    const resolved = path.resolve(localPath);
+    return resolved.startsWith(`${bundleRoot}${path.sep}`) &&
+      resolved.startsWith(`${shareRoot}${path.sep}`) &&
+      isFineNoticeSharePackageFile(file);
+  });
+  return dedupeFineNoticeFiles(files).sort(compareFineNoticeShareFiles);
+}
+
+async function findFineNoticeFileById(fileId) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${fileId}`);
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,metadata_json');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+function toFineNoticeFileResponse(file) {
+  const metadataJson = sanitizeFineNoticeFileMetadataForResponse(file.metadata_json);
+  return {
+    id: stringifyNullable(file.id),
+    fineNoticeId: stringifyNullable(file.fine_notice_id),
+    fileRole: stringifyNullable(file.file_role),
+    localPath: '',
+    sha256: stringifyNullable(file.sha256) || null,
+    mimeType: stringifyNullable(file.mime_type) || guessMimeTypeFromExtension(path.extname(stringifyNullable(file.local_path))),
+    sizeBytes: Number(file.size_bytes || 0) || null,
+    sourceType: stringifyNullable(file.source_type) || null,
+    backupStatus: 'pending',
+    metadataJson: {
+      ...metadataJson,
+      displayName: toFineNoticeFileLabel(file),
+    },
+  };
+}
+
+function toFineNoticeGeneratedFileResponse(file) {
+  return {
+    id: stringifyNullable(file.id) || null,
+    fineNoticeId: stringifyNullable(file.fineNoticeId) || null,
+    fileRole: stringifyNullable(file.fileRole),
+    localPath: '',
+    sha256: stringifyNullable(file.sha256) || null,
+    mimeType: stringifyNullable(file.mimeType) || null,
+    sizeBytes: Number(file.sizeBytes || 0) || null,
+    sourceType: stringifyNullable(file.sourceType) || null,
+    backupStatus: stringifyNullable(file.backupStatus) || 'pending',
+    metadataJson: sanitizeFineNoticeFileMetadataForResponse(file.metadataJson),
+  };
+}
+
+function sanitizeFineNoticeFileMetadataForResponse(metadata) {
+  const source = metadata && typeof metadata === 'object' ? metadata : {};
+  const blocked = new Set(['sourcePath', 'localPath', 'absolutePath', 'resolvedPath']);
+  return Object.fromEntries(Object.entries(source).filter(([key]) => !blocked.has(key)));
+}
+
+function toFineNoticeFileLabel(file) {
+  const role = stringifyNullable(file.file_role);
+  const meta = file.metadata_json && typeof file.metadata_json === 'object' ? file.metadata_json : {};
+  return stringifyNullable(meta.displayName || meta.label) || ({
+    notice_original: '고지서 원본',
+    contract_original: '계약서 원본',
+    contract_with_stamps: '계약서 사본',
+    renter_change_application: '임차인 변경 신청서',
+    vehicle_application_list: '통행 목록',
+    submission_receipt: '발송 확인',
+  }[role] || role || 'fine_notice_file');
+}
+
+async function resolveFineNoticeRenterSnapshot(notice) {
+  const snapshot = notice?.renter_snapshot_json && typeof notice.renter_snapshot_json === 'object'
+    ? notice.renter_snapshot_json
+    : {};
+  const renter = {
+    name: stringifyNullable(notice.renter_name || snapshot.customerName),
+    phone: stringifyNullable(notice.renter_phone || snapshot.customerPhone),
+    address: stringifyNullable(notice.renter_address || findFirstNestedValue(snapshot, ['address', 'customerAddress', 'renterAddress'])),
+    identityType: stringifyNullable(notice.renter_identity_type),
+    identityNo: stringifyNullable(notice.renter_identity_no || findFirstNestedValue(snapshot, ['residentRegistrationNo', 'identityNo', 'renterIdentityNo', 'customerIdNumber', 'customer_id_number'])),
+    driverLicenseNo: stringifyNullable(notice.renter_driver_license_no || findFirstNestedValue(snapshot, ['driverLicenseNo', 'driver_license_number', 'licenseNumber', 'license_number'])),
+    birthDate: stringifyNullable(notice.renter_birth_date || findFirstNestedValue(snapshot, ['birthDate', 'birthday'])),
+    source: 'stored_snapshot',
+  };
+
+  if (renter.name && renter.phone) return renter;
+
+  const result = await searchFineNoticeContracts({
+    carNumber: stringifyNullable(notice.car_number),
+    rentalDate: extractDate(notice.occurred_at_text || notice.occurred_at),
+    endDate: '',
+  });
+  const sourceId = notice.confirmed_contract_source_type === 'ims_insurance_claim'
+    ? stringifyNullable(notice.ims_claim_id)
+    : stringifyNullable(notice.ims_contract_id);
+  const match = (result.items || []).find((item) =>
+    stringifyNullable(item.sourceId || item.contractId || item.claimId || item.normalContractId) === sourceId,
+  );
+
+  if (match) {
+    renter.name = renter.name || stringifyNullable(match.customerName);
+    renter.phone = renter.phone || stringifyNullable(match.customerPhone);
+    renter.address = renter.address || stringifyNullable(match.customerAddress || match.address || match.pickupLocation);
+    renter.identityNo = renter.identityNo || stringifyNullable(match.residentRegistrationNo || match.identityNo);
+    renter.driverLicenseNo = renter.driverLicenseNo || stringifyNullable(match.driverLicenseNo);
+    renter.birthDate = renter.birthDate || stringifyNullable(match.birthDate);
+    renter.source = 'ims_contract_candidate';
+  }
+  return renter;
+}
+
+function buildDocumentGenerationWarnings(renter) {
+  return [
+    ...(!renter.name ? ['renter_name_missing'] : []),
+    ...(!renter.phone ? ['renter_phone_missing'] : []),
+    ...(!renter.address ? ['renter_address_missing'] : []),
+    ...(!renter.identityNo ? ['renter_identity_no_missing'] : []),
+    ...(!renter.driverLicenseNo ? ['renter_driver_license_no_missing'] : []),
+  ];
+}
+
+function assertFineNoticeDocumentPackageReady({ notice, rows, renter }) {
+  const missingFields = buildFineNoticeDocumentRequiredFields({ notice, rows, renter });
+  if (missingFields.length === 0) return;
+  throw new ApiError(
+    409,
+    'document_required_fields_missing',
+    `문서 생성 불가: 확인 필요 항목을 먼저 수정하세요. (${missingFields.join(', ')})`,
+    { missingFields },
+  );
+}
+
+function buildFineNoticeDocumentRequiredFields({ notice, rows, renter }) {
+  const missing = [];
+  const safeRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
+
+  addRequiredField(missing, '발행기관', notice.issuer);
+  addRequiredField(missing, '임차인명', renter.name);
+  addRequiredField(missing, '임차인 전화번호', renter.phone);
+  addRequiredField(missing, '임차인 주소', renter.address);
+  addRequiredField(missing, '주민등록번호', renter.identityNo);
+  addRequiredField(missing, '운전면허번호', renter.driverLicenseNo);
+
+  for (const [index, row] of safeRows.entries()) {
+    const prefix = safeRows.length > 1 ? `${index + 1}번 ` : '';
+    addRequiredField(missing, `${prefix}고지서번호`, row.document_number);
+    addRequiredField(missing, `${prefix}차량번호`, row.car_number);
+    addRequiredField(missing, `${prefix}위반/통행일시`, row.occurred_at_text || row.occurred_at);
+    addRequiredField(missing, `${prefix}위반/통행장소`, row.location);
+    addRequiredField(missing, `${prefix}고지서 유형`, row.notice_type || row.notice_profile);
+  }
+
+  return [...new Set(missing)];
+}
+
+function addRequiredField(missing, label, value) {
+  const normalized = stringifyNullable(value).trim();
+  if (!normalized) missing.push(label);
+}
+
+async function copyNoticeOriginalIntoBundle({ fineNoticeId, noticeOriginal, bundle, generatedAt, folderKind }) {
+  const sourcePath = assertPathInsideStorage(noticeOriginal.local_path);
+  const bytes = await fs.readFile(sourcePath);
+  const ext = normalizeFileExtension(path.extname(sourcePath), noticeOriginal.mime_type || noticeOriginal.mimeType);
+  const isShare = folderKind === 'share';
+  const file = await writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: `${folderKind}/notice_original${ext}`,
+    fileRole: 'notice_original',
+    bytes,
+    mimeType: noticeOriginal.mime_type || noticeOriginal.mimeType || guessMimeTypeFromExtension(ext),
+    sourceType: 'document_generator',
+    metadataJson: {
+      generatedAt,
+      sourceRole: 'notice_original',
+      bundleId: bundle?.bundleId || null,
+      noticeDate: bundle?.noticeDate || null,
+      folderKind,
+      sharePackage: isShare,
+      displayName: isShare ? '고지서' : '고지서 원본',
+    },
+  });
+  await upsertFineNoticeFileMetadata(fineNoticeId, file);
+  return file;
+}
+
+async function copyContractOriginalIntoBundle({ fineNoticeId, contractOriginal, bundle, generatedAt }) {
+  const sourcePath = assertPathInsideStorage(contractOriginal.local_path);
+  const bytes = await fs.readFile(sourcePath);
+  const sourceMetadata = contractOriginal.metadata_json && typeof contractOriginal.metadata_json === 'object'
+    ? contractOriginal.metadata_json
+    : {};
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: 'original/contract_original.pdf',
+    fileRole: 'contract_original',
+    bytes,
+    mimeType: contractOriginal.mime_type || contractOriginal.mimeType || 'application/pdf',
+    sourceType: contractOriginal.source_type || contractOriginal.sourceType || 'ims_contract_pdf',
+    metadataJson: {
+      ...sourceMetadata,
+      generatedAt,
+      copiedIntoBundleAt: generatedAt,
+      bundleId: bundle?.bundleId || null,
+      noticeDate: bundle?.noticeDate || null,
+      folderKind: 'original',
+      sharePackage: false,
+      displayName: '계약서 원본',
+    },
+  });
+}
+
+async function generateStampedContractPdf({ fineNoticeId, bundle, contractOriginalPath, generatedAt }) {
+  const inputPath = assertPathInsideStorage(contractOriginalPath);
+  const pdfBytes = await fs.readFile(inputPath);
+  const sourcePdf = await PDFDocument.load(pdfBytes);
+  const originalPageCount = sourcePdf.getPageCount();
+  if (originalPageCount < 1) {
+    throw new ApiError(502, 'contract_original_invalid', 'contract_original PDF had no pages');
+  }
+
+  const pdfDoc = await PDFDocument.create();
+  const [copiedFirstPage] = await pdfDoc.copyPages(sourcePdf, [0]);
+  pdfDoc.addPage(copiedFirstPage);
+  const stampRoot = resolveStampAssetRoot();
+  const originalTruePng = await fs.readFile(path.join(stampRoot, 'stamp_original_true.png'));
+  const companySealPng = await fs.readFile(path.join(stampRoot, 'stamp_company_seal.png'));
+  const originalTrueImage = await pdfDoc.embedPng(originalTruePng);
+  const companySealImage = await pdfDoc.embedPng(companySealPng);
+  const firstPage = pdfDoc.getPage(0);
+  const { width, height } = firstPage.getSize();
+  firstPage.drawImage(originalTrueImage, {
+    x: width / 2 - 50,
+    y: 142,
+    width: 130,
+    height: 28,
+  });
+  firstPage.drawImage(companySealImage, {
+    x: width / 2 + 92,
+    y: 126,
+    width: 54,
+    height: 54,
+  });
+  const outputBytes = await pdfDoc.save();
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: 'share/contract_with_stamps.pdf',
+    fileRole: 'contract_with_stamps',
+    bytes: Buffer.from(outputBytes),
+    mimeType: 'application/pdf',
+    sourceType: 'document_generator',
+    metadataJson: {
+      generatedAt,
+      sourceRole: 'contract_original',
+      pagePolicy: 'first_page_only',
+      sourcePageCount: originalPageCount,
+      generatedPageCount: 1,
+      stampOriginalTrue: 'assets/stamps/stamp_original_true.png',
+      stampCompanySeal: 'assets/stamps/stamp_company_seal.png',
+      folderKind: 'share',
+      sharePackage: true,
+      displayName: '계약서',
+      reviewRequired: true,
+    },
+  });
+}
+
+async function generateRenterChangeApplicationPdf({ fineNoticeId, bundle, notice, rows, renter, generatedAt }) {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+  const font = await embedKoreanFont(pdfDoc);
+  const page = pdfDoc.addPage([595.28, 841.89]);
+
+  const stampRoot = resolveStampAssetRoot();
+  const companySealPng = await fs.readFile(path.join(stampRoot, 'stamp_company_seal.png'));
+  const companySealImage = await pdfDoc.embedPng(companySealPng);
+  drawRenterChangeApplicationPage(page, {
+    font,
+    notice,
+    rows,
+    renter,
+    generatedAt,
+    companySealImage,
+  });
+
+  const outputBytes = await pdfDoc.save();
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: 'share/renter_change_application.pdf',
+    fileRole: 'renter_change_application',
+    bytes: Buffer.from(outputBytes),
+    mimeType: 'application/pdf',
+    sourceType: 'document_generator',
+    metadataJson: {
+      generatedAt,
+      templateKey: 'generic_toll_fee_renter_change_application',
+      folderKind: 'share',
+      sharePackage: true,
+      displayName: '신청서',
+      reviewRequired: true,
+      missingFields: buildDocumentGenerationWarnings(renter),
+    },
+  });
+}
+
+async function generateVehicleApplicationListPdf({ fineNoticeId, bundle, notice, rows, renter, generatedAt }) {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+  const font = await embedKoreanFont(pdfDoc);
+  const page = pdfDoc.addPage([595.28, 841.89]);
+  const stampRoot = resolveStampAssetRoot();
+  const companySealPng = await fs.readFile(path.join(stampRoot, 'stamp_company_seal.png'));
+  const companySealImage = await pdfDoc.embedPng(companySealPng);
+  const safeRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
+  drawVehicleApplicationListPage(page, {
+    font,
+    notice,
+    rows: safeRows,
+    renter,
+    generatedAt,
+    companySealImage,
+  });
+  const outputBytes = await pdfDoc.save();
+  return writeFineNoticeGeneratedFile({
+    fineNoticeId,
+    bundle,
+    relativePath: 'share/vehicle_application_list.pdf',
+    fileRole: 'vehicle_application_list',
+    bytes: Buffer.from(outputBytes),
+    mimeType: 'application/pdf',
+    sourceType: 'document_generator',
+    metadataJson: {
+      generatedAt,
+      rowCount: safeRows.length,
+      folderKind: 'share',
+      sharePackage: true,
+      displayName: '통행목록',
+      reviewRequired: true,
+    },
+  });
+}
+
+function drawRenterChangeApplicationPage(page, { font, notice, rows, renter, generatedAt, companySealImage }) {
+  const documentKey = buildFineNoticeDocumentNumber(notice, generatedAt);
+  const issuer = stringifyNullable(notice.issuer) || '확인 필요';
+  const bundleFields = buildFineNoticeApplicationBundleFields(notice, rows);
+  const renterName = renter.name || '확인 필요';
+  const residentNo = renter.identityNo || '확인 필요';
+  const renterPhone = stringifyNullable(renter.phone) || '확인 필요';
+
+  drawOfficialLetterHeader(page, { font });
+  drawOfficialMetaRows(page, font, 118, 716, [
+    ['문 서 번 호', documentKey],
+    ['시 행 일 자', formatKstDate(generatedAt)],
+    ['발신 - 담당', '빵빵카(주) - 오연군'],
+    ['수신 - 참조', issuer],
+    ['제       목', `도로교통법(${bundleFields.violationContent})위반 과태료 명의변경통보.`],
+  ]);
+
+  drawOfficialParagraphs(page, font, 92, 598, [
+    '1. 귀 관청의 무궁한 발전을 진심으로 기원합니다.',
+    `2. 귀 관청에서 발행한 위반 사실 통지서 (통지번호 : ${bundleFields.documentNumber}) 도로 교통법(${bundleFields.violationContent}) 적발 (${bundleFields.carNumber}) 차량의 과태료 부과 건에 대하여 당사는 자동차대여 사업체로서 당시 내용대로 위반 임차인을 다음과 같이 통보 하오니 조치하여 회신 주시기 바랍니다.`,
+    '3. 운수사업법 제56조6, 시행규칙 제49조 준용 교통부 장관이 인가한 자동차 대여약관 제19조 2항(임차인은 교통법규 및 주,정차 위반 범칙금은 렌트카 반납 후에도 임차인이 부담한다.)및 자동차 운수 사업법 제31조 등에 관한 처분 요령 중 개정령 제7조 5항 신설내용(자동차 대여 사업자가 대여한 자동차로서 자동차만을 임대한 것이 명백한 경우에는 고용주에게 과태료에 처하지 아니한다.)을 참조하여 주시기 바랍니다.',
+  ]);
+
+  drawCenteredText(page, font, '------   다              음   ------', 286, 336, 9.5);
+  drawOfficialList(page, font, 118, 300, [
+    ['1 위 반 차 량', bundleFields.carNumber],
+    ['2 위 반 일 시', bundleFields.occurredAt],
+    ['3 위 반 장 소', bundleFields.location],
+    ['4 위 반 내 용', bundleFields.violationContent],
+    ['5 위   반   자', renterName],
+    ['6 주민등록No', residentNo],
+    ['7 연   락   처', renterPhone],
+  ]);
+
+  drawOfficialAttachments(page, font, 150, 122, [
+    '1, 차량임대차 계약서  사본 1부',
+    '2, 위반 사실통지  원본1부',
+  ]);
+  page.drawImage(companySealImage, { x: 408, y: 76, width: 52, height: 52 });
+  drawReviewNotice(page, font);
+}
+
+function drawVehicleApplicationListPage(page, { font, notice, rows, renter, generatedAt, companySealImage }) {
+  drawDocumentFrame(page);
+  drawCompanyHeader(page, { font, generatedAt, documentKey: buildFineNoticeDocumentNumber(notice, generatedAt, 'LIST') });
+  drawCenteredTitle(page, font, '임차인 변경 신청 통행 목록', 686);
+
+  drawInfoRows(page, font, 62, 636, 470, [
+    ['발행처', stringifyNullable(notice.issuer) || '확인 필요'],
+    ['차량번호', stringifyNullable(notice.car_number) || '확인 필요'],
+    ['임차인', renter.name || '확인 필요'],
+    ['연락처', stringifyNullable(renter.phone) || '확인 필요'],
+  ], { labelWidth: 76, rowHeight: 24, fontSize: 9.5 });
+
+  const tableTop = 500;
+  const tableLeft = 54;
+  const rowHeight = 28;
+  const columns = [
+    { label: '번호', width: 42 },
+    { label: '통행일시', width: 166 },
+    { label: '통행장소', width: 228 },
+    { label: '비고', width: 52 },
+  ];
+  drawTableHeader(page, font, tableLeft, tableTop, columns, rowHeight);
+  const safeRows = rows.slice(0, 10);
+  for (const [index, row] of safeRows.entries()) {
+    drawTableRow(page, font, tableLeft, tableTop - rowHeight * (index + 1), columns, rowHeight, [
+      String(index + 1),
+      stringifyNullable(row.occurred_at_text) || '확인 필요',
+      stringifyNullable(row.location) || '확인 필요',
+      '',
+    ]);
+  }
+  if (rows.length > safeRows.length) {
+    drawSmallText(page, font, `외 ${rows.length - safeRows.length}건은 별도 확인 필요`, tableLeft, tableTop - rowHeight * (safeRows.length + 1) - 12);
+  }
+
+  drawInfoRows(page, font, 62, 142, 470, [
+    ['작성일시', formatKstDateTime(generatedAt)],
+    ['확인사항', '제출 전 계약자 정보와 첨부서류를 담당자가 확인해야 합니다.'],
+  ], { labelWidth: 76, rowHeight: 24, fontSize: 9 });
+
+  drawCompanySignature(page, { font, companySealImage, x: 326, y: 236 });
+  drawReviewNotice(page, font);
+}
+
+function drawOfficialLetterHeader(page, { font }) {
+  drawCenteredText(page, font, '빵 빵 카 (주)', 288, 806, 16);
+  drawText(page, font, '(rentcar00.com)', 364, 807, 8.8);
+  drawText(page, font, '(우) 137-070 서울시 서초구 신반포로 23길 78-9, 빵빵카(주)', 118, 776, 7.8);
+  drawText(page, font, 'Tel : (02)592-0079  Fax : (02)592-7900  mail : rentcar00@daum.net', 118, 764, 7.8);
+  page.drawLine({ start: { x: 118, y: 758 }, end: { x: 466, y: 758 }, thickness: 1.2, color: rgb(0, 0, 0) });
+}
+
+function drawOfficialMetaRows(page, font, x, y, rows) {
+  let cursorY = y;
+  for (const [label, value] of rows) {
+    drawText(page, font, `${label}  :`, x, cursorY, 9.4);
+    drawText(page, font, value, x + 84, cursorY, 9.1);
+    cursorY -= 22;
+  }
+  page.drawLine({ start: { x, y: cursorY + 10 }, end: { x: 466, y: cursorY + 10 }, thickness: 0.9, color: rgb(0, 0, 0) });
+}
+
+function drawOfficialParagraphs(page, font, x, y, paragraphs) {
+  let cursorY = y;
+  const gaps = [40, 94, 126];
+  for (const [index, paragraph] of paragraphs.entries()) {
+    drawWrappedTextLines(page, font, paragraph, x, cursorY, 9.2, 51, 14);
+    cursorY -= gaps[index] || 48;
+  }
+}
+
+function drawOfficialList(page, font, x, y, rows) {
+  let cursorY = y;
+  for (const [label, value] of rows) {
+    drawText(page, font, `${label} :`, x, cursorY, 9.4);
+    const lines = splitOfficialListValue(value);
+    lines.forEach((line, index) => {
+      drawText(page, font, line, x + 116, cursorY - index * 14, 9.2);
+    });
+    cursorY -= Math.max(20, lines.length * 14 + 6);
+  }
+}
+
+function drawOfficialAttachments(page, font, x, y, attachments) {
+  drawText(page, font, '*별 첨 :', x, y, 9.4, { bold: true });
+  let cursorY = y;
+  for (const attachment of attachments) {
+    drawText(page, font, attachment, x + 54, cursorY, 9.1);
+    cursorY -= 20;
+  }
+}
+
+function drawCenteredText(page, font, text, centerX, y, size) {
+  const width = font.widthOfTextAtSize(text, size);
+  page.drawText(text, { x: centerX - width / 2, y, size, font, color: rgb(0, 0, 0) });
+}
+
+function drawWrappedTextLines(page, font, text, x, y, size, maxChars, lineHeight) {
+  let cursorY = y;
+  for (const line of wrapText(String(text || ''), maxChars)) {
+    page.drawText(line, { x, y: cursorY, size, font, color: rgb(0, 0, 0) });
+    cursorY -= lineHeight;
+  }
+}
+
+function buildFineNoticeViolationContent(notice) {
+  const profile = stringifyNullable(notice.notice_profile);
+  const type = stringifyNullable(notice.notice_type);
+  if (profile.includes('parking') || type.includes('parking')) return '주정차 위반';
+  if (profile.includes('traffic') || type.includes('traffic')) return '위반 사항';
+  if (profile.includes('toll') || type.includes('toll')) return '미납통행료';
+  return '위반 사항';
+}
+
+function buildFineNoticeApplicationBundleFields(notice, rows) {
+  const safeRows = Array.isArray(rows) && rows.length > 0 ? rows : [notice];
+  return {
+    documentNumber: formatBundledDistinctValue(safeRows, (row) => row.document_number),
+    carNumber: formatBundledDistinctValue(safeRows, (row) => row.car_number),
+    occurredAt: formatBundledOccurredAtRange(safeRows),
+    location: formatBundledDistinctValue(safeRows, (row) => row.location),
+    violationContent: formatBundledDistinctValue(safeRows, (row) => buildFineNoticeViolationContent(row)),
+  };
+}
+
+function formatBundledDistinctValue(rows, pickValue) {
+  const values = uniqueNonEmptyValues(rows.map((row) => pickValue(row)));
+  if (values.length === 0) return '확인 필요';
+  if (values.length === 1) return values[0];
+  const inline = values.join(', ');
+  if (inline.length <= 28) return inline;
+  return values.map((value, index) => `${index + 1}) ${value}`).join('\n');
+}
+
+function formatBundledOccurredAtRange(rows) {
+  const values = uniqueNonEmptyValues(rows.map((row) => row.occurred_at_text || row.occurred_at));
+  if (values.length === 0) return '확인 필요';
+  if (values.length === 1) return values[0];
+  const sorted = [...values].sort((left, right) => compareFineNoticeOccurredAt(left, right));
+  return formatFineNoticeOccurredAtRangeText(sorted[0], sorted[sorted.length - 1]);
+}
+
+function compareFineNoticeOccurredAt(left, right) {
+  const leftTime = Date.parse(String(left).replace(' ', 'T'));
+  const rightTime = Date.parse(String(right).replace(' ', 'T'));
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
+  return String(left).localeCompare(String(right));
+}
+
+function uniqueNonEmptyValues(values) {
+  const seen = new Set();
+  const unique = [];
+  for (const value of values) {
+    const normalized = stringifyNullable(value).replace(/\s+/g, ' ').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function formatFineNoticeOccurredAtRangeText(first, last) {
+  const firstText = String(first);
+  const lastText = String(last);
+  const firstDate = extractDate(firstText);
+  const lastDate = extractDate(lastText);
+  if (firstDate && firstDate === lastDate && lastText.startsWith(`${lastDate} `)) {
+    return `${firstText} ~ ${lastText.slice(lastDate.length + 1)}`;
+  }
+  return `${firstText} ~ ${lastText}`;
+}
+
+function splitOfficialListValue(value) {
+  const explicitLines = String(value || '확인 필요').split('\n');
+  const lines = [];
+  for (const line of explicitLines) {
+    const wrapped = wrapText(line, 42);
+    lines.push(...(wrapped.length > 0 ? wrapped : ['']));
+  }
+  return lines.length > 0 ? lines : ['확인 필요'];
+}
+
+function drawDocumentFrame(page) {
+  const { width, height } = page.getSize();
+  page.drawRectangle({
+    x: 36,
+    y: 36,
+    width: width - 72,
+    height: height - 72,
+    borderWidth: 1,
+    borderColor: rgb(0.25, 0.25, 0.25),
+  });
+}
+
+function drawCompanyHeader(page, { font, generatedAt, documentKey }) {
+  drawText(page, font, '빵빵카(주)', 54, 780, 17, { bold: true });
+  drawText(page, font, '서울특별시 서초구 신반포로23길 78-9', 54, 758, 9.2);
+  drawText(page, font, 'Tel. 02-592-0079  Fax. 02-592-7900  rentcar00@daum.net', 54, 743, 8.8);
+  drawText(page, font, `문서번호  ${documentKey}`, 390, 778, 8.8);
+  drawText(page, font, `시행일자  ${formatKstDate(generatedAt)}`, 390, 762, 8.8);
+  page.drawLine({ start: { x: 54, y: 728 }, end: { x: 542, y: 728 }, thickness: 1.2, color: rgb(0.1, 0.1, 0.1) });
+}
+
+function drawCenteredTitle(page, font, text, y) {
+  const size = 17;
+  const width = font.widthOfTextAtSize(text, size);
+  page.drawText(text, { x: (595.28 - width) / 2, y, size, font, color: rgb(0, 0, 0) });
+  page.drawLine({ start: { x: 178, y: y - 10 }, end: { x: 417, y: y - 10 }, thickness: 0.8, color: rgb(0.25, 0.25, 0.25) });
+}
+
+function drawSectionTitle(page, font, text, x, y) {
+  page.drawRectangle({ x, y: y - 4, width: 7, height: 14, color: rgb(0.1, 0.1, 0.1) });
+  drawText(page, font, text, x + 13, y, 11, { bold: true });
+}
+
+function drawInfoRows(page, font, x, y, width, rows, options = {}) {
+  const labelWidth = options.labelWidth || 64;
+  const rowHeight = options.rowHeight || 25;
+  const fontSize = options.fontSize || 9.5;
+  for (const [index, row] of rows.entries()) {
+    const currentY = y - rowHeight * index;
+    page.drawRectangle({
+      x,
+      y: currentY - rowHeight + 5,
+      width,
+      height: rowHeight,
+      borderWidth: 0.5,
+      borderColor: rgb(0.55, 0.55, 0.55),
+    });
+    page.drawRectangle({
+      x,
+      y: currentY - rowHeight + 5,
+      width: labelWidth,
+      height: rowHeight,
+      color: rgb(0.93, 0.94, 0.95),
+      borderWidth: 0.5,
+      borderColor: rgb(0.55, 0.55, 0.55),
+    });
+    drawText(page, font, row[0], x + 9, currentY - 12, fontSize, { bold: true });
+    drawWrappedText(page, font, row[1], x + labelWidth + 10, currentY - 12, fontSize, width - labelWidth - 18, 12);
+  }
+}
+
+function drawParagraphBlock(page, font, x, y, lines) {
+  drawTextLines(page, lines, { font, x, y, size: 10, lineHeight: 18, maxChars: 64 });
+}
+
+function drawTableHeader(page, font, x, y, columns, rowHeight) {
+  page.drawRectangle({
+    x,
+    y: y - rowHeight,
+    width: columns.reduce((sum, column) => sum + column.width, 0),
+    height: rowHeight,
+    color: rgb(0.9, 0.92, 0.95),
+    borderWidth: 0.6,
+    borderColor: rgb(0.35, 0.35, 0.35),
+  });
+  let cursorX = x;
+  for (const column of columns) {
+    page.drawRectangle({ x: cursorX, y: y - rowHeight, width: column.width, height: rowHeight, borderWidth: 0.5, borderColor: rgb(0.35, 0.35, 0.35) });
+    drawText(page, font, column.label, cursorX + 8, y - 18, 9.2, { bold: true });
+    cursorX += column.width;
+  }
+}
+
+function drawTableRow(page, font, x, y, columns, rowHeight, values) {
+  let cursorX = x;
+  for (const [index, column] of columns.entries()) {
+    page.drawRectangle({ x: cursorX, y: y - rowHeight, width: column.width, height: rowHeight, borderWidth: 0.5, borderColor: rgb(0.6, 0.6, 0.6) });
+    drawWrappedText(page, font, values[index] || '', cursorX + 6, y - 14, 8.5, column.width - 12, 10);
+    cursorX += column.width;
+  }
+}
+
+function drawCompanySignature(page, { font, companySealImage, x, y }) {
+  drawText(page, font, '위와 같이 신청합니다.', x - 8, y + 52, 10);
+  drawText(page, font, '빵빵카(주)', x + 34, y + 24, 13, { bold: true });
+  page.drawImage(companySealImage, { x: x + 104, y: y + 5, width: 58, height: 58 });
+}
+
+function drawReviewNotice(page, font) {
+  drawText(page, font, '※ 자동 생성 초안입니다. 제출 전 담당자가 계약자 정보, 첨부서류, 제출처를 확인해야 합니다.', 54, 48, 7.8);
+}
+
+function drawText(page, font, text, x, y, size, options = {}) {
+  page.drawText(String(text || ''), { x, y, size, font, color: options.color || rgb(0, 0, 0) });
+}
+
+function drawSmallText(page, font, text, x, y) {
+  drawText(page, font, text, x, y, 8.2, { color: rgb(0.25, 0.25, 0.25) });
+}
+
+function drawWrappedText(page, font, text, x, y, size, maxWidth, lineHeight) {
+  const maxChars = Math.max(8, Math.floor(maxWidth / Math.max(size * 0.62, 1)));
+  const wrapped = wrapText(String(text || ''), maxChars);
+  for (const [index, line] of wrapped.slice(0, 2).entries()) {
+    page.drawText(line, { x, y: y - lineHeight * index, size, font, color: rgb(0, 0, 0) });
+  }
+}
+
+function buildFineNoticeDocumentNumber(notice, generatedAt, suffix = 'APP') {
+  return `FN-${formatCompactDate(generatedAt)}-${String(stringifyNullable(notice.id).slice(0, 8)).toUpperCase()}-${suffix}`;
+}
+
+function drawTextLines(page, lines, { font, x, y, size, lineHeight, maxChars = 72 }) {
+  let cursorY = y;
+  for (const rawLine of lines) {
+    const wrapped = wrapText(String(rawLine), maxChars);
+    for (const line of wrapped) {
+      page.drawText(line, { x, y: cursorY, size, font, color: rgb(0, 0, 0) });
+      cursorY -= lineHeight;
+    }
+  }
+}
+
+function wrapText(text, maxChars) {
+  if (!text) return [''];
+  const lines = [];
+  let current = '';
+  for (const token of text.split(/(\s+)/)) {
+    if ((current + token).length > maxChars && current.trim()) {
+      lines.push(current.trimEnd());
+      current = token.trimStart();
+    } else {
+      current += token;
+    }
+  }
+  lines.push(current.trimEnd());
+  return lines;
+}
+
+async function embedKoreanFont(pdfDoc) {
+  const candidates = [
+    '/System/Library/Fonts/Supplemental/AppleMyungjo.ttf',
+    '/System/Library/Fonts/Supplemental/AppleGothic.ttf',
+    '/Library/Fonts/AppleGothic.ttf',
+  ];
+  for (const candidate of candidates) {
+    try {
+      const bytes = await fs.readFile(candidate);
+      return pdfDoc.embedFont(bytes);
+    } catch {
+      // Try next candidate.
+    }
+  }
+  throw new ApiError(503, 'korean_font_missing', 'Korean font file not found');
+}
+
+function resolveStampAssetRoot() {
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const candidates = [
+    process.env.FINE_NOTICE_STAMP_ASSET_ROOT,
+    path.join(storageRoot, 'assets', 'stamps'),
+    '/Volumes/MAC_MINI_SSD/projects/rentcar00_OPS/storage/fine-notices/assets/stamps',
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    try {
+      if (resolved.startsWith(`${storageRoot}${path.sep}`) || resolved.startsWith('/Volumes/MAC_MINI_SSD/projects/rentcar00_OPS/storage/fine-notices/assets/stamps')) {
+        return resolved;
+      }
+    } catch {
+      // Continue to next candidate.
+    }
+  }
+  throw new ApiError(503, 'stamp_assets_missing', 'stamp asset root is not configured');
+}
+
+function buildFineNoticeBundleFolderPath(bundle, folderKind, fineNoticeId = '') {
+  const normalizedFolderKind = stringifyNullable(folderKind).trim();
+  if (normalizedFolderKind !== 'original' && normalizedFolderKind !== 'share') {
+    throw new ApiError(500, 'invalid_fine_notice_folder_kind', 'fine notice folder kind must be original or share');
+  }
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const baseRelativeDir = bundle?.baseRelativeDir || path.join('cases', fineNoticeId);
+  return assertPathInsideStorage(path.join(storageRoot, baseRelativeDir, normalizedFolderKind));
+}
+
+function buildFineNoticeBundleFilePath(bundle, relativePath, fineNoticeId = '') {
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const baseRelativeDir = bundle?.baseRelativeDir || path.join('cases', fineNoticeId);
+  return assertPathInsideStorage(path.join(storageRoot, baseRelativeDir, relativePath));
+}
+
+function resolveFineNoticeFileFolderKind(file) {
+  const meta = file?.metadata_json && typeof file.metadata_json === 'object'
+    ? file.metadata_json
+    : file?.metadataJson && typeof file.metadataJson === 'object'
+      ? file.metadataJson
+      : {};
+  const explicit = stringifyNullable(meta.folderKind);
+  if (explicit === 'original' || explicit === 'share') return explicit;
+  const localPath = stringifyNullable(file?.local_path || file?.localPath);
+  if (localPath.split(path.sep).includes('share')) return 'share';
+  if (localPath.split(path.sep).includes('original')) return 'original';
+  return '';
+}
+
+function isFineNoticeSharePackageFile(file) {
+  const role = stringifyNullable(file?.file_role || file?.fileRole);
+  if (!new Set([
+    'notice_original',
+    'contract_with_stamps',
+    'renter_change_application',
+    'vehicle_application_list',
+  ]).has(role)) {
+    return false;
+  }
+  const meta = file?.metadata_json && typeof file.metadata_json === 'object'
+    ? file.metadata_json
+    : file?.metadataJson && typeof file.metadataJson === 'object'
+      ? file.metadataJson
+      : {};
+  return resolveFineNoticeFileFolderKind(file) === 'share' || meta.sharePackage === true;
+}
+
+function compareFineNoticeShareFiles(a, b) {
+  const order = {
+    renter_change_application: 1,
+    notice_original: 2,
+    contract_with_stamps: 3,
+    vehicle_application_list: 4,
+  };
+  const aRole = stringifyNullable(a?.file_role || a?.fileRole);
+  const bRole = stringifyNullable(b?.file_role || b?.fileRole);
+  return (order[aRole] || 99) - (order[bRole] || 99);
+}
+
+function dedupeFineNoticeFiles(files) {
+  const byKey = new Map();
+  for (const file of files) {
+    const key = [
+      stringifyNullable(file.file_role || file.fileRole),
+      path.resolve(stringifyNullable(file.local_path || file.localPath)),
+    ].join('|');
+    const previous = byKey.get(key);
+    if (!previous) {
+      byKey.set(key, file);
+      continue;
+    }
+    const previousCreated = Date.parse(stringifyNullable(previous.created_at || previous.createdAt)) || 0;
+    const currentCreated = Date.parse(stringifyNullable(file.created_at || file.createdAt)) || 0;
+    if (currentCreated >= previousCreated) byKey.set(key, file);
+  }
+  return [...byKey.values()];
+}
+
+async function writeFineNoticeGeneratedFile({ fineNoticeId, bundle, relativePath, fileRole, bytes, mimeType, sourceType, metadataJson }) {
+  const outputPath = buildFineNoticeBundleFilePath(bundle, relativePath, fineNoticeId);
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, bytes);
+  return {
+    fileRole,
+    localPath: outputPath,
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    mimeType,
+    sizeBytes: bytes.length,
+    sourceType,
+    backupStatus: 'pending',
+    metadataJson: {
+      ...metadataJson,
+      bundleId: bundle?.bundleId || metadataJson?.bundleId || null,
+      noticeDate: bundle?.noticeDate || metadataJson?.noticeDate || null,
+    },
+  };
+}
+
+function assertPathInsideStorage(candidatePath) {
+  const storageRoot = path.resolve(config.fineNoticeStorageRoot);
+  const resolvedPath = path.resolve(candidatePath);
+  if (resolvedPath !== storageRoot && !resolvedPath.startsWith(`${storageRoot}${path.sep}`)) {
+    throw new ApiError(400, 'invalid_storage_path', 'resolved path escaped storage root');
+  }
+  return resolvedPath;
+}
+
+async function replaceFineNoticeFileMetadata(fineNoticeId, file) {
+  await deleteFineNoticeFileMetadata(fineNoticeId, file.fileRole);
+  await insertSupabaseRow('rc00_ops_fine_notice_files', {
+    fine_notice_id: fineNoticeId,
+    file_role: file.fileRole,
+    local_path: file.localPath,
+    sha256: file.sha256,
+    mime_type: file.mimeType,
+    size_bytes: file.sizeBytes,
+    source_type: file.sourceType,
+    parser_request_id: null,
+    backup_status: file.backupStatus,
+    metadata_json: file.metadataJson,
+  }, 'id');
+}
+
+async function upsertFineNoticeFileMetadata(fineNoticeId, file) {
+  const existing = await findFineNoticeFileMetadataByPath(fineNoticeId, file.fileRole, file.localPath);
+  if (existing && stringifyNullable(existing.sha256) === stringifyNullable(file.sha256)) {
+    file.id = stringifyNullable(existing.id) || file.id || null;
+    file.backupStatus = stringifyNullable(existing.backup_status) || file.backupStatus;
+    return file;
+  }
+  if (existing) {
+    await deleteFineNoticeFileMetadataForPath(fineNoticeId, file.fileRole, file.localPath);
+  }
+  const inserted = await insertSupabaseRow('rc00_ops_fine_notice_files', {
+    fine_notice_id: fineNoticeId,
+    file_role: file.fileRole,
+    local_path: file.localPath,
+    sha256: file.sha256,
+    mime_type: file.mimeType,
+    size_bytes: file.sizeBytes,
+    source_type: file.sourceType,
+    parser_request_id: null,
+    backup_status: file.backupStatus,
+    metadata_json: file.metadataJson,
+  }, 'id');
+  file.id = stringifyNullable(inserted?.id) || file.id || null;
+  return file;
+}
+
+async function findFineNoticeFileMetadataByPath(fineNoticeId, fileRole, localPath) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
+  url.searchParams.set('file_role', `eq.${fileRole}`);
+  url.searchParams.set('local_path', `eq.${localPath}`);
+  url.searchParams.set('select', 'id,fine_notice_id,file_role,local_path,sha256,mime_type,size_bytes,source_type,backup_status,metadata_json,created_at');
+  url.searchParams.set('order', 'created_at.desc');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: buildSupabaseServiceHeaders() });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_lookup_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file lookup failed'));
+  }
+  return Array.isArray(json) && json.length > 0 ? json[0] : null;
+}
+
+async function updateFineNoticeRow(fineNoticeId, patch) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `eq.${fineNoticeId}`);
+  const body = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_update_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice update failed'));
+  }
+}
+
+async function updateFineNoticeRows(fineNoticeIds, patch) {
+  const ids = [...new Set((fineNoticeIds || []).map(stringifyNullable).filter(Boolean))];
+  if (ids.length === 0) return;
+  const url = new URL('/rest/v1/rc00_ops_fine_notices', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('id', `in.(${ids.join(',')})`);
+  const body = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_bulk_update_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice bulk update failed'));
+  }
+}
+
+function normalizeFileExtension(ext, mimeType = '') {
+  const clean = stringifyNullable(ext).toLowerCase();
+  if (clean && clean.length <= 6 && /^\.[a-z0-9]+$/.test(clean)) return clean;
+  const mime = stringifyNullable(mimeType).toLowerCase();
+  if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg';
+  if (mime.includes('png')) return '.png';
+  return '.pdf';
+}
+
+function guessMimeTypeFromExtension(ext) {
+  const clean = stringifyNullable(ext).toLowerCase();
+  if (clean === '.jpg' || clean === '.jpeg') return 'image/jpeg';
+  if (clean === '.png') return 'image/png';
+  return 'application/pdf';
+}
+
+function isAllowedFineNoticeDownloadMime(mimeType) {
+  const mime = stringifyNullable(mimeType).toLowerCase();
+  return mime.includes('pdf') || mime.includes('jpeg') || mime.includes('jpg') || mime.includes('png');
+}
+
+function formatCompactDate(value) {
+  const date = new Date(value);
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${kst.getUTCFullYear()}${String(kst.getUTCMonth() + 1).padStart(2, '0')}${String(kst.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatKstDate(value) {
+  const date = new Date(value);
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatKstDateTime(value) {
+  const date = new Date(value);
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${formatKstDate(value)} ${String(kst.getUTCHours()).padStart(2, '0')}:${String(kst.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+async function deleteFineNoticeFileMetadata(fineNoticeId, fileRole) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
+  url.searchParams.set('file_role', `eq.${fileRole}`);
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      Prefer: 'return=minimal',
+    },
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_metadata_delete_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file metadata delete failed'));
+  }
+}
+
+async function deleteFineNoticeFileMetadataForPath(fineNoticeId, fileRole, localPath) {
+  const url = new URL('/rest/v1/rc00_ops_fine_notice_files', normalizeSupabaseBaseUrl(config.supabaseUrl));
+  url.searchParams.set('fine_notice_id', `eq.${fineNoticeId}`);
+  url.searchParams.set('file_role', `eq.${fileRole}`);
+  url.searchParams.set('local_path', `eq.${localPath}`);
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      ...buildSupabaseServiceHeaders(),
+      Prefer: 'return=minimal',
+    },
+  });
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    throw new ApiError(502, 'fine_notice_file_metadata_delete_failed', resolveApiErrorMessage(json, response.status, 'Supabase fine notice file metadata delete failed'));
+  }
+}
+
+
+async function createImsReservationDirect(payload, { allowExistingLink = false } = {}) {
   if (payload.dryRun) {
     return {
       code: 'DRY_RUN',
@@ -832,6 +3427,23 @@ async function createImsReservationDirect(payload) {
   }
 
   const token = await fetchImsAccessToken();
+  if (allowExistingLink) {
+    const existingSchedule = await findCreatedImsReservationByApi({ token, payload });
+    if (existingSchedule?.id) {
+      return {
+        code: 'SUCCESS',
+        message: '',
+        externalStatus: 'linked',
+        externalReservationId: stringifyNullable(existingSchedule.id),
+        externalDetailId: stringifyNullable(existingSchedule?.reservation?.id || existingSchedule?.detail?.id),
+        linkKey: buildLinkKey(payload),
+        reusedExisting: true,
+        matchedSchedule: existingSchedule,
+        requestBody: null,
+      };
+    }
+  }
+
   const car = await findAvailableImsCar({ token, payload });
   if (!car) {
     return {
@@ -853,6 +3465,7 @@ async function createImsReservationDirect(payload) {
       message: resolveApiErrorMessage(json, response.status),
       apiStatus: response.status,
       apiResult: json,
+      errorDetails: json,
     };
   }
 
@@ -872,7 +3485,7 @@ async function createImsReservationDirect(payload) {
   let matchedSchedule = null;
 
   if (!scheduleId) {
-    matchedSchedule = await findCreatedImsReservationByApi({ token, payload });
+    matchedSchedule = await findCreatedImsReservationByApi({ token, payload, maxAttempts: 4 });
     scheduleId = matchedSchedule?.id;
     detailId = matchedSchedule?.reservation?.id;
   }
@@ -987,50 +3600,76 @@ async function deleteImsReservationDirect(payload) {
   };
 }
 
-async function completeImsReservationReturnDirect(payload) {
+async function updateImsVehicleRentalFlagsDirect(payload) {
   if (payload.dryRun) {
     return {
       code: 'DRY_RUN',
-      message: 'dryRun=true; IMS direct return skipped',
-      externalReservationId: payload.contractId,
-      externalStatus: 'linked',
-      linkKey: buildLinkKey(payload),
+      message: 'dryRun=true; IMS vehicle flag update skipped',
+      externalStatus: 'vehicle_flags_dry_run',
+      externalReservationId: '',
+      linkKey: '',
     };
   }
 
   const token = await fetchImsAccessToken();
-  const data = {
-    done_at: payload.doneAt,
-    return_gas_charge: String(payload.returnGasCharge),
-    driven_distance_upon_return: String(payload.drivenDistanceUponReturn),
-    fuel_cost: payload.fuelCost,
-  };
-  const response = await fetch(
-    `https://api.rencar.co.kr/v2/normal-contracts/${encodeURIComponent(payload.contractId)}/set-done`,
-    {
-      method: 'POST',
-      headers: buildImsApiHeaders(token, { contentType: true }),
-      body: JSON.stringify(data),
-    },
-  );
-  const json = await readJsonResponse(response);
-  if (!response.ok) {
+  const car = await findImsRentCompanyCarByNumber({
+    token,
+    carNumber: payload.carNumber,
+  });
+  if (!car) {
+    return {
+      code: 'NOT_FOUND',
+      message: `IMS vehicle not found: ${payload.carNumber}`,
+    };
+  }
+
+  const carId = stringifyNullable(car.id);
+  if (!carId) {
     return {
       code: 'ERROR',
-      message: resolveApiErrorMessage(json, response.status),
-      apiStatus: response.status,
-      apiResult: json,
+      message: `IMS vehicle id missing: ${payload.carNumber}`,
+    };
+  }
+  const requestedFlags = {};
+  if (payload.canGeneralRental != null) {
+    requestedFlags.can_general_rental = payload.canGeneralRental;
+  }
+  if (payload.canMonthlyRental != null) {
+    requestedFlags.can_monthly_rental = payload.canMonthlyRental;
+  }
+
+  const apiResults = [];
+  for (const [field, value] of Object.entries(requestedFlags)) {
+    apiResults.push(await postImsVehicleRentalFlag({
+      token,
+      carId,
+      body: { [field]: value },
+    }));
+  }
+  const failed = apiResults.find((item) => item?.code === 'ERROR');
+  if (failed) {
+    return {
+      code: 'ERROR',
+      message: failed.message || 'IMS vehicle flag update failed',
+      apiResults,
     };
   }
 
   return {
     code: 'SUCCESS',
     message: '',
-    externalStatus: 'linked',
-    externalReservationId: payload.contractId,
-    linkKey: buildLinkKey(payload),
-    apiResult: json,
-    requestBody: data,
+    externalStatus: 'vehicle_flags_updated',
+    externalReservationId: carId,
+    externalDetailId: '',
+    linkKey: `IMS_CAR:${carId}`,
+    targetCarId: carId,
+    carNumber: stringifyNullable(car.car_identity || car.car_number || payload.carNumber),
+    beforeFlags: {
+      can_general_rental: car.can_general_rental,
+      can_monthly_rental: car.can_monthly_rental,
+    },
+    requestedFlags,
+    apiResults,
   };
 }
 
@@ -1058,6 +3697,68 @@ async function fetchImsAccessToken() {
   return token;
 }
 
+async function findImsRentCompanyCarByNumber({
+  token,
+  carNumber,
+  maxPages = 20,
+}) {
+  const normalizedTarget = normalizeCarNumberForMatch(carNumber);
+  const matches = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = new URL('https://api.rencar.co.kr/v2/rent-company-cars');
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('state', 'all');
+    url.searchParams.set('per_page', '200');
+
+    const response = await fetch(url, { headers: buildImsApiHeaders(token) });
+    const json = await readJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(resolveApiErrorMessage(json, response.status, 'IMS vehicle lookup failed'));
+    }
+
+    const cars = Array.isArray(json?.list)
+      ? json.list
+      : (Array.isArray(json?.cars) ? json.cars : []);
+    for (const car of cars) {
+      const current = normalizeCarNumberForMatch(
+        car?.car_identity || car?.car_number || car?.car_num || car?.number,
+      );
+      if (current === normalizedTarget) matches.push(car);
+    }
+
+    const totalPage = Number(json?.total_page || json?.totalPage || 0);
+    if (cars.length === 0 || (totalPage > 0 && page >= totalPage)) break;
+  }
+
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    throw new ApiError(409, 'ims_vehicle_match_ambiguous', 'multiple IMS vehicles matched the same car number');
+  }
+  return null;
+}
+
+async function postImsVehicleRentalFlag({ token, carId, body }) {
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/rent-company-cars/${encodeURIComponent(carId)}/flags`,
+    {
+      method: 'POST',
+      headers: buildImsApiHeaders(token, { contentType: true }),
+      body: JSON.stringify(body),
+    },
+  );
+  const json = await readJsonResponse(response);
+  if (!response.ok) {
+    return {
+      body,
+      code: 'ERROR',
+      message: resolveApiErrorMessage(json, response.status),
+      apiStatus: response.status,
+      apiResult: json,
+    };
+  }
+  return { body, code: 'SUCCESS', apiStatus: response.status, apiResult: json };
+}
+
 async function findAvailableImsCar({ token, payload }) {
   const url = new URL('https://api.rencar.co.kr/v2/rent-company-cars/available');
   url.searchParams.set('page', '1');
@@ -1083,55 +3784,41 @@ async function findAvailableImsCar({ token, payload }) {
   return null;
 }
 
-async function findCreatedImsReservationByApi({ token, payload }) {
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
+async function findCreatedImsReservationByApi({ token, payload, maxAttempts = 1, retryDelayMs = 1200 }) {
+  const attempts = Math.max(1, Number(maxAttempts || 1));
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const fastMatches = [];
-    const candidates = await findImsReservationsBySearchApi({ token, payload });
+    const candidates = await findImsReservationCandidatesBySearchApi({ token, payload });
     for (const schedule of candidates) {
-      const sameCar = normalizeText(schedule?.car_identity || schedule?.car_number || schedule?.car) === normalizeText(payload.carNumber);
+      const sameCar = normalizeText(schedule?.car?.car_identity || schedule?.car_identity || schedule?.car_number || schedule?.car) === normalizeText(payload.carNumber);
       const sameStart = normalizeImsDateTime(schedule?.start_at || schedule?.start) === normalizeImsDateTime(payload.rentalAt);
       const sameEnd = normalizeImsDateTime(schedule?.end_at || schedule?.end) === normalizeImsDateTime(payload.returnAt);
       if (!sameCar || !sameStart || !sameEnd) continue;
 
-      const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id || schedule.schedule_id });
+      const scheduleId = normalizeImsScheduleId(schedule);
+      if (!scheduleId) continue;
+      const detail = await fetchImsScheduleDetail({ token, scheduleId });
       if (isCreatedImsReservationDetailMatch({ detail, schedule, payload })) fastMatches.push(detail);
     }
 
     if (fastMatches.length === 1) return fastMatches[0];
     if (fastMatches.length > 1) {
-      return fastMatches.sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
+      throw new ApiError(409, 'ims_existing_match_ambiguous', 'multiple IMS reservations match the same provider reservation');
     }
 
-    const matches = await findImsReservationsByListApi({
-      token,
-      predicate: async (schedule) => {
-        const sameCar = normalizeText(schedule?.car_identity || schedule?.car_number) === normalizeText(payload.carNumber);
-        const sameStart = normalizeImsDateTime(schedule?.start_at) === normalizeImsDateTime(payload.rentalAt);
-        const sameEnd = normalizeImsDateTime(schedule?.end_at) === normalizeImsDateTime(payload.returnAt);
-        if (!sameCar || !sameStart || !sameEnd) return null;
-
-        const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id });
-        return isCreatedImsReservationDetailMatch({ detail, schedule, payload }) ? detail : null;
-      },
-    });
-
-    if (matches.length === 1) return matches[0];
-    if (matches.length > 1) {
-      return matches.sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
-    }
-    await delay(1200 * attempt);
+    if (attempt < attempts) await delay(Number(retryDelayMs || 0) * attempt);
   }
   return null;
 }
 
 function isCreatedImsReservationDetailMatch({ detail, schedule, payload }) {
   if (!detail) return false;
-  const reservation = detail?.reservation || {};
-  const detailCar = detail?.car?.car_identity || detail?.car_identity || schedule?.car_identity || schedule?.car;
+  const reservation = detail?.reservation || detail?.detail || schedule?.reservation || schedule?.detail || {};
+  const detailCar = detail?.car?.car_identity || detail?.car_identity || schedule?.car?.car_identity || schedule?.car_identity || schedule?.car;
   const sameDetailCar = normalizeText(detailCar) === normalizeText(payload.carNumber);
   const sameCustomer = normalizeText(reservation.customer_name) === normalizeText(payload.customerName);
   const samePhone = digitsOnly(reservation.customer_contact) === digitsOnly(payload.customerPhone);
-  const sameAddress = !payload.address || normalizeText(reservation.pickup_address) === normalizeText(payload.address);
+  const sameAddress = !payload.address || !reservation.pickup_address || normalizeText(reservation.pickup_address) === normalizeText(payload.address);
   const sameWindow =
     normalizeImsDateTime(detail?.start_at || schedule?.start_at || schedule?.start) === normalizeImsDateTime(payload.rentalAt) &&
     normalizeImsDateTime(detail?.end_at || schedule?.end_at || schedule?.end) === normalizeImsDateTime(payload.returnAt);
@@ -1139,15 +3826,26 @@ function isCreatedImsReservationDetailMatch({ detail, schedule, payload }) {
   return sameDetailCar && sameCustomer && samePhone && sameAddress && sameWindow;
 }
 
-async function findImsReservationsBySearchApi({ token, payload, page = 1 }) {
-  const startDate = extractDate(payload.rentalAt || payload.rentalDate || payload.startDate);
-  const endDate = extractDate(payload.returnAt || payload.endDate || payload.returnDate) || startDate;
+async function findImsReservationsBySearchApi({
+  token,
+  payload,
+  page = 1,
+  baseDate: queryBaseDate = null,
+  startDate: queryStartDate = null,
+  endDate: queryEndDate = null,
+  dateOption: queryDateOption = null,
+}) {
+  const query = buildImsReservationSearchQueries(payload)[0] || {};
+  const startDate = queryStartDate || query.startDate || extractDate(payload.rentalAt || payload.rentalDate || payload.startDate);
+  const endDate = queryEndDate || query.endDate || extractDate(payload.returnAt || payload.endDate || payload.returnDate) || startDate;
+  const baseDate = queryBaseDate || query.baseDate || startDate;
+  const dateOption = queryDateOption || query.dateOption || 'start_at';
   const url = new URL('https://api.rencar.co.kr/v2/company-car-schedules/reservations');
   url.searchParams.set('page', String(page));
-  url.searchParams.set('base_date', startDate);
+  url.searchParams.set('base_date', baseDate);
   url.searchParams.set('rental_type', 'all');
   url.searchParams.set('status', 'all');
-  url.searchParams.set('date_option', 'start_at');
+  url.searchParams.set('date_option', dateOption);
   url.searchParams.set('start', startDate);
   url.searchParams.set('end', endDate);
   if (payload.carNumber) {
@@ -1163,27 +3861,13 @@ async function findImsReservationsBySearchApi({ token, payload, page = 1 }) {
   return Array.isArray(json?.schedules) ? json.schedules : [];
 }
 
-async function findImsReservationsByListApi({ token, predicate, maxPages = 120 }) {
-  const matches = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const url = new URL('https://api.rencar.co.kr/v2/company-car-schedules');
-    url.searchParams.set('page', String(page));
-    const response = await fetch(url, { headers: buildImsApiHeaders(token) });
-    const json = await readJsonResponse(response);
-    if (!response.ok) {
-      throw new Error(resolveApiErrorMessage(json, response.status, 'IMS schedule list lookup failed'));
-    }
-
-    const schedules = Array.isArray(json?.schedules) ? json.schedules : [];
-    for (const schedule of schedules) {
-      const match = await predicate(schedule);
-      if (match) matches.push(match);
-    }
-
-    const totalPage = Number(json?.total_page || 0);
-    if (schedules.length === 0 || (totalPage > 0 && page >= totalPage)) break;
+async function findImsReservationCandidatesBySearchApi({ token, payload }) {
+  const schedules = [];
+  const queries = buildImsReservationSearchQueries(payload);
+  for (const query of queries) {
+    schedules.push(...await findImsReservationsBySearchApi({ token, payload, ...query }));
   }
-  return matches;
+  return dedupeImsSchedulesById(schedules);
 }
 
 async function fetchImsScheduleDetail({ token, scheduleId }) {
@@ -1206,6 +3890,18 @@ async function fetchImsPartnerRentRequestDetail({ token, requestId }) {
   const json = await readJsonResponse(response);
   if (!response.ok) return null;
   return json?.data || json;
+}
+
+async function fetchImsInsuranceClaimDetail({ token, claimId }) {
+  const id = stringifyNullable(claimId);
+  if (!id) return null;
+  const response = await fetch(
+    `https://api.rencar.co.kr/v2/rencar-claims/${encodeURIComponent(id)}`,
+    { headers: buildImsApiHeaders(token) },
+  );
+  const json = await readJsonResponse(response);
+  if (!response.ok) return null;
+  return json?.datas || json?.data || json?.claim || json;
 }
 
 function mergeImsScheduleForImport(detail, listSchedule, requestDetail = null) {
@@ -1243,26 +3939,6 @@ function toImsReservationImportItem(schedule) {
     dropoffLocation: stringifyNullable(reservation?.dropoff_address || detail?.dropoff_address || request?.dropoff_address),
     recommenderName: stringifyNullable(reservation?.recommender?.name || reservation?.recommender_name || detail?.recommender_name || request?.orderer),
     title: stringifyNullable(schedule?.title || schedule?.memo || reservation?.reservation_memo),
-  };
-}
-
-function toImsInsuranceClaimImportItem(claim) {
-  return {
-    claimId: stringifyNullable(claim?.id),
-    status: stringifyNullable(claim?.claim_state),
-    carNumber: stringifyNullable(claim?.rent_car_number),
-    carName: stringifyNullable(claim?.car_model),
-    customerName: stringifyNullable(claim?.customer_name),
-    customerPhone: digitsOnly(claim?.customer_contact),
-    rentalAt: normalizeImsDateTime(claim?.delivered_at),
-    returnAt: normalizeImsDateTime(claim?.expect_return_date || claim?.return_date),
-    pickupLocation: stringifyNullable(claim?.customer_address),
-    insuranceCompany: stringifyNullable(claim?.claim_user_company),
-    claimUserName: stringifyNullable(claim?.claim_user_name),
-    title: [
-      stringifyNullable(claim?.business_name),
-      stringifyNullable(claim?.claim_state),
-    ].filter((value) => value.trim()).join(' | '),
   };
 }
 
@@ -1317,14 +3993,39 @@ async function readJsonResponse(response) {
 }
 
 function resolveApiErrorMessage(json, status, fallback = 'IMS API failed') {
-  return stringifyNullable(json?.message || json?.msg || json?.error || json?.detail || json?.raw) || `${fallback} (${status})`;
+  const value = json?.message || json?.msg || json?.error || json?.detail || json?.raw;
+  return stringifyErrorText(value) || `${fallback} (${status})`;
 }
 
-function normalizeImsReturnDoneAt(value) {
-  const text = String(value || '').trim();
-  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T-](\d{2})[:\-](\d{2})/);
-  if (!match) return text;
-  return `${match[1]}-${match[2]}-${match[3]}-${match[4]}-${match[5]}`;
+function stringifyErrorText(value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.message || '';
+  if (typeof value === 'object') {
+    const direct = value.message || value.msg || value.error || value.reason || value.detail || value.details || value.code;
+    if (direct && direct !== value) return stringifyErrorText(direct);
+    try { return JSON.stringify(value); } catch { return 'unknown_object_error'; }
+  }
+  return String(value);
+}
+
+function formatKstMinute(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return normalizeImsDateTime(value);
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
 function toImsLocalApiDateTime(value) {
@@ -1376,19 +4077,11 @@ function buildLinkKey(payload) {
 }
 
 function extractDate(value) {
-  return String(value || '').trim().split(/\s+/)[0] || '';
+  return extractDateText(value);
 }
 
 function addDaysToDateText(value, days) {
-  const text = extractDate(value);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return text;
-  const utc = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  utc.setUTCDate(utc.getUTCDate() + Number(days || 0));
-  const y = utc.getUTCFullYear();
-  const m = String(utc.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(utc.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return addDaysToDateTextFromSearchStrategy(value, days);
 }
 
 function normalizeImsDateTime(value) {
@@ -1402,11 +4095,36 @@ function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function normalizeCarNumberForMatch(value) {
+  return String(value || '').replace(/\s+/g, '').toUpperCase();
+}
+
+function normalizeOptionalBoolean(value, fieldName = 'boolean') {
+  if (value === null || value === undefined || value === '') return null;
+  if (value === true || value === false) return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'y', 'yes'].includes(normalized)) return true;
+  if (['false', '0', 'n', 'no'].includes(normalized)) return false;
+  throw new Error(`invalid boolean ims field: ${fieldName}`);
+}
+
 function digitsOnly(value) {
   return String(value || '').replace(/\D+/g, '');
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = stringifyNullable(value).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 function stringifyNullable(value) {
   if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    const text = stringifyErrorText(value);
+    return text || '';
+  }
   return String(value);
 }

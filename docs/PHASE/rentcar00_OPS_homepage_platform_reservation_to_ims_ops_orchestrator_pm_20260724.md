@@ -1,0 +1,450 @@
+# rentcar00_OPS sync 신규예약 → OPS 원장/일정 생성 + 기존 IMS 예약등록 재사용 PM
+
+## 0. 문서 정보
+- 작성일: 2026-07-24
+- 보완일: 2026-07-25
+- 작성자/agent: OpenClaw rentcar00_reservation_developer
+- 상태: Draft / 실행 미승인
+- 승인 범위: PM 문서 보완만 승인됨. 코드 수정, DB migration apply, parser restart, 운영 env 수정, 실제 IMS write, APK build/upload, commit/push는 미승인.
+- 현재 기준 브랜치: `fix/ops-return-complete-end-at`
+- 관련 문서:
+  - `docs/GOAL/rentcar00_OPS-current.md`
+  - `docs/HARNESS/CURRENT_EVENT_FLOW_MAP.md`
+  - `docs/PHASE/rentcar00_OPS_ims_contract_authority_auto_lifecycle_pm_20260723.md`
+  - `docs/PHASE/rentcar00_OPS-parser-cloudflare-access-hardening-pm-20260723.md`
+  - booking-system repo: `docs/PHASE/2026-07-24_SYNC_ORCHESTRATOR_PROMOTION_AND_IMS_HANDOFF_PM.md`
+- 완료 후 문서명:
+  - `docs/COMPLETED/COMPLETE_20260725_rentcar00_OPS_sync_reservation_to_ops_schedule_and_reuse_ims_create_pm.md`
+- 상태/정책문서 업데이트 대상:
+  - `docs/PHASE/README.md`
+  - `docs/COMPLETED/rentcar00_OPS-completed.md`
+  - `docs/HARNESS/CURRENT_EVENT_FLOW_MAP.md`
+  - 필요 시 `reservation_ai_parser/README.md`
+
+## 1. 목적
+- 목표:
+  - booking-system sync/orchestrator가 넘긴 신규예약 이벤트를 OPS parser endpoint가 수신한다.
+  - OPS가 중복을 확인한 뒤 OPS 예약 원장, 예약 상태, 배차 일정, 반납 일정을 생성한다.
+  - 카모아/찜카 등 provider 확인 상태를 OPS 예약 상태 뱃지로 남긴다.
+  - IMS 예약 생성은 새 로직을 만들지 않고 OPS 기존 IMS 예약등록 기능을 재사용한다.
+- 성공 기준:
+  - 현재 endpoint가 예약 저장과 schedule 생성까지 하는지 코드 기준으로 문서화된다.
+  - sync payload → mapper → OPS reservation insert → state insert → schedule insert 흐름이 고정된다.
+  - 신규 예약이면 OPS 원장과 배차/반납 일정이 생성된다.
+  - provider 확인 뱃지가 `rc00_ops_reservation_states.check_payload_json`에 반영된다.
+  - 기존 IMS 예약등록 경로(`/ims/create-reservation`, `createImsReservationDirect()`, `rc00_ops_external_reservation_links`)를 재사용한다.
+  - 실패/중복/필수값 누락은 event 상태, check payload, action log 또는 예외 상태로 남긴다.
+- 제외 범위:
+  - 신규 IMS client 또는 별도 IMS create 구현
+  - IMS 생성-first 구조
+  - booking-system `scripts/sync-orchestrator/*` 구현
+  - 카모아/찜카 수집 API 구현
+  - 운영 `.env*`, secret 수정
+  - DB live apply
+  - parser restart
+  - 실제 IMS write smoke
+  - APK build/upload
+  - commit/push
+
+## 2. 현재 상태
+- 확인한 파일/docs:
+  - `reservation_ai_parser/src/server.js`
+  - `reservation_ai_parser/src/homepage-reservation-mapper.js`
+  - `reservation_ai_parser/src/parser-core.js`
+  - `reservation_ai_parser/test/homepage-reservation-mapper.test.js`
+  - `lib/features/reservations/detail/data/ims_reservation_client.dart`
+  - `lib/features/status_board/detail/data/reservation_ai_parser_client.dart`
+  - `lib/data/repositories/supabase_ops_repository.dart`
+  - `supabase/migrations/20260520015500_add_reservation_event_inbox.sql`
+  - `supabase/migrations/20260515171000_add_external_reservation_links.sql`
+  - `supabase/migrations/20260515182000_allow_unlinked_external_reservation_links.sql`
+  - `docs/GOAL/rentcar00_OPS-current.md`
+  - `docs/HARNESS/CURRENT_EVENT_FLOW_MAP.md`
+- 현재 git 상태:
+  - branch: `fix/ops-return-complete-end-at`
+  - 기존 dirty 변경 다수 존재.
+  - 이 PM 보완은 기존 변경과 섞이지 않도록 문서 1개만 대상으로 한다.
+- 현재 endpoint 구현:
+  - endpoint: `POST /api/integrations/rentcar00/reservation-events`
+  - 수신 함수: `receiveRentcar00ReservationEvent()`
+  - HMAC/timestamp/eventId 검증:
+    - `x-rentcar00-event-type`
+    - `x-rentcar00-event-id`
+    - `x-rentcar00-timestamp`
+    - `x-rentcar00-signature`
+  - replay window: `validateReservationEventTimestamp()` 기준, 기본 5분
+  - dedupe: `rc00_ops_reservation_events.event_id`, 이미 `imported`면 `{ deduped: true }`
+  - mapper: `mapHomepageReservationPayload()`
+  - insert 흐름:
+    1. `rc00_ops_reservation_events` 저장
+    2. `rc00_ops_reservations` insert
+    3. `rc00_ops_reservation_states` insert
+    4. `rc00_ops_schedules` 배차/반납 2건 insert
+    5. event `imported` 또는 `failed` 갱신
+- 현재 IMS 예약등록 구현:
+  - Flutter client: `ImsReservationClient.createReservation()`
+  - parser endpoint: `POST /ims/create-reservation`
+  - server function: `createImsReservationDirect()`
+  - result binding: `resolveImsReservationBindingAfterCreate()`
+  - OPS link 저장 경로: `SupabaseOpsRepository.upsertExternalReservationLink()`
+  - link table: `rc00_ops_external_reservation_links(provider='ims')`
+- 현재 약점/갭:
+  - mapper/source가 홈페이지 중심이라 sync provider source(`carmore`, `zzimcar`)가 명확하지 않다.
+  - provider 확인 뱃지가 없다.
+  - endpoint import에서 action log가 없다.
+  - endpoint import에서 차량 상태 반영이 없다.
+  - 중복 기준이 `eventId`/`WEB-*` 중심이라 provider reservation id 기준 dedupe 보강이 필요하다.
+  - IMS 예약등록은 기존 기능이 있으나 sync 자동 flow와 아직 연결되어 있지 않다.
+  - 실제 IMS write는 외부 상태 변경이므로 별도 승인 전 실행 금지다.
+- 오늘 테스트 후보 기준:
+  - 카모아 `2172_2026072501001`
+    - 차량 `101하9300`
+    - 기간 `2026-07-30 09:00 ~ 2026-08-01 15:30`
+    - IMS overlap 0건 → 자동 IMS 등록 dry-run/실행 후보
+  - 카모아 `2172_2026072501000`
+    - 차량 `142호4782`
+    - IMS pending overlap 1건 → 자동 IMS 등록 차단/중복 후보
+
+## 3. 전체 변경 요약
+- 변경점:
+  - 기존 PM의 `IMS 생성-first` 방향을 폐기한다.
+  - 기준 흐름을 `sync event 수신 → OPS 예약 원장/상태/일정 생성 → provider 확인 뱃지 → 기존 OPS IMS 예약등록 기능 재사용`으로 바꾼다.
+  - 신규 IMS 생성 로직을 만들지 않고 `/ims/create-reservation`와 기존 link 저장 방식을 재사용한다.
+  - 카모아/찜카 source와 provider reservation id를 canonical payload에 포함한다.
+  - 실패/중복/필수값 누락은 event 상태와 OPS 표시 상태로 남긴다.
+- 변경대상 후보:
+  - `reservation_ai_parser/src/server.js`
+  - `reservation_ai_parser/src/homepage-reservation-mapper.js`
+  - `reservation_ai_parser/test/homepage-reservation-mapper.test.js`
+  - 필요 시 신규 helper: `reservation_ai_parser/src/sync-reservation-mapper.js`
+  - 필요 시 `lib/data/repositories/supabase_ops_repository.dart`
+  - 필요 시 `docs/HARNESS/CURRENT_EVENT_FLOW_MAP.md`
+  - 필요 시 `reservation_ai_parser/README.md`
+- 예상 영향:
+  - sync에서 넘어온 카모아/찜카 예약이 OPS 원장과 일정에 표시될 수 있다.
+  - provider 확인 상태가 OPS 예약 상세/목록 뱃지로 표시될 수 있다.
+  - 기존 IMS 등록 기능을 재사용하므로 IMS 생성/링크 정책 중복을 줄인다.
+- 주요 리스크:
+  - IMS 자동 등록은 실제 외부 write라 중복 생성 위험이 있다.
+  - provider reservation id dedupe가 약하면 OPS 원장 중복 생성 위험이 있다.
+  - OPS 원장 생성 성공 후 IMS 등록 실패 시 운영자가 확인할 예외 상태가 필요하다.
+  - parser endpoint 변경은 운영 restart가 필요할 수 있으나 restart는 별도 승인 전 금지다.
+  - DB schema 변경이 필요하면 migration 파일 작성과 live apply를 분리해야 한다.
+
+## 4. Phase 목록
+
+### Phase 0. 현재 endpoint flow 기준 고정
+- 목적: 현재 코드가 어디까지 하는지 사실 기준을 잠근다.
+- 변경점: 문서/검증만 수행. 코드 변경 없음.
+- 변경대상: 없음
+- 실행방법:
+  - `receiveRentcar00ReservationEvent()` 확인
+  - `importReservationCreatedEvent()` 확인
+  - `mapHomepageReservationPayload()` 확인
+  - `rc00_ops_reservation_events`, `rc00_ops_reservations`, `rc00_ops_reservation_states`, `rc00_ops_schedules` insert 흐름 확인
+- 종료조건:
+  - endpoint가 원장/상태/배차/반납 일정까지 생성한다는 사실이 문서화된다.
+  - 빠진 단계가 provider badge/action log/vehicle state/IMS 자동 연결임을 분리한다.
+- 검증방법:
+  - code inspection
+  - mapper unit test inspection
+- 리스크:
+  - 현 코드의 실제 운영 DB 상태와 migration history가 다르면 runtime에서 차이가 날 수 있다.
+- 되돌릴 방법: 문서 원복
+- 출력보고:
+  - endpoint 흐름
+  - 이미 구현된 단계
+  - 빠진 단계
+
+### Phase 1. sync/provider canonical payload + dedupe key 설계
+- 목적: booking-system sync payload를 OPS 예약 mapper가 안정적으로 소비할 수 있게 한다.
+- 변경점:
+  - source provider 필드 추가 기준 확정
+  - provider reservation id 기준 dedupe 확정
+  - 홈페이지/event id 중심 mapper를 provider 공통 mapper로 확장 또는 분리
+- 변경대상:
+  - `reservation_ai_parser/src/homepage-reservation-mapper.js`
+  - 필요 시 신규 `reservation_ai_parser/src/sync-reservation-mapper.js`
+  - tests/fixtures
+- 실행방법:
+  - canonical 필드:
+    - `sourceProvider`: `homepage` | `carmore` | `zzimcar`
+    - `sourceReservationId`
+    - `sourceReservationNo`
+    - `providerCheckStatus`
+    - `carNumber`
+    - `carName`
+    - `customerName`
+    - `customerPhone`
+    - `customerBirthDate`
+    - `pickupAt`
+    - `returnAt`
+    - `pickupLocation`
+    - `dropoffLocation`
+    - `paymentAmount`
+  - dedupe key 우선순위:
+    1. `sourceProvider + sourceReservationId`
+    2. `eventId`
+    3. `reservationCode`
+  - reservation id 후보:
+    - `OPS-${sourceProvider}-${sourceReservationId}` 또는 현행 `WEB-*`와 충돌하지 않는 prefix
+- 종료조건:
+  - 카모아/찜카 payload가 홈페이지 payload와 구분된다.
+  - 같은 provider 예약이 반복 수신되어도 같은 OPS 예약으로 판정된다.
+- 검증방법:
+  - fixture test
+  - mapper output inspection
+- 리스크:
+  - booking-system outbox payload 필드명이 확정되지 않으면 mapper가 흔들릴 수 있다.
+- 되돌릴 방법:
+  - 신규 mapper 분리 시 import path 원복
+  - 기존 mapper 변경 시 diff 원복
+- 출력보고:
+  - canonical schema
+  - dedupe key
+  - reservation id 규칙
+
+### Phase 2. OPS 예약 원장/상태/배차·반납 일정 생성 보강
+- 목적: sync 신규예약이 OPS에 들어오고 일정까지 생기는 흐름을 완성한다.
+- 변경점:
+  - 현재 `importReservationCreatedEvent()` 흐름을 provider source까지 지원
+  - 필수값 누락 시 원장 생성 전 차단 또는 주의 상태 기록 기준 확정
+  - action log 기록 추가 후보 검토
+  - 차량 상태 반영 필요 여부와 기준 확정
+- 변경대상:
+  - `reservation_ai_parser/src/server.js`
+  - mapper/helper tests
+  - 필요 시 `lib/data/repositories/supabase_ops_repository.dart`와 동일 정책 맞춤
+- 실행방법:
+  - event 저장
+  - canonical mapping
+  - provider dedupe lookup
+  - OPS reservation insert/reuse
+  - reservation state insert/update
+  - 배차/반납 schedule upsert 또는 duplicate-safe insert
+  - action log 기록 후보: `reservation.sync_imported`
+- 종료조건:
+  - 신규 provider 예약 1건이 OPS 원장 + 상태 + 배차/반납 일정 2건으로 만들어질 수 있다.
+  - 중복 event는 신규 원장/일정을 추가 생성하지 않는다.
+- 검증방법:
+  - node fixture/unit test
+  - no-write mocked import test
+  - SQL column inspection
+- 리스크:
+  - 현 endpoint의 직접 fetch insert 방식과 Flutter repository 방식의 정책 차이 발생 가능.
+  - 차량 상태 자동 반영은 운영판에 영향이 커서 별도 세부 기준이 필요할 수 있다.
+- 되돌릴 방법:
+  - endpoint import path 원복
+  - 신규 helper off
+- 출력보고:
+  - 원장 생성 결과
+  - schedule 생성 결과
+  - 중복 처리 결과
+  - action log/차량상태 반영 여부
+
+### Phase 3. provider 확인 뱃지 반영
+- 목적: OPS에서 카모아/찜카 확인 상태를 바로 볼 수 있게 한다.
+- 변경점:
+  - `rc00_ops_reservation_states.check_payload_json`에 provider status 추가
+  - 기존 홈페이지 `homepage_review`와 충돌하지 않게 source별 key 사용
+- 변경대상:
+  - `reservation_ai_parser/src/server.js`
+  - mapper/helper
+  - 필요 시 Flutter reservation badge 표시 코드
+- 실행방법:
+  - check payload 후보:
+    - `provider_source`: `carmore` | `zzimcar` | `homepage`
+    - `provider_check_status`: `found` | `not_found` | `cancelled_found` | `error` | `not_checked`
+    - `provider_reservation_id`
+    - `carmore_check_status` 또는 `zzimcar_check_status`
+    - `ims_create_status`: `not_started` | `pending` | `linked` | `failed` | `blocked_duplicate`
+  - 카모아 오늘 후보:
+    - `2172_2026072501001`: `carmore_check_status=found`, IMS 등록 후보
+    - `2172_2026072501000`: `carmore_check_status=found`, `ims_create_status=blocked_duplicate`
+- 종료조건:
+  - OPS 예약 상태 row만 봐도 provider 확인됨/오류/중복차단 여부를 알 수 있다.
+- 검증방법:
+  - fixture test
+  - reservation state payload inspection
+  - 앱 표시가 필요하면 Flutter repository/UI inspection
+- 리스크:
+  - UI 표시가 없으면 DB에는 남지만 직원이 보기 어려울 수 있다.
+- 되돌릴 방법:
+  - check payload key 제거/무시
+- 출력보고:
+  - check payload schema
+  - 카모아 확인 뱃지 표시 기준
+  - UI 추가 필요 여부
+
+### Phase 4. 기존 OPS IMS 예약등록 기능 재사용 연결
+- 목적: OPS 원장 생성 후 기존 IMS 예약등록 경로를 자동/수동 실행 후보로 연결한다.
+- 변경점:
+  - 새 IMS client/새 create 로직 금지
+  - 기존 `/ims/create-reservation` payload builder를 재사용 또는 서버 내부 helper로 분리
+  - 성공 시 기존 `rc00_ops_external_reservation_links(provider='ims')` 저장 방식 재사용
+  - 실패 시 OPS 원장은 유지하고 `ims_create_failed` 상태를 남김
+- 변경대상:
+  - `reservation_ai_parser/src/server.js`
+  - 기존 IMS create helper 주변
+  - 필요 시 `lib/features/reservations/detail/data/ims_reservation_payload.dart`와 payload 규칙 대조
+  - 필요 시 `lib/data/repositories/supabase_ops_repository.dart` link 저장 정책 대조
+- 실행방법:
+  - OPS 예약 원장 row에서 기존 IMS 필수값 생성:
+    - `rentalAt`
+    - `returnAt`
+    - `carNumber`
+    - `totalFee`
+    - `customerName`
+    - `customerPhone`
+  - preflight:
+    - 필수값 누락 차단
+    - provider dedupe 통과
+    - IMS overlap/기존 link 확인
+  - 실행 모드 분리:
+    - `imsMode=off` 기본
+    - `imsMode=dry-run` 검증
+    - `imsMode=live`는 별도 명시 승인 필요
+  - 성공 시:
+    - existing result binding 사용
+    - `rc00_ops_external_reservation_links` linked 기록
+    - `check_payload_json.ims_create_status=linked`
+  - 실패 시:
+    - OPS 예약/일정은 유지
+    - event/status에 `ims_create_failed` 또는 `ims_link_failed`
+- 종료조건:
+  - 기존 IMS 예약등록 기능을 재사용하는 흐름이 문서/코드상 명확하다.
+  - live IMS write 없이 dry-run/mock으로 payload와 차단 조건을 검증한다.
+- 검증방법:
+  - node tests
+  - parser `--check`
+  - dry-run/mock response inspection
+  - 실제 IMS write는 별도 승인 시에만 1건 제한 smoke
+- 리스크:
+  - 실제 IMS 생성은 중복/외부 상태 변경 위험.
+  - parser 내부에서 직접 link table을 쓰면 Flutter repository와 정책 차이가 날 수 있다.
+  - live 실행 전 카모아 후보 1건과 overlap 0건을 재확인해야 한다.
+- 되돌릴 방법:
+  - imsMode 기본 off 유지
+  - 연결 helper import 제거
+- 출력보고:
+  - reused IMS path
+  - IMS payload
+  - preflight 결과
+  - linked/failed 상태 기록 기준
+
+### Phase 5. 실패/중복/필수값 누락 예외 상태
+- 목적: 자동화 실패 케이스를 조용히 잃지 않게 한다.
+- 변경점:
+  - event failed 상태와 OPS check payload/메모/action log 기준 정리
+  - 중복/필수값 누락/IMS 실패/OPS 저장 실패를 분리
+- 변경대상:
+  - `reservation_ai_parser/src/server.js`
+  - 필요 시 event/state helper
+  - 필요 시 OPS 앱 예외 표시
+- 실행방법:
+  - 예외 유형:
+    - `duplicate_event`
+    - `duplicate_provider_reservation`
+    - `missing_required_field`
+    - `ops_reservation_insert_failed`
+    - `schedule_insert_failed`
+    - `ims_preflight_failed`
+    - `ims_duplicate_blocked`
+    - `ims_create_failed`
+    - `ims_link_failed`
+  - 원칙:
+    - OPS 원장 생성 전 실패: event `failed`, 원장 없음
+    - OPS 원장 생성 후 IMS 실패: 원장/일정 유지, state warning
+    - 중복: deduped/reused로 반환, 신규 일정 생성 없음
+- 종료조건:
+  - 운영자가 실패/중복/필수값 누락 이유를 확인할 수 있다.
+- 검증방법:
+  - scenario fixture test
+  - event/status payload inspection
+- 리스크:
+  - UI 없이 event table에만 남기면 직원 확인이 늦을 수 있다.
+- 되돌릴 방법:
+  - warning/status key 제거 또는 무시
+- 출력보고:
+  - exception matrix
+  - event/state 기록 기준
+  - UI 필요 여부
+
+### Final Phase. 검수·완료판정·상태/정책문서 정리·문서 COMPLETE 변경·커밋
+- 목적: 승인된 범위의 구현/문서/검증을 완료 처리한다.
+- 변경점:
+  - 전체 변경 검수
+  - 완료판정
+  - 상태/정책문서 업데이트
+  - PM 문서를 COMPLETED로 이동/rename
+  - commit은 별도 승인 시에만 수행
+- 변경대상:
+  - `docs/PHASE/README.md`
+  - `docs/COMPLETED/COMPLETE_20260725_rentcar00_OPS_sync_reservation_to_ops_schedule_and_reuse_ims_create_pm.md`
+  - `docs/COMPLETED/rentcar00_OPS-completed.md`
+  - `docs/HARNESS/CURRENT_EVENT_FLOW_MAP.md`
+  - 관련 README
+- 실행방법:
+  - dirty file 범위 확인
+  - `git diff --check`
+  - node tests/parser check
+  - 필요 시 Flutter analyze
+  - 완료 문서 생성
+  - commit 승인 여부 확인
+- 종료조건:
+  - 승인된 phase만 완료
+  - 검증 결과 기록
+  - 완료 문서 생성
+  - commit 또는 commit 제외 사유 기록
+- 검증방법:
+  - `git status --short`
+  - `git diff --check`
+  - `node --test reservation_ai_parser/test/*.test.js`
+  - `npm --prefix reservation_ai_parser run check` 또는 동등 parser check
+  - `flutter analyze`는 Flutter 코드 변경 시
+- 리스크:
+  - 기존 미커밋 변경과 섞일 수 있음
+- 되돌릴 방법:
+  - commit 전 diff 원복
+  - 완료 문서 원복
+- 출력보고:
+  - 완료 phase
+  - 변경 파일
+  - 검증 결과
+  - 완료 문서
+  - commit hash/제외 사유
+  - 남은 리스크
+
+## 5. 승인 및 중단 조건
+- 승인 요청:
+  - 이 문서는 실행 승인이 아니다.
+  - 첫 실행 추천은 Phase 0~1이다.
+  - 코드 구현은 별도 승인 필요.
+  - DB migration 파일 생성도 별도 승인 필요.
+  - 실제 IMS write는 대상 예약 1건, payload, 중복 조회 결과를 재확인한 뒤 별도 승인 필요.
+- 중단 조건:
+  - 기존 OPS IMS 예약등록 기능을 재사용할 수 없어 새 IMS create 로직이 필요해지는 경우
+  - provider reservation id dedupe 기준이 불명확한 경우
+  - OPS 원장/일정 생성 후 실패 복구 기준이 없는 경우
+  - 실제 IMS 중복 여부를 확인하지 못한 경우
+  - protected target 수정이 필요한데 별도 승인이 없는 경우
+  - DB live apply/parser restart/APK/commit이 필요한데 별도 승인이 없는 경우
+- protected target / 별도 승인 필요:
+  - `.env*`, IMS/Supabase/service role secret 수정: 별도 승인 필요
+  - Supabase live migration/apply: 별도 승인 필요
+  - parser launchd/restart: 별도 승인 필요
+  - 실제 IMS write smoke: 별도 승인 필요
+  - APK build/upload: 별도 승인 필요
+  - commit/push: 별도 승인 필요
+
+## 6. 완료 보고 형식
+- 완료 phase:
+- 변경 파일:
+- 검증 결과:
+- 완료 문서 경로:
+- 상태/정책문서 업데이트:
+- IMS live write 여부:
+- DB live apply 여부:
+- parser restart 여부:
+- 커밋:
+- 남은 리스크:

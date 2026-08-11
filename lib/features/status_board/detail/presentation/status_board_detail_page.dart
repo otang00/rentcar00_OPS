@@ -8,7 +8,6 @@ import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
-import 'package:rentcar00_ops/features/reservations/detail/presentation/ims_return_input_dialog.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/status_board/detail/data/reservation_ai_parser_client.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
@@ -75,24 +74,26 @@ void _showReservationCreateSnackBar(
 
 Future<T> _runWithImsProgress<T>(
   BuildContext context,
-  Future<T> Function() task,
-) async {
+  Future<T> Function() task, {
+  String title = 'IMS 등록 진행중',
+  String message = 'IMS에 예약을 생성하고 등록 정보를 확인하는 중입니다.',
+}) async {
   showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (context) => PopScope(
       canPop: false,
       child: AlertDialog(
-        title: const Text('IMS 등록 진행중'),
+        title: Text(title),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            LinearProgressIndicator(),
-            SizedBox(height: 16),
-            Text('IMS에 예약을 생성하고 등록 정보를 확인하는 중입니다.'),
-            SizedBox(height: 6),
-            Text('완료 전까지 다른 동작을 하지 마세요.'),
+          children: [
+            const LinearProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(message),
+            const SizedBox(height: 6),
+            const Text('완료 전까지 다른 동작을 하지 마세요.'),
           ],
         ),
       ),
@@ -137,6 +138,7 @@ Future<void> _saveImsRegistrationResult({
         externalReservationId: result.externalReservationId,
         externalDetailId: result.externalDetailId,
         externalStatus: status,
+        sourceType: 'normal_schedule',
         linkKey: linkKey,
         lastPayloadJson: payload.toJson(),
         lastResultJson: result.resultJson,
@@ -163,6 +165,7 @@ Future<void> _saveImsRegistrationFailure({
       .upsertExternalReservationLink(
         reservationId: reservationId,
         externalStatus: 'failed',
+        sourceType: 'normal_schedule',
         linkKey: 'OPS:${reservationId.trim()}',
         lastPayloadJson: payload.toJson(),
         lastResultJson: {'error': errorText},
@@ -182,6 +185,7 @@ Future<void> _saveImportedImsRegistration({
         externalReservationId: imported.scheduleId,
         externalDetailId: imported.detailId,
         externalStatus: 'linked',
+        sourceType: 'normal_schedule',
         linkKey: 'OPS:${reservationId.trim()}',
         lastPayloadJson: {'source': 'ims_import', ...imported.toJson()},
         lastResultJson: {'code': 'IMPORTED', ...imported.toJson()},
@@ -574,10 +578,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       );
       if (imported == null) return;
       if (!imported.directInput && imported.candidate != null) {
-        await _applyInsuranceDispatchImport(
-          carRowId: carRowId,
-          candidate: imported.candidate!,
-        );
+        await _applyInsuranceDispatchImport(candidate: imported.candidate!);
         return;
       }
     }
@@ -594,35 +595,106 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
   }
 
   Future<void> _applyInsuranceDispatchImport({
-    required String carRowId,
     required ImsInsuranceClaimImportCandidate candidate,
   }) async {
     final startAt = _tryParseDateTime(candidate.rentalAt) ?? DateTime.now();
     final endAt = candidate.returnAt.trim().isEmpty
         ? null
         : _tryParseDateTime(candidate.returnAt);
+    if (endAt == null) {
+      _showError('IMS 보험배차 반납일시를 확인하지 못했습니다. 직접입력으로 진행해주세요.');
+      return;
+    }
+    final claimId = candidate.claimId.trim();
+    if (claimId.isEmpty) {
+      _showError('IMS 보험 claim id를 확인하지 못했습니다. 직접입력으로 진행해주세요.');
+      return;
+    }
+    final linkKey = 'ims-insurance-claim:$claimId';
     final noteText = [
       'IMS 보험배차 가져오기',
       if (candidate.title.trim().isNotEmpty) candidate.title.trim(),
-      'claim:${candidate.claimId}',
+      'claim:$claimId',
       if (candidate.status.trim().isNotEmpty) 'state:${candidate.status}',
     ].join(' | ');
 
     await _runAction(() async {
-      await ref
-          .read(supabaseOpsRepositoryProvider)
-          .updateCarInstantStatus(
-            carRowId: carRowId,
-            status: '보험',
-            statusAction: _dispatchStatusAction('보험'),
-            customerName: candidate.customerName,
-            customerPhone: opsFormatPhoneInput(candidate.customerPhone),
-            startAt: startAt,
-            endAt: endAt,
-            pickupLocation: candidate.pickupLocation,
-            parkingLocation: '',
-            noteText: noteText,
-          );
+      final repository = ref.read(supabaseOpsRepositoryProvider);
+      final existingLink = await repository
+          .fetchExternalReservationLinkByLinkKey(linkKey: linkKey);
+      if (existingLink != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('이미 가져온 IMS 보험배차입니다. 기존 예약상세로 이동합니다.'),
+            action: SnackBarAction(
+              label: '열기',
+              onPressed: () => context.push(
+                AppRoutes.reservationDetail.replaceFirst(
+                  ':reservationId',
+                  Uri.encodeComponent(existingLink.reservationId),
+                ),
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final reservationId = await repository.createReservationFromVehicle(
+        car: record,
+        reservationNumber: 'INS-$claimId',
+        customerName: candidate.customerName,
+        customerPhone: opsFormatPhoneInput(candidate.customerPhone),
+        customerBirthDate: '',
+        referralSource: candidate.insuranceCompany,
+        paymentAmount: '',
+        startAt: startAt,
+        endAt: endAt,
+        pickupLocation: candidate.pickupLocation,
+        dropoffLocation: candidate.pickupLocation,
+        noteText: noteText,
+        createdVia: 'ims_insurance_dispatch_import',
+      );
+      await repository.upsertExternalReservationLink(
+        reservationId: reservationId,
+        externalReservationId: claimId,
+        externalDetailId: claimId,
+        externalStatus: 'linked',
+        sourceType: 'insurance_claim',
+        linkKey: linkKey,
+        lastPayloadJson: {
+          'source': 'ims_insurance_dispatch_import',
+          'claimId': claimId,
+          'status': candidate.status,
+          'carNumber': candidate.carNumber,
+          'carName': candidate.carName,
+          'customerName': candidate.customerName,
+          'customerPhone': candidate.customerPhone,
+          'rentalAt': candidate.rentalAt,
+          'returnAt': candidate.returnAt,
+          'pickupLocation': candidate.pickupLocation,
+          'insuranceCompany': candidate.insuranceCompany,
+          'claimUserName': candidate.claimUserName,
+          'title': candidate.title,
+        },
+        lastResultJson: {'code': 'IMPORTED', 'claimId': claimId},
+      );
+      final dispatchScheduleRowId = await repository.fetchPendingScheduleRowId(
+        reservationId: reservationId,
+        scheduleType: '배차',
+      );
+      if (dispatchScheduleRowId == null) {
+        throw StateError('생성된 보험예약의 배차 일정을 찾지 못했습니다.');
+      }
+      await repository.completeSchedule(
+        scheduleRowId: dispatchScheduleRowId,
+        scheduleType: '배차',
+        reservationId: reservationId,
+        carNumber: record.carNumber,
+        carStatusAfterDispatch: '보험',
+        carStatusActionAfterDispatch: _dispatchStatusAction('보험'),
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -720,42 +792,14 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     );
   }
 
-  Future<void> _markUnderRepair() async {
-    final factoryName = await showDialog<String>(
+  Future<void> _markDispatchUnavailable() async {
+    final reason = await showDialog<String>(
       context: context,
-      builder: (context) =>
-          _RepairFactoryDialog(initialValue: record.parkingLocation),
-    );
-    if (factoryName == null) return;
-
-    final carRowId = _extractRawRowId(record.recordId, 'car');
-    if (carRowId == null) {
-      _showError('차량 row id 를 찾지 못했습니다.');
-      return;
-    }
-
-    await _runAction(() async {
-      await ref
-          .read(supabaseOpsRepositoryProvider)
-          .markCarUnderRepair(carRowId: carRowId, factoryName: factoryName);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('수리중으로 전환했습니다.')));
-    });
-  }
-
-  Future<void> _completeRepair() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => _ConfirmActionDialog(
-        icon: Icons.task_alt_rounded,
-        title: '수리완료',
-        message: '수리완료(대기중) 처리하시겠습니까?',
-        confirmLabel: '확인',
+      builder: (context) => _DispatchUnavailableReasonDialog(
+        initialValue: record.parkingLocation,
       ),
     );
-    if (confirmed != true) return;
+    if (reason == null) return;
 
     final carRowId = _extractRawRowId(record.recordId, 'car');
     if (carRowId == null) {
@@ -763,15 +807,85 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
       return;
     }
 
-    await _runAction(() async {
-      await ref
-          .read(supabaseOpsRepositoryProvider)
-          .completeCarRepair(carRowId: carRowId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('수리완료 처리했습니다.')));
-    });
+    try {
+      await _runAction(() async {
+        final appEnv = ref.read(appEnvProvider);
+        final result = await _runWithImsProgress(
+          context,
+          () => ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl)
+              .updateVehicleRentalFlags(
+                carNumber: record.carNumber,
+                canGeneralRental: false,
+                canMonthlyRental: false,
+              ),
+          title: 'IMS 배차불가 설정중',
+          message: 'IMS 차량 일배차와 월배차를 끄는 중입니다.',
+        );
+        if (!result.isSuccess) {
+          throw StateError(
+            result.message.trim().isEmpty
+                ? 'IMS 차량 배차불가 설정 실패(${result.code})'
+                : result.message.trim(),
+          );
+        }
+        await ref
+            .read(supabaseOpsRepositoryProvider)
+            .markCarDispatchUnavailable(carRowId: carRowId, reason: reason);
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('배차불가로 전환했습니다.')));
+      });
+    } catch (error) {
+      if (mounted) _showError('배차불가 처리에 실패했습니다.\n$error');
+    }
+  }
+
+  Future<void> _completeDispatchUnavailable() async {
+    final selection = await showDialog<_RentalFlagSelection>(
+      context: context,
+      builder: (context) => const _RentalFlagSelectionDialog(),
+    );
+    if (selection == null) return;
+
+    final carRowId = _extractRawRowId(record.recordId, 'car');
+    if (carRowId == null) {
+      _showError('차량 row id 를 찾지 못했습니다.');
+      return;
+    }
+
+    try {
+      await _runAction(() async {
+        final appEnv = ref.read(appEnvProvider);
+        final result = await _runWithImsProgress(
+          context,
+          () => ImsReservationClient(baseUrl: appEnv.aiParserBaseUrl)
+              .updateVehicleRentalFlags(
+                carNumber: record.carNumber,
+                canGeneralRental: selection.canGeneralRental,
+                canMonthlyRental: selection.canMonthlyRental,
+              ),
+          title: 'IMS 배차가능 설정중',
+          message: selection.progressMessage,
+        );
+        if (!result.isSuccess) {
+          throw StateError(
+            result.message.trim().isEmpty
+                ? 'IMS 차량 배차가능 설정 실패(${result.code})'
+                : result.message.trim(),
+          );
+        }
+        await ref
+            .read(supabaseOpsRepositoryProvider)
+            .completeCarDispatchUnavailable(carRowId: carRowId);
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(selection.successMessage)));
+      });
+    } catch (error) {
+      if (mounted) _showError('배차가능 처리에 실패했습니다.\n$error');
+    }
   }
 
   Future<void> _editParking() async {
@@ -925,7 +1039,9 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final idleActions = _isIdleStatus(record.status);
-    final repairActions = _isRepairStatus(record.status);
+    final dispatchUnavailableActions = _isDispatchUnavailableStatus(
+      record.status,
+    );
     final inServiceActions = _isInServiceStatus(record.status);
     final hasPhone = hasCallablePhone(record.customerPhone);
 
@@ -987,7 +1103,7 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
             mainAxisSpacing: 6,
             childAspectRatio: 1.05,
             children: [
-              if (!repairActions)
+              if (!dispatchUnavailableActions)
                 _ActionChipButton(
                   label: '예약',
                   icon: Icons.add_card_rounded,
@@ -1010,19 +1126,19 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                   onPressed: _submitting ? null : _openDispatchStatus,
                 ),
                 _ActionChipButton(
-                  label: '수리중',
+                  label: '배차불가',
                   icon: Icons.build_circle_outlined,
                   expand: true,
-                  onPressed: _submitting ? null : _markUnderRepair,
+                  onPressed: _submitting ? null : _markDispatchUnavailable,
                 ),
               ],
-              if (repairActions)
+              if (dispatchUnavailableActions)
                 _ActionChipButton(
-                  label: '수리완료',
+                  label: '배차가능',
                   icon: Icons.task_alt_rounded,
                   emphasis: _ActionChipEmphasis.primary,
                   expand: true,
-                  onPressed: _submitting ? null : _completeRepair,
+                  onPressed: _submitting ? null : _completeDispatchUnavailable,
                 ),
               if (inServiceActions)
                 _ActionChipButton(
@@ -1091,6 +1207,9 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                       reservationsAsync.valueOrNull ??
                       const <ReservationRecord>[],
                 );
+                final availabilityScheduleDots = _buildAvailabilityScheduleDots(
+                  schedules: items,
+                );
                 final sortedItems = [...items]
                   ..sort((a, b) {
                     final aAt = a.sortAt;
@@ -1103,7 +1222,10 @@ class _VehicleDetailBodyState extends ConsumerState<_VehicleDetailBody> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _VehicleAvailabilityCalendar(items: availabilityItems),
+                    _VehicleAvailabilityCalendar(
+                      items: availabilityItems,
+                      scheduleDots: availabilityScheduleDots,
+                    ),
                     if (sortedItems.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Text(
@@ -1305,9 +1427,72 @@ class _ActionChipButton extends StatelessWidget {
 
 enum _ActionChipEmphasis { standard, primary, danger }
 
+enum _RentalFlagSelection {
+  general,
+  monthly,
+  both;
+
+  bool? get canGeneralRental {
+    return switch (this) {
+      _RentalFlagSelection.general || _RentalFlagSelection.both => true,
+      _RentalFlagSelection.monthly => null,
+    };
+  }
+
+  bool? get canMonthlyRental {
+    return switch (this) {
+      _RentalFlagSelection.monthly || _RentalFlagSelection.both => true,
+      _RentalFlagSelection.general => null,
+    };
+  }
+
+  String get title {
+    return switch (this) {
+      _RentalFlagSelection.general => '일대차만',
+      _RentalFlagSelection.monthly => '월대차만',
+      _RentalFlagSelection.both => '일대차 + 월대차',
+    };
+  }
+
+  String get description {
+    return switch (this) {
+      _RentalFlagSelection.general => 'IMS 일대차만 다시 켭니다.',
+      _RentalFlagSelection.monthly => 'IMS 월대차만 다시 켭니다.',
+      _RentalFlagSelection.both => 'IMS 일대차와 월대차를 모두 다시 켭니다.',
+    };
+  }
+
+  String get progressMessage {
+    return switch (this) {
+      _RentalFlagSelection.general => 'IMS 차량 일대차를 다시 켜는 중입니다.',
+      _RentalFlagSelection.monthly => 'IMS 차량 월대차를 다시 켜는 중입니다.',
+      _RentalFlagSelection.both => 'IMS 차량 일대차와 월대차를 다시 켜는 중입니다.',
+    };
+  }
+
+  String get successMessage {
+    return switch (this) {
+      _RentalFlagSelection.general => '일대차 배차가능 처리했습니다.',
+      _RentalFlagSelection.monthly => '월대차 배차가능 처리했습니다.',
+      _RentalFlagSelection.both => '일대차/월대차 배차가능 처리했습니다.',
+    };
+  }
+}
+
 String _carDisplayLabel(StatusBoardRecord car) {
   final name = car.carName.trim();
   return name.isEmpty ? car.carNumber : '${car.carNumber} · $name';
+}
+
+List<String> _visibleAiParserWarnings(
+  ReservationAiParseResult result,
+  StatusBoardRecord? selectedCar,
+) {
+  final hasSelectedCar = selectedCar?.carNumber.trim().isNotEmpty == true;
+  if (!hasSelectedCar) return result.warnings;
+  return result.warnings
+      .where((warning) => warning.trim() != 'carNumber_missing')
+      .toList(growable: false);
 }
 
 class _CarSelectDialog extends StatefulWidget {
@@ -1529,11 +1714,12 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
       final result = await client.parseText(text);
       if (!mounted) return;
       _applyAiParserResult(result, sourceText: text);
+      final visibleWarnings = _visibleAiParserWarnings(result, _selectedCar);
 
       final message = [
         if (result.missing.isNotEmpty) '누락: ${result.missing.join(', ')}',
-        if (result.warnings.isNotEmpty) '경고: ${result.warnings.join(', ')}',
-        if (result.missing.isEmpty && result.warnings.isEmpty)
+        if (visibleWarnings.isNotEmpty) '경고: ${visibleWarnings.join(', ')}',
+        if (result.missing.isEmpty && visibleWarnings.isEmpty)
           'AI파서 결과를 입력했습니다.',
       ].join('\n');
 
@@ -1574,6 +1760,18 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
     }
 
     final result = _buildImportedImsFormResult(selected, matchedCar);
+    if (result == null || !mounted) return;
+    Navigator.of(context).pop(result);
+  }
+
+  Future<void> _openQuickCreate() async {
+    final result = await showDialog<_ReservationCreateFormResult>(
+      context: context,
+      builder: (context) => _QuickReservationCreateDialog(
+        initialCar: _selectedCar,
+        availableCars: widget.availableCars,
+      ),
+    );
     if (result == null || !mounted) return;
     Navigator.of(context).pop(result);
   }
@@ -1746,7 +1944,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
             children: [
               Expanded(
                 child: _ReservationDialogActionButton(
-                  label: 'AI파서',
+                  label: 'AI',
                   icon: Icons.auto_awesome_outlined,
                   loading: _aiParsing,
                   onPressed: _aiParsing ? null : _openAiParserInput,
@@ -1755,9 +1953,17 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
               const SizedBox(width: 8),
               Expanded(
                 child: _ReservationDialogActionButton(
-                  label: 'IMS 가져오기',
+                  label: 'IMS',
                   icon: Icons.cloud_download_outlined,
                   onPressed: _openImsImport,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ReservationDialogActionButton(
+                  label: '퀵',
+                  icon: Icons.flash_on_outlined,
+                  onPressed: _openQuickCreate,
                 ),
               ),
             ],
@@ -1808,7 +2014,6 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                     inputFormatters: [OpsBirthDateInputFormatter()],
                     validator: (_) => _reservationCreateBirthDateValidator(
                       value: _customerBirthDateController.text,
-                      imsChecked: _imsChecked,
                     ),
                   ),
                   _DialogTextField(
@@ -1819,7 +2024,7 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                     controller: _paymentAmountController,
                     label: '가격',
                     hintText: '100000',
-                    validator: _positiveMoneyValidator,
+                    validator: _optionalPositiveMoneyValidator,
                   ),
                   _DialogTextField(
                     controller: _startAtController,
@@ -1942,10 +2147,10 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
                 _customerPhoneController.text,
               ),
               customerBirthDate: _normalizeBirthDateForStorage(
-                _customerBirthDateController.text,
+                _defaultImsBirthDate(_customerBirthDateController.text),
               ),
               referralSource: _referralSourceController.text.trim(),
-              paymentAmount: _normalizeMoneyForStorage(
+              paymentAmount: _defaultImsPaymentAmount(
                 _paymentAmountController.text,
               ),
               startAt: startAt,
@@ -1998,6 +2203,251 @@ class _ReservationCreateDialogState extends State<_ReservationCreateDialog> {
           },
           child: const Text('생성'),
         ),
+      ],
+    );
+  }
+}
+
+class _QuickReservationCreateDialog extends StatefulWidget {
+  const _QuickReservationCreateDialog({
+    required this.initialCar,
+    required this.availableCars,
+  });
+
+  final StatusBoardRecord? initialCar;
+  final List<StatusBoardRecord> availableCars;
+
+  @override
+  State<_QuickReservationCreateDialog> createState() =>
+      _QuickReservationCreateDialogState();
+}
+
+class _QuickReservationCreateDialogState
+    extends State<_QuickReservationCreateDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _carController;
+  late final TextEditingController _customerNameController;
+  late final TextEditingController _customerPhoneController;
+  late final TextEditingController _paymentAmountController;
+  late final TextEditingController _startAtController;
+  late final TextEditingController _endAtController;
+  late final TextEditingController _pickupLocationController;
+  StatusBoardRecord? _selectedCar;
+  bool _imsChecked = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    final end = start.add(const Duration(days: 1));
+    _selectedCar = widget.initialCar;
+    _carController = TextEditingController(
+      text: _selectedCar == null ? '' : _carDisplayLabel(_selectedCar!),
+    );
+    _customerNameController = TextEditingController();
+    _customerPhoneController = TextEditingController();
+    _paymentAmountController = TextEditingController();
+    _startAtController = TextEditingController(text: opsYearPrefix(start));
+    _endAtController = TextEditingController(text: opsYearPrefix(end));
+    _pickupLocationController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _carController.dispose();
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
+    _paymentAmountController.dispose();
+    _startAtController.dispose();
+    _endAtController.dispose();
+    _pickupLocationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _selectCar() async {
+    final selected = await showDialog<StatusBoardRecord>(
+      context: context,
+      builder: (context) => _CarSelectDialog(
+        cars: widget.availableCars,
+        initialCar: _selectedCar,
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _selectedCar = selected;
+      _carController.text = _carDisplayLabel(selected);
+    });
+  }
+
+  Future<void> _pickDateTime(TextEditingController controller) async {
+    final now = DateTime.now();
+    final initial = _tryParseDateTime(controller.text.trim()) ?? now;
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 2),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (pickedTime == null || !mounted) return;
+
+    final combined = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    setState(() {
+      controller.text = _formatEditorDateTime(combined);
+    });
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+    final selectedCar = _selectedCar;
+    if (selectedCar == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('차량을 선택해주세요.')));
+      return;
+    }
+
+    final startAt = _tryParseDateTime(_startAtController.text.trim());
+    final endAt = _tryParseDateTime(_endAtController.text.trim());
+    if (startAt == null || endAt == null) return;
+    if (!endAt.isAfter(startAt)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('반납일시는 배차일시 이후여야 합니다.')));
+      return;
+    }
+
+    final pickupLocation = _defaultQuickOfficeLocation(
+      _pickupLocationController.text,
+    );
+    final result = _ReservationCreateFormResult(
+      car: selectedCar,
+      reservationNumber: '',
+      customerName: _customerNameController.text.trim(),
+      customerPhone: _normalizePhoneForStorage(_customerPhoneController.text),
+      customerBirthDate: _normalizeBirthDateForStorage(
+        _defaultImsBirthDate(''),
+      ),
+      referralSource: '퀵',
+      paymentAmount: _defaultImsPaymentAmount(_paymentAmountController.text),
+      startAt: startAt,
+      endAt: endAt,
+      pickupLocation: pickupLocation,
+      dropoffLocation: '사무실',
+      noteText: '퀵 예약생성',
+      imsChecked: _imsChecked,
+    );
+
+    Navigator.of(context).pop(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('퀵 예약생성'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _DialogTextField(
+                  controller: _carController,
+                  label: '차량선택',
+                  hintText: '차량 선택',
+                  readOnly: true,
+                  onTap: _selectCar,
+                  suffixIcon: const Icon(Icons.search_outlined),
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _customerNameController,
+                  label: '이름',
+                  validator: _requiredValidator,
+                ),
+                _DialogTextField(
+                  controller: _customerPhoneController,
+                  label: '전화번호',
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [OpsPhoneInputFormatter()],
+                  validator: _phoneValidator,
+                ),
+                _DialogTextField(
+                  controller: _paymentAmountController,
+                  label: '가격(선택)',
+                  hintText: '비우면 기본값',
+                  keyboardType: TextInputType.number,
+                  validator: _optionalPositiveMoneyValidator,
+                ),
+                _DialogTextField(
+                  controller: _startAtController,
+                  label: '배차일시',
+                  hintText: '2026-05171030',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    OpsDateTimeInputFormatter(defaultYear: DateTime.now().year),
+                  ],
+                  validator: _dateTimeValidator,
+                  suffixIcon: IconButton(
+                    onPressed: () => _pickDateTime(_startAtController),
+                    icon: const Icon(Icons.calendar_today_outlined),
+                  ),
+                ),
+                _DialogTextField(
+                  controller: _endAtController,
+                  label: '반납일시',
+                  hintText: '2026-05181030',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    OpsDateTimeInputFormatter(defaultYear: DateTime.now().year),
+                  ],
+                  validator: _dateTimeValidator,
+                  suffixIcon: IconButton(
+                    onPressed: () => _pickDateTime(_endAtController),
+                    icon: const Icon(Icons.calendar_today_outlined),
+                  ),
+                ),
+                _DialogTextField(
+                  controller: _pickupLocationController,
+                  label: '배차위치',
+                  hintText: '비우면 사무실',
+                ),
+                CheckboxListTile(
+                  value: _imsChecked,
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('IMS포함'),
+                  onChanged: (value) {
+                    setState(() => _imsChecked = value ?? false);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('바로 추가')),
       ],
     );
   }
@@ -3260,17 +3710,19 @@ class _ParkingLocationDialogState extends State<_ParkingLocationDialog> {
   }
 }
 
-class _RepairFactoryDialog extends StatefulWidget {
-  const _RepairFactoryDialog({required this.initialValue});
+class _DispatchUnavailableReasonDialog extends StatefulWidget {
+  const _DispatchUnavailableReasonDialog({required this.initialValue});
 
   final String initialValue;
 
   @override
-  State<_RepairFactoryDialog> createState() => _RepairFactoryDialogState();
+  State<_DispatchUnavailableReasonDialog> createState() =>
+      _DispatchUnavailableReasonDialogState();
 }
 
-class _RepairFactoryDialogState extends State<_RepairFactoryDialog> {
-  static const _placeholder = '입고공장 선택';
+class _DispatchUnavailableReasonDialogState
+    extends State<_DispatchUnavailableReasonDialog> {
+  static const _placeholder = '사유/위치 선택';
   late final TextEditingController _customController;
   late final List<String> _options;
   late String _selectedValue;
@@ -3309,7 +3761,7 @@ class _RepairFactoryDialogState extends State<_RepairFactoryDialog> {
     if (value.isEmpty || value == _placeholder) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('입고공장을 선택하거나 추가해 주세요.')));
+      ).showSnackBar(const SnackBar(content: Text('배차불가 사유나 위치를 선택해 주세요.')));
       return;
     }
     Navigator.of(context).pop(value);
@@ -3318,7 +3770,7 @@ class _RepairFactoryDialogState extends State<_RepairFactoryDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('입고공장 선택'),
+      title: const Text('배차불가 사유/위치'),
       content: SizedBox(
         width: 360,
         child: Column(
@@ -3326,7 +3778,7 @@ class _RepairFactoryDialogState extends State<_RepairFactoryDialog> {
           children: [
             DropdownButtonFormField<String>(
               initialValue: _selectedValue,
-              decoration: const InputDecoration(labelText: '입고공장'),
+              decoration: const InputDecoration(labelText: '사유/위치'),
               items: [
                 for (final option in _options)
                   DropdownMenuItem(value: option, child: Text(option)),
@@ -3345,7 +3797,7 @@ class _RepairFactoryDialogState extends State<_RepairFactoryDialog> {
                       setState(() => _showCustomInput = !_showCustomInput);
                     },
                     icon: const Icon(Icons.add),
-                    label: const Text('공장추가'),
+                    label: const Text('직접추가'),
                   ),
                 ),
               ],
@@ -3358,7 +3810,7 @@ class _RepairFactoryDialogState extends State<_RepairFactoryDialog> {
                   Expanded(
                     child: _DialogTextField(
                       controller: _customController,
-                      label: '새 공장명',
+                      label: '새 사유/위치',
                       autofocus: true,
                     ),
                   ),
@@ -3563,36 +4015,35 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
       _showError('일정 row id 를 찾지 못했습니다.');
       return;
     }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => _ConfirmActionDialog(
-        icon: Icons.event_available_outlined,
-        title: '일정 완료',
-        message: '이 일정을 완료 처리하고 연결된 예약/차량 상태를 함께 갱신합니다.',
-        confirmLabel: '완료',
-      ),
-    );
+    final scheduleType = record.scheduleType.trim().isEmpty
+        ? '일정'
+        : record.scheduleType.trim();
+    final externalLink = await _fetchActiveImsLink(record.reservationId);
+    bool confirmed;
+    if (externalLink != null) {
+      if (!mounted || !context.mounted) return;
+      confirmed = await _showImsAuthorityConfirmationDialog(
+        context,
+        actionLabel: '$scheduleType 완료',
+        link: externalLink,
+      );
+    } else {
+      if (!mounted || !context.mounted) return;
+      confirmed =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => _ConfirmActionDialog(
+              icon: Icons.event_available_outlined,
+              title: '일정 완료',
+              message: '이 일정을 완료 처리하고 연결된 예약/차량 상태를 함께 갱신합니다.',
+              confirmLabel: '완료',
+            ),
+          ) ??
+          false;
+    }
     if (confirmed != true) return;
 
     await _runScheduleAction(() async {
-      final isLinkedReturn =
-          record.scheduleType.trim() == '반납' &&
-          record.reservationId.trim().isNotEmpty;
-      final externalLink = isLinkedReturn
-          ? await ref.read(
-              externalReservationLinkProvider(record.reservationId).future,
-            )
-          : null;
-      ImsReturnInputResult? imsReturnInput;
-      if (externalLink?.isActiveBinding == true) {
-        if (!mounted) return;
-        imsReturnInput = await showDialog<ImsReturnInputResult>(
-          context: context,
-          builder: (context) => const ImsReturnInputDialog(),
-        );
-        if (imsReturnInput == null) return;
-      }
       await ref
           .read(supabaseOpsRepositoryProvider)
           .completeSchedule(
@@ -3601,40 +4052,23 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
             reservationId: record.reservationId,
             carNumber: record.carNumber,
           );
-      var imsMessage = '';
-      if (externalLink?.isActiveBinding == true) {
-        final contractId = _resolveImsReturnContractId(externalLink);
-        if (contractId.isEmpty) {
-          imsMessage = ' IMS 반납완료는 실패했습니다(IMS 계약 ID 없음).';
-        } else {
-          try {
-            final appEnv = ref.read(appEnvProvider);
-            final imsResult =
-                await ImsReservationClient(
-                  baseUrl: appEnv.aiParserBaseUrl,
-                ).completeReservationReturn(
-                  contractId: contractId,
-                  reservationId: record.reservationId,
-                  doneAt: DateTime.now(),
-                  returnGasCharge: imsReturnInput!.returnGasCharge,
-                  drivenDistanceUponReturn:
-                      imsReturnInput.drivenDistanceUponReturn,
-                  fuelCost: imsReturnInput.fuelCost,
-                );
-            imsMessage = imsResult.isSuccess
-                ? ' IMS도 반납완료 처리했습니다.'
-                : ' IMS 반납완료는 실패했습니다(${imsResult.message.isEmpty ? imsResult.code : imsResult.message}).';
-          } catch (error) {
-            imsMessage = ' IMS 반납완료는 실패했습니다($error).';
-          }
-        }
-      }
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('일정완료 처리했습니다.$imsMessage')));
+      ).showSnackBar(const SnackBar(content: Text('일정완료 처리했습니다.')));
       context.pop();
     });
+  }
+
+  Future<ExternalReservationLink?> _fetchActiveImsLink(
+    String reservationId,
+  ) async {
+    final normalizedReservationId = reservationId.trim();
+    if (normalizedReservationId.isEmpty) return null;
+    final link = await ref.read(
+      externalReservationLinkProvider(normalizedReservationId).future,
+    );
+    return link?.isActiveBinding == true ? link : null;
   }
 
   Future<void> _editSchedule() async {
@@ -3750,6 +4184,46 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
       ).showSnackBar(const SnackBar(content: Text('일정을 삭제했습니다.')));
       context.pop();
     });
+  }
+
+  Future<void> _copyDeliveryMessage() async {
+    final message = _buildDeliveryMessage(record);
+    if (message.isEmpty) {
+      _showError('탁송문구를 만들 수 없습니다.');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: message));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('클립보드에 넣었습니다. 붙여넣기 하세요.')));
+  }
+
+  String _buildDeliveryMessage(StatusBoardRecord record) {
+    final type = record.scheduleType.trim();
+    final carLine = [
+      record.carNumber,
+      record.carName,
+    ].where((value) => value.trim().isNotEmpty).join(' ').trim();
+    final location = record.locationSummary.trim();
+    final phone = record.customerPhone.trim();
+    if (carLine.isEmpty || location.isEmpty) return '';
+
+    if (type == '반납') {
+      return [
+        carLine,
+        '출발지 : $location',
+        if (phone.isNotEmpty) '출발지번호 : $phone',
+        '도착지 : 빵빵렌터카',
+      ].join('\n');
+    }
+
+    return [
+      carLine,
+      '출발지 : 빵빵렌터카',
+      '도착지 : $location',
+      if (phone.isNotEmpty) '착지번호 : $phone',
+    ].join('\n');
   }
 
   void _showError(String message) {
@@ -3869,6 +4343,14 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
                             ? null
                             : () => tryLaunchSms(context, record.customerPhone),
                       ),
+                    if (record.scheduleType.trim() == '배차' ||
+                        record.scheduleType.trim() == '반납')
+                      _ActionChipButton(
+                        label: '탁송문구',
+                        icon: Icons.content_copy_outlined,
+                        expand: true,
+                        onPressed: _submitting ? null : _copyDeliveryMessage,
+                      ),
                     _ActionChipButton(
                       label: '삭제',
                       icon: Icons.delete_outline,
@@ -3943,10 +4425,23 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
   }
 }
 
-class _VehicleAvailabilityCalendar extends StatelessWidget {
-  const _VehicleAvailabilityCalendar({required this.items});
+class _VehicleAvailabilityCalendar extends StatefulWidget {
+  const _VehicleAvailabilityCalendar({
+    required this.items,
+    required this.scheduleDots,
+  });
 
   final List<_AvailabilityItem> items;
+  final List<_AvailabilityScheduleDot> scheduleDots;
+
+  @override
+  State<_VehicleAvailabilityCalendar> createState() =>
+      _VehicleAvailabilityCalendarState();
+}
+
+class _VehicleAvailabilityCalendarState
+    extends State<_VehicleAvailabilityCalendar> {
+  int _pageOffset = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -3954,7 +4449,8 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final gridStart = today.subtract(Duration(days: today.weekday % 7));
+    final baseGridStart = today.subtract(Duration(days: today.weekday % 7));
+    final gridStart = baseGridStart.add(Duration(days: _pageOffset * 35));
     final weeks = List.generate(
       5,
       (week) => List.generate(
@@ -3962,10 +4458,16 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
         (day) => gridStart.add(Duration(days: week * 7 + day)),
       ),
     );
-    final visibleItems = items.where((item) {
-      return !item.endAt.isBefore(gridStart) &&
+    final visibleItems = widget.items.where((item) {
+      return !item.endAt.isBefore(today) &&
+          !item.endAt.isBefore(gridStart) &&
           !item.startAt.isAfter(weeks.last.last);
     }).toList()..sort((a, b) => a.startAt.compareTo(b.startAt));
+    final visibleScheduleDots = widget.scheduleDots.where((dot) {
+      return !dot.date.isBefore(today) &&
+          !dot.date.isBefore(gridStart) &&
+          !dot.date.isAfter(weeks.last.last);
+    }).toList()..sort((a, b) => a.date.compareTo(b.date));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3981,12 +4483,23 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
                 ),
               ),
             ),
-            Text(
-              '${items.length}건',
-              style: textTheme.labelSmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w800,
+            _AvailabilityCalendarArrow(
+              icon: Icons.chevron_left_rounded,
+              onPressed: () => setState(() => _pageOffset -= 1),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                '${widget.items.length}건',
+                style: textTheme.labelSmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
+            ),
+            _AvailabilityCalendarArrow(
+              icon: Icons.chevron_right_rounded,
+              onPressed: () => setState(() => _pageOffset += 1),
             ),
           ],
         ),
@@ -4026,6 +4539,7 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
                     days: weeks[weekIndex],
                     today: today,
                     items: visibleItems,
+                    scheduleDots: visibleScheduleDots,
                     showBottomBorder: weekIndex != weeks.length - 1,
                   ),
               ],
@@ -4042,6 +4556,21 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
               borderColor: Color(0xFFD32F2F),
               label: '예약중',
             ),
+            const _AvailabilityLegendDot(
+              color: Color(0xFF1976D2),
+              borderColor: Color(0xFF1976D2),
+              label: '배차일정',
+            ),
+            const _AvailabilityLegendDot(
+              color: Color(0xFFD32F2F),
+              borderColor: Color(0xFFD32F2F),
+              label: '반납일정',
+            ),
+            const _AvailabilityLegendDot(
+              color: Color(0xFF2E7D32),
+              borderColor: Color(0xFF2E7D32),
+              label: '기타일정',
+            ),
             Text(
               '막대 양끝 시간 = 배차/반납',
               style: textTheme.labelSmall?.copyWith(
@@ -4056,23 +4585,55 @@ class _VehicleAvailabilityCalendar extends StatelessWidget {
   }
 }
 
+class _AvailabilityCalendarArrow extends StatelessWidget {
+  const _AvailabilityCalendarArrow({
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 24,
+      height: 24,
+      child: IconButton.filledTonal(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 15),
+        padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.compact,
+        style: IconButton.styleFrom(
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          minimumSize: const Size(24, 24),
+        ),
+      ),
+    );
+  }
+}
+
 class _AvailabilityWeekRow extends StatelessWidget {
   const _AvailabilityWeekRow({
     required this.days,
     required this.today,
     required this.items,
+    required this.scheduleDots,
     required this.showBottomBorder,
   });
 
   final List<DateTime> days;
   final DateTime today;
   final List<_AvailabilityItem> items;
+  final List<_AvailabilityScheduleDot> scheduleDots;
   final bool showBottomBorder;
 
   @override
   Widget build(BuildContext context) {
     final segments = _buildSegments();
-    const rowHeight = 54.0;
+    final dotsByDay = _groupScheduleDotsByDay();
+    final rowHeight =
+        54.0 + (segments.length > 2 ? segments.length - 2 : 0) * 15.0;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -4089,6 +4650,7 @@ class _AvailabilityWeekRow extends StatelessWidget {
                         date: days[index],
                         today: today,
                         isPast: days[index].isBefore(today),
+                        scheduleDotType: dotsByDay[_dateOnly(days[index])],
                         showRightBorder: index != days.length - 1,
                         showBottomBorder: showBottomBorder,
                       ),
@@ -4171,14 +4733,26 @@ class _AvailabilityWeekRow extends StatelessWidget {
           item: item,
           startIndex: startIndex,
           length: endIndex - startIndex + 1,
-          lane: result.length % 2,
+          lane: result.length,
           continuesFromPrevious: startDate.isBefore(weekStart),
           continuesToNext: endDate.isAfter(weekEnd),
           showName: endDate.difference(startDate).inDays + 1 >= 3,
         ),
       );
     }
-    return result.take(2).toList();
+    return result;
+  }
+
+  Map<DateTime, String> _groupScheduleDotsByDay() {
+    final result = <DateTime, String>{};
+    final weekStart = days.first;
+    final weekEnd = days.last;
+    for (final dot in scheduleDots) {
+      final date = _dateOnly(dot.date);
+      if (date.isBefore(weekStart) || date.isAfter(weekEnd)) continue;
+      result[date] = _mergeScheduleDotType(result[date], dot.scheduleType);
+    }
+    return result;
   }
 }
 
@@ -4187,6 +4761,7 @@ class _AvailabilityDayCell extends StatelessWidget {
     required this.date,
     required this.today,
     required this.isPast,
+    required this.scheduleDotType,
     required this.showRightBorder,
     required this.showBottomBorder,
   });
@@ -4194,6 +4769,7 @@ class _AvailabilityDayCell extends StatelessWidget {
   final DateTime date;
   final DateTime today;
   final bool isPast;
+  final String? scheduleDotType;
   final bool showRightBorder;
   final bool showBottomBorder;
 
@@ -4214,32 +4790,48 @@ class _AvailabilityDayCell extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.only(left: 4, top: 4),
-        child: Align(
-          alignment: Alignment.topLeft,
-          child: Container(
-            padding: isToday
-                ? const EdgeInsets.symmetric(horizontal: 4, vertical: 1)
-                : EdgeInsets.zero,
-            decoration: isToday
-                ? BoxDecoration(
-                    color: colorScheme.onSurface,
-                    borderRadius: BorderRadius.circular(6),
-                  )
-                : null,
-            child: Text(
-              '${date.day}',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: isToday
-                    ? colorScheme.surface
-                    : isPast
-                    ? colorScheme.outline
-                    : colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w900,
-                fontSize: 10,
+        padding: const EdgeInsets.only(left: 4, top: 4, right: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: isToday
+                  ? const EdgeInsets.symmetric(horizontal: 4, vertical: 1)
+                  : EdgeInsets.zero,
+              decoration: isToday
+                  ? BoxDecoration(
+                      color: colorScheme.onSurface,
+                      borderRadius: BorderRadius.circular(6),
+                    )
+                  : null,
+              child: Text(
+                _formatAvailabilityDateLabel(date),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: isToday
+                      ? colorScheme.surface
+                      : isPast
+                      ? colorScheme.outline
+                      : colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 10,
+                ),
               ),
             ),
-          ),
+            if (scheduleDotType != null) ...[
+              const SizedBox(height: 17),
+              Align(
+                alignment: Alignment.center,
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: _availabilityScheduleColor(scheduleDotType!),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -4318,6 +4910,18 @@ class _AvailabilityItem {
   final DateTime endAt;
 }
 
+class _AvailabilityScheduleDot {
+  const _AvailabilityScheduleDot({
+    required this.id,
+    required this.date,
+    required this.scheduleType,
+  });
+
+  final String id;
+  final DateTime date;
+  final String scheduleType;
+}
+
 List<_AvailabilityItem> _buildAvailabilityItems({
   required StatusBoardRecord car,
   required List<ReservationRecord> reservations,
@@ -4332,7 +4936,10 @@ List<_AvailabilityItem> _buildAvailabilityItems({
               return false;
             }
             final status = reservation.statusKey.trim();
-            if (status == '예약취소') return false;
+            if (status == '예약취소' || status == '완료') return false;
+            if (reservation.tab == ReservationTab.completed) return false;
+            final now = DateTime.now();
+            if (reservation.endAt.isBefore(now)) return false;
             return !reservation.endAt.isBefore(reservation.startAt);
           })
           .map(
@@ -4384,6 +4991,41 @@ List<_AvailabilityItem> _buildAvailabilityItems({
   return deduped;
 }
 
+List<_AvailabilityScheduleDot> _buildAvailabilityScheduleDots({
+  required List<StatusBoardRecord> schedules,
+}) {
+  final dots = <_AvailabilityScheduleDot>[];
+  for (final schedule in schedules) {
+    if (!schedule.isScheduleEntry) continue;
+    if (schedule.reservationId.trim().isNotEmpty) continue;
+    final date = schedule.sortAt ?? _tryParseDateTime(schedule.startAt);
+    if (date == null) continue;
+    dots.add(
+      _AvailabilityScheduleDot(
+        id: schedule.recordId,
+        date: _dateOnly(date),
+        scheduleType: schedule.scheduleType.trim(),
+      ),
+    );
+  }
+  return dots;
+}
+
+String _mergeScheduleDotType(String? current, String next) {
+  final normalized = next.trim();
+  if (current == '배차' || normalized == '배차') return '배차';
+  if (current == '반납' || normalized == '반납') return '반납';
+  return '기타';
+}
+
+Color _availabilityScheduleColor(String type) {
+  return switch (type.trim()) {
+    '배차' => const Color(0xFF1976D2),
+    '반납' => const Color(0xFFD32F2F),
+    _ => const Color(0xFF2E7D32),
+  };
+}
+
 String _normalizeCarNumber(String value) {
   return value.replaceAll(RegExp(r'[^0-9가-힣a-zA-Z]'), '').trim();
 }
@@ -4393,6 +5035,11 @@ DateTime _dateOnly(DateTime value) =>
 
 bool _sameDate(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
+
+String _formatAvailabilityDateLabel(DateTime value) {
+  if (value.day == 1) return '${value.month}/${value.day}';
+  return '${value.day}';
+}
 
 String _formatAvailabilityTime(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');
@@ -4427,11 +5074,13 @@ class _RelatedScheduleCompactCard extends StatelessWidget {
     final isReturn = type == '반납';
     final isDispatch = type == '배차';
     final isDone = _isTruthy(item.scheduleDone);
-    final typeColor = isReturn
-        ? const Color(0xFFD96B00)
-        : isDispatch
-        ? const Color(0xFF1976D2)
-        : colorScheme.primary;
+    final typeColor = _availabilityScheduleColor(
+      isDispatch
+          ? '배차'
+          : isReturn
+          ? '반납'
+          : '기타',
+    );
     final typeBg = typeColor.withValues(alpha: emphasize ? 0.14 : 0.08);
     final location = item.locationSummary.trim().isNotEmpty
         ? item.locationSummary.trim()
@@ -4769,6 +5418,69 @@ class _DialogTextField extends StatelessWidget {
   }
 }
 
+class _RentalFlagSelectionDialog extends StatefulWidget {
+  const _RentalFlagSelectionDialog();
+
+  @override
+  State<_RentalFlagSelectionDialog> createState() =>
+      _RentalFlagSelectionDialogState();
+}
+
+class _RentalFlagSelectionDialogState
+    extends State<_RentalFlagSelectionDialog> {
+  _RentalFlagSelection _selection = _RentalFlagSelection.both;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      icon: Icon(Icons.task_alt_rounded, color: colorScheme.primary),
+      title: const Text('배차가능'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text('다시 켤 IMS 대차 구분을 선택하세요.'),
+          ),
+          const SizedBox(height: 8),
+          for (final option in _RentalFlagSelection.values)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                _selection == option
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: _selection == option ? colorScheme.primary : null,
+              ),
+              title: Text(option.title),
+              subtitle: Text(option.description),
+              onTap: () => setState(() => _selection = option),
+            ),
+          const SizedBox(height: 4),
+          Text(
+            '확인 시 OPS 차량 상태는 대기중으로 전환됩니다.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_selection),
+          child: const Text('확인'),
+        ),
+      ],
+    );
+  }
+}
+
 class _ConfirmActionDialog extends StatelessWidget {
   const _ConfirmActionDialog({
     required this.icon,
@@ -5011,9 +5723,9 @@ String? _phoneValidator(String? value) {
   return null;
 }
 
-String? _positiveMoneyValidator(String? value) {
+String? _optionalPositiveMoneyValidator(String? value) {
   final digits = _normalizeMoneyForStorage(value ?? '');
-  if (digits.isEmpty) return '필수 입력입니다.';
+  if (digits.isEmpty) return null;
   final amount = int.tryParse(digits);
   if (amount == null || amount <= 0) {
     return '0보다 큰 숫자로 입력하세요.';
@@ -5021,14 +5733,9 @@ String? _positiveMoneyValidator(String? value) {
   return null;
 }
 
-String? _reservationCreateBirthDateValidator({
-  required String value,
-  required bool imsChecked,
-}) {
+String? _reservationCreateBirthDateValidator({required String value}) {
   final text = value.trim();
-  if (text.isEmpty) {
-    return imsChecked ? 'IMS 연동생성 시 생년월일은 필수입니다.' : null;
-  }
+  if (text.isEmpty) return null;
   if (!opsIsCompleteBirthDate(text)) {
     return '실제 날짜를 입력하세요.';
   }
@@ -5037,14 +5744,69 @@ String? _reservationCreateBirthDateValidator({
 
 String _defaultOfficeLocation(String value) {
   final trimmed = value.trim();
+  return trimmed.isEmpty ? '빵빵렌터카' : trimmed;
+}
+
+String _defaultQuickOfficeLocation(String value) {
+  final trimmed = value.trim();
   return trimmed.isEmpty ? '사무실' : trimmed;
 }
 
-String _resolveImsReturnContractId(ExternalReservationLink? link) {
-  if (link == null) return '';
+String _defaultImsBirthDate(String value) {
+  return value.trim().isEmpty ? '1900-01-01' : value;
+}
+
+String _defaultImsPaymentAmount(String value) {
+  final normalized = _normalizeMoneyForStorage(value);
+  return normalized.isEmpty ? '1' : normalized;
+}
+
+Future<bool> _showImsAuthorityConfirmationDialog(
+  BuildContext context, {
+  required String actionLabel,
+  required ExternalReservationLink link,
+}) async {
+  return await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.link_outlined),
+          title: Text('$actionLabel 확인'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('이 예약은 IMS에 연결되어 있습니다.'),
+              const SizedBox(height: 8),
+              const Text('IMS 계약 상태는 변경하지 않고 OPS 일정만 완료합니다.'),
+              const SizedBox(height: 12),
+              Text('연결 IMS: ${_displayImsLinkId(link)}'),
+              if (link.sourceType.trim().isNotEmpty)
+                Text('구분: ${link.sourceType.trim()}'),
+              if (link.linkKey.trim().isNotEmpty)
+                Text('link: ${link.linkKey.trim()}'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('OPS 일정 완료'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
+
+String _displayImsLinkId(ExternalReservationLink link) {
+  final reservationId = link.externalReservationId.trim();
   final detailId = link.externalDetailId.trim();
-  if (detailId.isNotEmpty) return detailId;
-  return link.externalReservationId.trim();
+  if (reservationId.isEmpty && detailId.isEmpty) return '-';
+  if (detailId.isEmpty || detailId == reservationId) return reservationId;
+  return '$reservationId / $detailId';
 }
 
 String? _extractRawRowId(String recordId, String prefix) {
@@ -5087,8 +5849,8 @@ bool _isIdleStatus(String status) {
   return normalized == '대기' || normalized == '대기중';
 }
 
-bool _isRepairStatus(String status) {
-  return status.trim() == '수리중';
+bool _isDispatchUnavailableStatus(String status) {
+  return status.trim() == '배차불가';
 }
 
 bool _isInServiceStatus(String status) {

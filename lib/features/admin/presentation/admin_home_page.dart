@@ -16,7 +16,10 @@ class AdminHomePage extends ConsumerWidget {
       body: staffAsync.when(
         data: (staff) {
           if (staff?.isAdmin != true) {
-            return const _AdminBlockedView();
+            return _StaffMenuView(
+              displayName: staff?.displayName ?? '직원',
+              loginId: staff?.loginId ?? '',
+            );
           }
 
           return ListView(
@@ -67,33 +70,62 @@ class AdminHomePage extends ConsumerWidget {
   }
 }
 
-class _AdminBlockedView extends StatelessWidget {
-  const _AdminBlockedView();
+class _StaffMenuView extends ConsumerWidget {
+  const _StaffMenuView({required this.displayName, required this.loginId});
+
+  final String displayName;
+  final String loginId;
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.lock_outline_rounded,
-              size: 44,
-              color: Theme.of(context).colorScheme.outline,
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      children: [
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '직원 메뉴',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  loginId.isEmpty
+                      ? '$displayName 로그인 중'
+                      : '$displayName ($loginId) 로그인 중',
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              '관리자만 접근할 수 있습니다.',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-              textAlign: TextAlign.center,
-            ),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(height: 14),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: ListTile(
+            leading: const Icon(Icons.logout),
+            title: const Text('로그아웃'),
+            subtitle: const Text('다른 직원 계정으로 다시 로그인합니다.'),
+            onTap: () async {
+              await ref.read(authControllerProvider).signOut();
+              if (context.mounted) {
+                context.go(AppRoutes.login);
+              }
+            },
+          ),
+        ),
+      ],
     );
   }
 }

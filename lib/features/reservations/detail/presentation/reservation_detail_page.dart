@@ -7,7 +7,6 @@ import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
-import 'package:rentcar00_ops/features/reservations/detail/presentation/ims_return_input_dialog.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
@@ -62,22 +61,20 @@ class _ReservationDetailBodyState
   bool _lifecycleUpdating = false;
   bool _cancelUpdating = false;
 
-  Future<void> _markHomepageReviewed(ReservationRecord reservation) async {
+  Future<void> _markSourceReviewed(ReservationRecord reservation) async {
     if (_reservationUpdating) return;
+    final label = reservationSourceReviewLabel(reservation);
     setState(() => _reservationUpdating = true);
     try {
       await ref
           .read(supabaseOpsRepositoryProvider)
-          .markHomepageReservationReviewed(
+          .markReservationSourceReviewed(
             reservationId: reservation.reservationId,
           );
       ref.invalidate(allReservationsProvider);
       ref.invalidate(actionLogsProvider(widget.reservationId));
       if (!mounted) return;
-      _showSnack(
-        '홈페이지 예약 확인 완료 처리했습니다.',
-        backgroundColor: Colors.green.shade700,
-      );
+      _showSnack('$label 완료 처리했습니다.', backgroundColor: Colors.green.shade700);
     } catch (error) {
       if (!mounted) return;
       _showSnack('확인 처리 실패($error)', backgroundColor: Colors.red.shade700);
@@ -242,6 +239,7 @@ class _ReservationDetailBodyState
                 externalReservationId: imsResult.externalReservationId,
                 externalDetailId: externalLink.externalDetailId,
                 externalStatus: 'linked',
+                sourceType: 'normal_schedule',
                 linkKey: imsResult.linkKey.trim().isEmpty
                     ? externalLink.linkKey
                     : imsResult.linkKey.trim(),
@@ -322,52 +320,48 @@ class _ReservationDetailBodyState
     }
 
     final isReturn = normalizedType == '반납';
-    final imsActive = isReturn && externalLink?.isActiveBinding == true;
-    final dialogLines = isReturn
-        ? [
-            '연결된 반납 일정을 완료 처리합니다.',
-            '차량 상태를 대기중으로 전환합니다.',
-            if (imsActive) '연결된 IMS 예약도 반납완료를 시도합니다.',
-          ]
-        : ['연결된 배차 일정을 완료 처리합니다.', '차량 상태를 일반으로 전환합니다.'];
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isReturn ? '반납완료 처리할까요?' : '배차완료 처리할까요?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final line in dialogLines)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text('• $line'),
-              ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('완료'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    ImsReturnInputResult? imsReturnInput;
-    if (imsActive) {
-      if (!mounted) return;
-      imsReturnInput = await showDialog<ImsReturnInputResult>(
-        context: context,
-        builder: (context) => const ImsReturnInputDialog(),
+    bool confirmed;
+    if (externalLink?.isActiveBinding == true) {
+      confirmed = await _showImsAuthorityConfirmationDialog(
+        context,
+        actionLabel: isReturn ? '반납완료' : '배차완료',
+        link: externalLink!,
       );
-      if (imsReturnInput == null) return;
+    } else {
+      final dialogLines = isReturn
+          ? ['연결된 반납 일정을 완료 처리합니다.', '차량 상태를 대기중으로 전환합니다.']
+          : ['연결된 배차 일정을 완료 처리합니다.', '차량 상태를 일반으로 전환합니다.'];
+      confirmed =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text(isReturn ? '반납완료 처리할까요?' : '배차완료 처리할까요?'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final line in dialogLines)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text('• $line'),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('취소'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('완료'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
     }
+    if (confirmed != true) return;
 
     if (!mounted) return;
     setState(() => _lifecycleUpdating = true);
@@ -383,37 +377,6 @@ class _ReservationDetailBodyState
                 : target.carNumber,
           );
 
-      var imsMessage = '';
-      var imsSucceeded = false;
-      if (imsActive) {
-        final contractId = _resolveImsReturnContractId(externalLink);
-        if (contractId.isEmpty) {
-          imsMessage = ' IMS 반납완료는 실패했습니다(IMS 계약 ID 없음).';
-        } else {
-          try {
-            final appEnv = ref.read(appEnvProvider);
-            final imsResult =
-                await ImsReservationClient(
-                  baseUrl: appEnv.aiParserBaseUrl,
-                ).completeReservationReturn(
-                  contractId: contractId,
-                  reservationId: reservation.reservationId,
-                  doneAt: DateTime.now(),
-                  returnGasCharge: imsReturnInput!.returnGasCharge,
-                  drivenDistanceUponReturn:
-                      imsReturnInput.drivenDistanceUponReturn,
-                  fuelCost: imsReturnInput.fuelCost,
-                );
-            imsSucceeded = imsResult.isSuccess;
-            imsMessage = imsSucceeded
-                ? ' IMS도 반납완료 처리했습니다.'
-                : ' IMS 반납완료는 실패했습니다(${imsResult.message.isEmpty ? imsResult.code : imsResult.message}).';
-          } catch (error) {
-            imsMessage = ' IMS 반납완료는 실패했습니다($error).';
-          }
-        }
-      }
-
       ref.invalidate(allReservationsProvider);
       ref.invalidate(allStatusBoardRecordsProvider);
       ref.invalidate(reservationDetailProvider(widget.reservationId));
@@ -422,10 +385,8 @@ class _ReservationDetailBodyState
 
       if (!mounted) return;
       _showSnack(
-        '${isReturn ? '반납완료' : '배차완료'} 처리했습니다.$imsMessage',
-        backgroundColor: imsActive && !imsSucceeded
-            ? Colors.orange.shade800
-            : Colors.green.shade700,
+        '${isReturn ? '반납완료' : '배차완료'} 처리했습니다.',
+        backgroundColor: Colors.green.shade700,
       );
     } catch (error) {
       if (!mounted) return;
@@ -690,6 +651,7 @@ class _ReservationDetailBodyState
           externalReservationId: result.externalReservationId,
           externalDetailId: result.externalDetailId,
           externalStatus: linked ? 'linked' : 'failed',
+          sourceType: 'normal_schedule',
           linkKey: result.linkKey.trim().isEmpty
               ? 'OPS:${widget.reservationId.trim()}'
               : result.linkKey.trim(),
@@ -716,6 +678,7 @@ class _ReservationDetailBodyState
         .upsertExternalReservationLink(
           reservationId: widget.reservationId,
           externalStatus: 'failed',
+          sourceType: 'normal_schedule',
           linkKey: 'OPS:${widget.reservationId.trim()}',
           lastPayloadJson: payload.toJson(),
           lastResultJson: {'error': errorText},
@@ -815,8 +778,8 @@ class _ReservationDetailBodyState
         final logs = logsAsync.valueOrNull ?? const [];
         final outboxPreview = outboxPreviewAsync.valueOrNull ?? const [];
         final hasPhone = hasCallablePhone(reservation.customerPhone);
-        final needsHomepageReview =
-            reservation.checkPayload['homepage_review'] == 'pending';
+        final needsSourceReview = reservationNeedsSourceReview(reservation);
+        final sourceReviewLabel = reservationSourceReviewLabel(reservation);
         final externalLink = externalLinkAsync.valueOrNull;
         final hasActiveImsRegistration = externalLink?.isActiveBinding == true;
         final linkedSchedules =
@@ -925,12 +888,9 @@ class _ReservationDetailBodyState
                     if (showReturnComplete) ...[
                       _LifecycleActionButton(
                         label: '반납완료',
-                        description: hasActiveImsRegistration
-                            ? '연결 반납일정 완료 + 차량 대기중 전환 + IMS 반납 시도'
-                            : '연결 반납일정 완료 + 차량 대기중 전환',
+                        description: '연결 반납일정 완료 + 차량 대기중 전환',
                         icon: Icons.assignment_turned_in_outlined,
                         loading: _lifecycleUpdating,
-                        danger: hasActiveImsRegistration,
                         onPressed: _lifecycleUpdating
                             ? null
                             : () => _completeReservationLifecycle(
@@ -982,14 +942,14 @@ class _ReservationDetailBodyState
                                 ? null
                                 : _submitImsReservation,
                           ),
-                        if (needsHomepageReview)
+                        if (needsSourceReview)
                           _DetailActionButton(
-                            label: '홈페이지확인',
+                            label: sourceReviewLabel.replaceAll(' ', ''),
                             icon: Icons.check_circle_outline,
                             loading: _reservationUpdating,
                             onPressed: _reservationUpdating
                                 ? null
-                                : () => _markHomepageReviewed(reservation),
+                                : () => _markSourceReviewed(reservation),
                           ),
                         _DetailActionButton(
                           label: '예약취소',
@@ -1936,7 +1896,6 @@ class _LifecycleActionButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.loading = false,
-    this.danger = false,
   });
 
   final String label;
@@ -1944,17 +1903,12 @@ class _LifecycleActionButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;
   final bool loading;
-  final bool danger;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final background = danger
-        ? colorScheme.tertiaryContainer
-        : colorScheme.primaryContainer;
-    final foreground = danger
-        ? colorScheme.onTertiaryContainer
-        : colorScheme.onPrimaryContainer;
+    final background = colorScheme.primaryContainer;
+    final foreground = colorScheme.onPrimaryContainer;
 
     return SizedBox(
       width: double.infinity,
@@ -2276,11 +2230,52 @@ String _displayValue(String value) {
   return trimmed.isEmpty ? '-' : trimmed;
 }
 
-String _resolveImsReturnContractId(ExternalReservationLink? link) {
-  if (link == null) return '';
+Future<bool> _showImsAuthorityConfirmationDialog(
+  BuildContext context, {
+  required String actionLabel,
+  required ExternalReservationLink link,
+}) async {
+  return await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: const Icon(Icons.link_outlined),
+          title: Text('$actionLabel 확인'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('이 예약은 IMS에 연결되어 있습니다.'),
+              const SizedBox(height: 8),
+              const Text('IMS 계약 상태는 변경하지 않고 OPS 일정만 완료합니다.'),
+              const SizedBox(height: 12),
+              Text('연결 IMS: ${_displayImsLinkId(link)}'),
+              if (link.sourceType.trim().isNotEmpty)
+                Text('구분: ${link.sourceType.trim()}'),
+              if (link.linkKey.trim().isNotEmpty)
+                Text('link: ${link.linkKey.trim()}'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('OPS 일정 완료'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
+
+String _displayImsLinkId(ExternalReservationLink link) {
+  final reservationId = link.externalReservationId.trim();
   final detailId = link.externalDetailId.trim();
-  if (detailId.isNotEmpty) return detailId;
-  return link.externalReservationId.trim();
+  if (reservationId.isEmpty && detailId.isEmpty) return '-';
+  if (detailId.isEmpty || detailId == reservationId) return reservationId;
+  return '$reservationId / $detailId';
 }
 
 String? _extractRawRowId(String recordId, String prefix) {

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:rentcar00_ops/data/models/action_log_entry.dart';
 import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/reservation_record.dart';
+import 'package:rentcar00_ops/data/models/reservation_cancellation_notice.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
@@ -30,6 +31,25 @@ class SupabaseOpsRepository {
     }
     final rows = await query.order('created_at', ascending: false).limit(limit);
     return rows.map<ActionLogEntry>(ActionLogEntry.fromJson).toList();
+  }
+
+  Future<List<ReservationCancellationNotice>>
+  fetchReservationCancellationNotices({int limit = 100}) async {
+    final rows = await _client
+        .from('rc00_ops_reservation_events')
+        .select(
+          'id, event_id, event_type, booking_order_id, reservation_code, payload_json, received_at, status, created_at, updated_at',
+        )
+        .eq('event_type', 'reservation.cancelled')
+        .inFilter('status', ['pending_review', 'received'])
+        .order('received_at', ascending: false)
+        .limit(limit);
+
+    return rows
+        .map<ReservationCancellationNotice>(
+          ReservationCancellationNotice.fromRow,
+        )
+        .toList();
   }
 
   Future<void> recordActionLog({
@@ -345,7 +365,7 @@ class SupabaseOpsRepository {
     final rows = await _client
         .from('rc00_ops_reservations')
         .select(
-          'reservation_id, reservation_number, customer_name, start_at, end_at',
+          'reservation_id, reservation_number, customer_name, start_at, end_at, reservation_status',
         )
         .eq('car_number', normalizedCarNumber);
 
@@ -355,6 +375,11 @@ class SupabaseOpsRepository {
           .trim();
       if (otherReservationId.isEmpty ||
           otherReservationId == normalizedReservationId) {
+        continue;
+      }
+      final reservationStatus = (row['reservation_status'] as String? ?? '')
+          .trim();
+      if (reservationStatus == '예약취소' || reservationStatus == '완료') {
         continue;
       }
       final otherStartAt = _parseDateTime(row['start_at']);
@@ -555,6 +580,38 @@ class SupabaseOpsRepository {
     return ExternalReservationLink.fromRow(rows.first);
   }
 
+  Future<ExternalReservationLink?> fetchExternalReservationLinkByLinkKey({
+    required String linkKey,
+  }) async {
+    final rows = await _client
+        .from('rc00_ops_external_reservation_links')
+        .select()
+        .eq('provider', 'ims')
+        .eq('link_key', linkKey.trim())
+        .isFilter('deleted_at', null)
+        .limit(1);
+
+    if (rows.isEmpty) return null;
+    return ExternalReservationLink.fromRow(rows.first);
+  }
+
+  Future<String?> fetchPendingScheduleRowId({
+    required String reservationId,
+    required String scheduleType,
+  }) async {
+    final rows = await _client
+        .from('rc00_ops_schedules')
+        .select('id')
+        .eq('reservation_id', reservationId.trim())
+        .eq('schedule_type', scheduleType.trim())
+        .eq('schedule_done', false)
+        .order('schedule_at', ascending: true)
+        .limit(1);
+
+    if (rows.isEmpty) return null;
+    return rows.first['id']?.toString();
+  }
+
   Future<List<ExternalReservationLink>> fetchExternalReservationLinks() async {
     final rows = await _client
         .from('rc00_ops_external_reservation_links')
@@ -574,11 +631,13 @@ class SupabaseOpsRepository {
     String? externalDetailId,
     required String externalStatus,
     required String linkKey,
+    String? sourceType,
     Map<String, dynamic> lastPayloadJson = const {},
     Map<String, dynamic> lastResultJson = const {},
     String? errorText,
   }) async {
     final now = DateTime.now().toIso8601String();
+    final normalizedSourceType = sourceType?.trim();
     await _client.from('rc00_ops_external_reservation_links').upsert({
       'reservation_id': reservationId.trim(),
       'reservation_ref_id': reservationRefId,
@@ -586,6 +645,8 @@ class SupabaseOpsRepository {
       'external_reservation_id': externalReservationId?.trim(),
       'external_detail_id': externalDetailId?.trim(),
       'external_status': externalStatus.trim(),
+      if (normalizedSourceType != null && normalizedSourceType.isNotEmpty)
+        'source_type': normalizedSourceType,
       'link_key': linkKey.trim(),
       'last_payload_json': lastPayloadJson,
       'last_result_json': lastResultJson,
@@ -713,37 +774,39 @@ class SupabaseOpsRepository {
     );
   }
 
-  Future<void> markCarUnderRepair({
+  Future<void> markCarDispatchUnavailable({
     required String carRowId,
-    required String factoryName,
+    required String reason,
   }) async {
     await _client
         .from('rc00_ops_cars')
         .update({
-          'status': '수리중',
-          'status_action': '수리중',
-          'parking_location': factoryName.trim(),
+          'status': '배차불가',
+          'status_action': '배차불가',
+          'parking_location': reason.trim(),
         })
         .eq('id', carRowId);
 
     await recordActionLog(
-      actionKey: 'car.repair_start',
-      label: '차량 수리중',
+      actionKey: 'car.dispatch_unavailable',
+      label: '차량 배차불가',
       targetType: 'car',
       targetRef: carRowId,
-      messageText: factoryName.trim(),
+      messageText: reason.trim(),
     );
   }
 
-  Future<void> completeCarRepair({required String carRowId}) async {
+  Future<void> completeCarDispatchUnavailable({
+    required String carRowId,
+  }) async {
     await _client
         .from('rc00_ops_cars')
-        .update({'status': '대기중', 'status_action': '수리완료'})
+        .update({'status': '대기중', 'status_action': '배차가능'})
         .eq('id', carRowId);
 
     await recordActionLog(
-      actionKey: 'car.repair_complete',
-      label: '차량 수리완료',
+      actionKey: 'car.dispatch_available',
+      label: '차량 배차가능',
       targetType: 'car',
       targetRef: carRowId,
       messageText: '대기중 전환',
@@ -885,11 +948,17 @@ class SupabaseOpsRepository {
     required String scheduleType,
     required String reservationId,
     required String carNumber,
+    String carStatusAfterDispatch = '일반',
+    String carStatusActionAfterDispatch = '일정완료',
   }) async {
     final normalizedScheduleType = scheduleType.trim();
     final normalizedReservationId = reservationId.trim();
     final normalizedCarNumber = carNumber.trim();
-    final now = DateTime.now().toIso8601String();
+    final normalizedCarStatusAfterDispatch = carStatusAfterDispatch.trim();
+    final normalizedCarStatusActionAfterDispatch = carStatusActionAfterDispatch
+        .trim();
+    final completedAt = DateTime.now();
+    final now = completedAt.toIso8601String();
 
     await _client
         .from('rc00_ops_schedules')
@@ -908,6 +977,7 @@ class SupabaseOpsRepository {
           reservationId: normalizedReservationId,
           reservationStatus: '완료',
           tabKey: TabKeys.completed,
+          completedAt: completedAt,
         );
       }
     }
@@ -943,8 +1013,12 @@ class SupabaseOpsRepository {
     final reservationStartAt = _parseDateTime(reservationRow?['start_at']);
     final reservationEndAt = _parseDateTime(reservationRow?['end_at']);
     final updatePayload = <String, dynamic>{
-      'status': '일반',
-      'status_action': '일정완료',
+      'status': normalizedCarStatusAfterDispatch.isEmpty
+          ? '일반'
+          : normalizedCarStatusAfterDispatch,
+      'status_action': normalizedCarStatusActionAfterDispatch.isEmpty
+          ? '일정완료'
+          : normalizedCarStatusActionAfterDispatch,
       if ((reservationRow?['customer_name'] as String?)?.trim().isNotEmpty ??
           false)
         'customer_name': (reservationRow?['customer_name'] as String).trim(),
@@ -975,7 +1049,8 @@ class SupabaseOpsRepository {
       targetRef: scheduleRowId,
       reservationId: normalizedReservationId,
       carNumber: normalizedCarNumber,
-      messageText: '배차 일정 완료 + 차량 일반 전환',
+      messageText:
+          '배차 일정 완료 + 차량 ${normalizedCarStatusAfterDispatch.isEmpty ? '일반' : normalizedCarStatusAfterDispatch} 전환',
     );
   }
 
@@ -1014,11 +1089,21 @@ class SupabaseOpsRepository {
     required String reservationId,
     required String reservationStatus,
     required String tabKey,
+    DateTime? completedAt,
   }) async {
-    final now = DateTime.now().toIso8601String();
+    final nowDateTime = completedAt ?? DateTime.now();
+    final now = nowDateTime.toIso8601String();
+    final reservationUpdate = <String, dynamic>{
+      'reservation_status': reservationStatus,
+      'updated_at': now,
+    };
+    if (reservationStatus.trim() == '완료') {
+      reservationUpdate['end_at'] = _toDbTimestamp(nowDateTime);
+    }
+
     await _client
         .from('rc00_ops_reservations')
-        .update({'reservation_status': reservationStatus, 'updated_at': now})
+        .update(reservationUpdate)
         .eq('reservation_id', reservationId.trim());
 
     await _client
@@ -1162,6 +1247,12 @@ class SupabaseOpsRepository {
   Future<void> markHomepageReservationReviewed({
     required String reservationId,
   }) async {
+    await markReservationSourceReviewed(reservationId: reservationId);
+  }
+
+  Future<void> markReservationSourceReviewed({
+    required String reservationId,
+  }) async {
     final stateRow = await _client
         .from('rc00_ops_reservation_states')
         .select('check_payload_json')
@@ -1169,7 +1260,13 @@ class SupabaseOpsRepository {
         .maybeSingle();
 
     final checkPayload = _toStringMap(stateRow?['check_payload_json']);
-    checkPayload['homepage_review'] = 'done';
+    final label = _sourceReviewLabel(checkPayload);
+    if (checkPayload['homepage_review'] == 'pending') {
+      checkPayload['homepage_review'] = 'done';
+    }
+    if (_externalSourceReviewPending(checkPayload)) {
+      checkPayload['source_review'] = 'done';
+    }
     final hasPending = checkPayload.values.any((value) => value == 'pending');
 
     await _client
@@ -1183,11 +1280,11 @@ class SupabaseOpsRepository {
         .eq('reservation_id', reservationId);
 
     await recordActionLog(
-      actionKey: 'reservation.homepage_review',
-      label: '홈페이지 예약확인',
+      actionKey: 'reservation.source_review',
+      label: label,
       targetType: 'reservation',
       reservationId: reservationId,
-      messageText: '홈페이지 예약 확인 완료',
+      messageText: '$label 완료',
     );
   }
 
@@ -1372,6 +1469,9 @@ class SupabaseOpsRepository {
     if (checkPayload['homepage_review'] == 'pending') {
       badges.add('홈페이지 확인');
     }
+    if (_externalSourceReviewPending(checkPayload)) {
+      badges.add(_sourceReviewLabel(checkPayload));
+    }
     if (checkPayload['customer_name_verified'] != 'done') {
       badges.add('고객명 미확인');
     }
@@ -1424,7 +1524,7 @@ class SupabaseOpsRepository {
   StatusBoardRecord _toCarRecord(Map<String, dynamic> row) {
     final status = (row['status'] as String? ?? '').trim();
     final tab = switch (status) {
-      '대기' || '대기중' || '수리중' => StatusBoardTab.idle,
+      '대기' || '대기중' || '배차불가' => StatusBoardTab.idle,
       '보험' => StatusBoardTab.insurance,
       '일반' => StatusBoardTab.general,
       '장기' => StatusBoardTab.longTerm,
@@ -1576,10 +1676,12 @@ class SupabaseOpsRepository {
     required String statusAction,
   }) {
     final badges = <String>[];
-    if (status.trim() == '수리중') badges.add('수리중');
+    if (status.trim() == '배차불가') badges.add('배차불가');
     if (_isTruthy(carWash)) badges.add('세차');
     if (_isTruthy(interiorWash)) badges.add('실내세차');
-    if (statusAction.isNotEmpty) badges.add(statusAction);
+    if (statusAction.isNotEmpty && !badges.contains(statusAction)) {
+      badges.add(statusAction);
+    }
     if (noteText.isNotEmpty) badges.add('비고');
     return badges.take(3).toList();
   }
@@ -1697,6 +1799,33 @@ class SupabaseOpsRepository {
   }
 
   String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D+'), '');
+
+  String _sourceReviewLabel(Map<String, String> checkPayload) {
+    if (checkPayload['homepage_review'] == 'pending') return '홈페이지 확인';
+    final provider =
+        (checkPayload['source_provider'] ??
+                checkPayload['provider_source'] ??
+                '')
+            .trim()
+            .toLowerCase();
+    return switch (provider) {
+      'carmore' => '카모아 확인',
+      'zzimcar' => '찜카 확인',
+      _ => '외부예약 확인',
+    };
+  }
+
+  bool _externalSourceReviewPending(Map<String, String> checkPayload) {
+    final sourceReview = (checkPayload['source_review'] ?? '').trim();
+    if (sourceReview == 'pending') return true;
+    if (sourceReview == 'done') return false;
+    final provider =
+        (checkPayload['source_provider'] ??
+                checkPayload['provider_source'] ??
+                '')
+            .trim();
+    return provider.isNotEmpty;
+  }
 
   String _normalizeBirthDate(String value) {
     final text = value.trim();

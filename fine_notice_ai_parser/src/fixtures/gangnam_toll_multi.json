@@ -1,0 +1,29 @@
+{
+  "noticeProfile": "toll_fee.gangnam_sunhwan",
+  "noticeType": "toll_fee",
+  "issuer": "강남순환도로(주)",
+  "documentNumber": "6418191",
+  "rawCandidate": {
+    "carNumber": "142호2673",
+    "periodStart": "2026-05-06",
+    "periodEnd": "2026-05-12",
+    "amount": 7600,
+    "totalAmount": 7600,
+    "dueDate": "2026-06-22",
+    "items": [
+      { "itemIndex": 1, "occurredAt": "2026-05-06 09:45:25", "amount": 1900, "surchargeAmount": 0, "location": "금천", "reason": "미납통행료", "contractMatchRequired": true },
+      { "itemIndex": 2, "occurredAt": "2026-05-06 15:49:59", "amount": 1900, "surchargeAmount": 0, "location": "금천", "reason": "미납통행료", "contractMatchRequired": true },
+      { "itemIndex": 3, "occurredAt": "2026-05-06 15:59:50", "amount": 1900, "surchargeAmount": 0, "location": "선암", "reason": "미납통행료", "contractMatchRequired": true },
+      { "itemIndex": 4, "occurredAt": "2026-05-12 13:09:43", "amount": 1900, "surchargeAmount": 0, "location": "선암", "reason": "미납통행료", "contractMatchRequired": true }
+    ]
+  },
+  "fieldCrops": [
+    {
+      "field": "items",
+      "profile": "toll_fee.gangnam_sunhwan",
+      "hint": "통행내역 표 전체 crop"
+    }
+  ],
+  "warnings": [],
+  "confidence": 0.9
+}
