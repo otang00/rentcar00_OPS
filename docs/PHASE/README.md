@@ -66,6 +66,8 @@
   - 과태료 MVP와 별개다. 코드/DB/운영 반영은 아직 승인되지 않았다.
 
 ## 완료로 이동한 PM
+- `docs/COMPLETED/rentcar00_OPS_ims_import_rental_type_dispatch_policy_PM_COMPLETE_20260811.md`
+  - 예약추가 IMS 가져오기에서 `daily/monthly/insurance`를 명시 조회하고, 가져온 IMS `reservationType` 기준으로 배차완료 차량 상태를 `일반/장기/보험`으로 매핑했다. parser restart/APK build/upload/DB 변경은 별도 승인 전 실행하지 않았다.
 - Booking docs `docs/COMPLETED/2026-08-10_RESERVATION_EVENT_RUNTIME_ACTIVATION_RELEASE_AND_DOC_DRIFT_PM_COMPLETE_20260810.md`
   - 홈페이지/카모아/찜카 reservation event runtime을 IMS-first OPS projection 기준으로 검증했다. IMS partner는 자동 bulk가 아니라 candidate-report + target-only project-ops로 운용하며, 5684는 기존 linked target으로 기록했다.
 - `docs/COMPLETED/rentcar00_OPS_vehicle_availability_active_reservation_policy_PM_COMPLETE_20260810.md`

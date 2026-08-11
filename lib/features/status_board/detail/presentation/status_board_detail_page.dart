@@ -8,6 +8,7 @@ import 'package:rentcar00_ops/data/models/reservation_record.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
+import 'package:rentcar00_ops/features/reservations/shared/domain/ims_dispatch_policy.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/status_board/detail/data/reservation_ai_parser_client.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
@@ -4019,6 +4020,9 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
         ? '일정'
         : record.scheduleType.trim();
     final externalLink = await _fetchActiveImsLink(record.reservationId);
+    final dispatchPolicy = scheduleType == '배차'
+        ? resolveImsDispatchPolicy(externalLink)
+        : kDefaultImsDispatchPolicy;
     bool confirmed;
     if (externalLink != null) {
       if (!mounted || !context.mounted) return;
@@ -4051,6 +4055,9 @@ class _ScheduleDetailBodyState extends ConsumerState<_ScheduleDetailBody> {
             scheduleType: record.scheduleType,
             reservationId: record.reservationId,
             carNumber: record.carNumber,
+            carStatusAfterDispatch: dispatchPolicy.carStatusAfterDispatch,
+            carStatusActionAfterDispatch:
+                dispatchPolicy.carStatusActionAfterDispatch,
           );
       if (!mounted) return;
       ScaffoldMessenger.of(

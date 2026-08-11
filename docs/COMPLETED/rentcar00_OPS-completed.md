@@ -5,6 +5,43 @@
 
 ---
 
+## 2026-08-11 — IMS 예약추가 rental_type별 배차 상태 정책
+
+### 사용자 표면
+- 예약 추가의 IMS 가져오기 후보가 IMS company-car schedule의 `daily`, `monthly`, `insurance` 예약을 의도적으로 포함한다.
+- 가져온 IMS 예약의 배차 일정을 완료하면 차량 상태가 `daily -> 일반`, `monthly -> 장기`, `insurance -> 보험`으로 전환된다.
+
+### 실제 동작
+- `/ims/search-reservations`는 `rental_type=all` 단일 의존 대신 `daily/monthly/insurance`를 명시 조회하고 schedule id 기준으로 중복 제거한다.
+- IMS import candidate의 `reservationType`을 external link `lastPayloadJson`/`lastResultJson`에 저장된 값으로 계속 사용한다.
+- 예약상세, 일정탭 카드, 일정상세의 `completeSchedule()` 호출부가 공통 `resolveImsDispatchPolicy()` 결과를 넘긴다.
+- 기존 차량상세 `배차 > 보험 > IMS 보험배차 가져오기` claim flow는 그대로 유지했다.
+- DB schema/data, parser restart, APK build/upload, IMS write는 실행하지 않았다.
+
+### 핵심 파일
+- `reservation_ai_parser/src/server.js`
+- `reservation_ai_parser/src/ims-existing-reservation-search-strategy.js`
+- `lib/features/reservations/shared/domain/ims_dispatch_policy.dart`
+- `lib/features/reservations/detail/presentation/reservation_detail_page.dart`
+- `lib/features/status_board/list/presentation/status_board_tab_page.dart`
+- `lib/features/status_board/detail/presentation/status_board_detail_page.dart`
+- `docs/COMPLETED/rentcar00_OPS_ims_import_rental_type_dispatch_policy_PM_COMPLETE_20260811.md`
+
+### 검증
+- `node --check reservation_ai_parser/src/server.js` 통과
+- `node --test reservation_ai_parser/test/ims-existing-reservation-search-strategy.test.js` 통과: 7 tests
+- `node --test reservation_ai_parser/test/*.test.js` 통과: 31 tests
+- `flutter analyze lib/features/reservations/shared/domain/ims_dispatch_policy.dart lib/features/reservations/detail/presentation/reservation_detail_page.dart lib/features/status_board/list/presentation/status_board_tab_page.dart lib/features/status_board/detail/presentation/status_board_detail_page.dart` 통과
+- `flutter test test/ims_dispatch_policy_test.dart` 통과: 6 tests
+- `flutter test` 통과: 30 tests
+- `git diff --check` 통과
+
+### 남은 확인
+- 직원 화면에 보이는 실제 동작 반영은 parser restart와 APK build/upload/실기기 smoke가 별도 승인으로 필요하다.
+- 기존 historical external link에 `reservationType`이 없으면 이번 정책상 기존처럼 `일반`으로 처리된다.
+
+---
+
 ## 2026-08-10 — 예약상세 차량변경 취소/완료 overlap 제외 + b59 배포
 
 ### 사용자 표면

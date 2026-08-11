@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
+import 'package:rentcar00_ops/features/reservations/shared/domain/ims_dispatch_policy.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/features/status_board/shared/domain/status_board_tab.dart';
 import 'package:rentcar00_ops/features/status_board/shared/presentation/status_board_car_select_dialog.dart';
@@ -776,6 +777,9 @@ class _ScheduleCardState extends ConsumerState<_ScheduleCard> {
         ? '일정'
         : item.scheduleType.trim();
     final externalLink = await _fetchActiveImsLink(item.reservationId);
+    final dispatchPolicy = scheduleType == '배차'
+        ? resolveImsDispatchPolicy(externalLink)
+        : kDefaultImsDispatchPolicy;
     bool confirmed;
     if (externalLink != null) {
       if (!mounted || !context.mounted) return;
@@ -822,6 +826,9 @@ class _ScheduleCardState extends ConsumerState<_ScheduleCard> {
             scheduleType: item.scheduleType,
             reservationId: item.reservationId,
             carNumber: item.carNumber,
+            carStatusAfterDispatch: dispatchPolicy.carStatusAfterDispatch,
+            carStatusActionAfterDispatch:
+                dispatchPolicy.carStatusActionAfterDispatch,
           );
       ref.invalidate(allStatusBoardRecordsProvider);
       ref.invalidate(allReservationsProvider);

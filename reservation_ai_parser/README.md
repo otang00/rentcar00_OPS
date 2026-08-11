@@ -210,6 +210,7 @@ Response:
 현재 기준:
 - Playwright export fallback은 서버 코드에서 제거했다.
 - `GET /v2/company-car-schedules/reservations` 빠른 조회만 사용한다.
+- 예약 추가용 조회는 `rental_type=all`에 의존하지 않고 `daily`, `monthly`, `insurance`를 명시 조회한 뒤 schedule id 기준으로 중복 제거한다.
 - 차량번호 필터는 `option=car_identity`를 사용한다.
 - 느린 `/v2/company-car-schedules?page=N` 전체 목록 scan fallback은 사용하지 않는다.
 - 앱은 OPS 차량 목록에서 선택된 전체 차량번호를 보내며, 이름은 검색 조건으로 쓰지 않는다.
@@ -234,6 +235,7 @@ Response:
         "scheduleId": "4189193",
         "detailId": "1209496",
         "reservationNumber": "1209496",
+        "reservationType": "daily",
         "carNumber": "125호6498",
         "customerName": "홍길동",
         "customerPhone": "01000000000",
@@ -249,6 +251,7 @@ Response:
 - 조회 전용이다. IMS 상태를 변경하지 않는다.
 - Playwright 경로는 운영 코드에서 쓰지 않고, 과거 조사 참고로만 둔다.
 - OPS 앱은 선택된 항목의 `scheduleId/detailId`를 external link로 저장하고, IMS 새 생성은 호출하지 않는다.
+- `insurance`는 company-car schedule의 보험 rental type만 의미한다. 차량 상세 보험배차 claim 조회는 아래 `/ims/search-insurance-claims` endpoint를 계속 사용한다.
 
 ### POST /ims/search-insurance-claims
 보험계약서 목록에서 대여일 기준 보험배차를 조회하는 endpoint다.

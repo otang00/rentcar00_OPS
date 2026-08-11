@@ -7,6 +7,7 @@ import 'package:rentcar00_ops/data/models/external_reservation_link.dart';
 import 'package:rentcar00_ops/data/models/status_board_record.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_client.dart';
 import 'package:rentcar00_ops/features/reservations/detail/data/ims_reservation_payload.dart';
+import 'package:rentcar00_ops/features/reservations/shared/domain/ims_dispatch_policy.dart';
 import 'package:rentcar00_ops/features/reservations/shared/domain/reservation_tab.dart';
 import 'package:rentcar00_ops/features/reservations/shared/providers/reservation_providers.dart';
 import 'package:rentcar00_ops/shared/config/supabase_providers.dart';
@@ -320,6 +321,9 @@ class _ReservationDetailBodyState
     }
 
     final isReturn = normalizedType == '반납';
+    final dispatchPolicy = isReturn
+        ? kDefaultImsDispatchPolicy
+        : resolveImsDispatchPolicy(externalLink);
     bool confirmed;
     if (externalLink?.isActiveBinding == true) {
       confirmed = await _showImsAuthorityConfirmationDialog(
@@ -330,7 +334,10 @@ class _ReservationDetailBodyState
     } else {
       final dialogLines = isReturn
           ? ['연결된 반납 일정을 완료 처리합니다.', '차량 상태를 대기중으로 전환합니다.']
-          : ['연결된 배차 일정을 완료 처리합니다.', '차량 상태를 일반으로 전환합니다.'];
+          : [
+              '연결된 배차 일정을 완료 처리합니다.',
+              '차량 상태를 ${dispatchPolicy.carStatusAfterDispatch}으로 전환합니다.',
+            ];
       confirmed =
           await showDialog<bool>(
             context: context,
@@ -375,6 +382,9 @@ class _ReservationDetailBodyState
             carNumber: target.carNumber.trim().isEmpty
                 ? reservation.carNumber
                 : target.carNumber,
+            carStatusAfterDispatch: dispatchPolicy.carStatusAfterDispatch,
+            carStatusActionAfterDispatch:
+                dispatchPolicy.carStatusActionAfterDispatch,
           );
 
       ref.invalidate(allReservationsProvider);

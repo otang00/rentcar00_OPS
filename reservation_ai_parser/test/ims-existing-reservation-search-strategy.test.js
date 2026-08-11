@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  IMS_RESERVATION_IMPORT_RENTAL_TYPES,
   buildImsReservationSearchQueries,
+  buildImsReservationSearchRequestSpecs,
   dedupeImsSchedulesById,
   extractDateText,
   isUnder24HourWindow,
+  normalizeImsReservationImportRentalType,
 } from '../src/ims-existing-reservation-search-strategy.js';
 
 test('extractDateText reads the date part from space and ISO timestamps', () => {
@@ -57,6 +60,31 @@ test('multi-day reservation keeps the bounded exact start/end search options', (
     { baseDate: '2026-08-08', startDate: '2026-08-08', endDate: '2026-08-11', dateOption: 'start_at' },
     { baseDate: '2026-08-08', startDate: '2026-08-08', endDate: '2026-08-11', dateOption: 'end_at' },
   ]);
+});
+
+test('reservation import request specs search intended rental types explicitly', () => {
+  const specs = buildImsReservationSearchRequestSpecs({
+    rentalAt: '2026-08-08 10:00',
+    returnAt: '2026-08-11 10:00',
+  });
+
+  assert.equal(specs.length, 6);
+  assert.deepEqual([...new Set(specs.map((spec) => spec.rentalType))], IMS_RESERVATION_IMPORT_RENTAL_TYPES);
+  assert.equal(specs.some((spec) => spec.rentalType === 'all'), false);
+  assert.deepEqual(specs.slice(0, 3), [
+    { baseDate: '2026-08-08', startDate: '2026-08-08', endDate: '2026-08-11', dateOption: 'start_at', rentalType: 'daily' },
+    { baseDate: '2026-08-08', startDate: '2026-08-08', endDate: '2026-08-11', dateOption: 'start_at', rentalType: 'monthly' },
+    { baseDate: '2026-08-08', startDate: '2026-08-08', endDate: '2026-08-11', dateOption: 'start_at', rentalType: 'insurance' },
+  ]);
+});
+
+test('reservation import rental type normalization accepts only supported IMS types', () => {
+  assert.equal(normalizeImsReservationImportRentalType('daily'), 'daily');
+  assert.equal(normalizeImsReservationImportRentalType('Monthly'), 'monthly');
+  assert.equal(normalizeImsReservationImportRentalType(' insurance '), 'insurance');
+  assert.equal(normalizeImsReservationImportRentalType('all'), '');
+  assert.equal(normalizeImsReservationImportRentalType('partner_daily'), '');
+  assert.equal(normalizeImsReservationImportRentalType(''), '');
 });
 
 test('dedupeImsSchedulesById removes duplicate candidates across search attempts', () => {

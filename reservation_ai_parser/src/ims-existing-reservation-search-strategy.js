@@ -1,3 +1,14 @@
+export const IMS_RESERVATION_IMPORT_RENTAL_TYPES = Object.freeze([
+  'daily',
+  'monthly',
+  'insurance',
+]);
+
+export function normalizeImsReservationImportRentalType(value) {
+  const rentalType = String(value || '').trim().toLowerCase();
+  return IMS_RESERVATION_IMPORT_RENTAL_TYPES.includes(rentalType) ? rentalType : '';
+}
+
 export function extractDateText(value) {
   const text = String(value || '').trim();
   const match = text.match(/\d{4}-\d{2}-\d{2}/);
@@ -77,6 +88,15 @@ export function buildImsReservationSearchQueries(payload = {}) {
   }
 
   return queries.map(({ key, ...query }) => query);
+}
+
+export function buildImsReservationSearchRequestSpecs(payload = {}) {
+  return buildImsReservationSearchQueries(payload).flatMap((query) =>
+    IMS_RESERVATION_IMPORT_RENTAL_TYPES.map((rentalType) => ({
+      ...query,
+      rentalType,
+    })),
+  );
 }
 
 function parseImsDateTimeMs(value) {

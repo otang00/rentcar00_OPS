@@ -14,8 +14,10 @@ import {
 import {
   addDaysToDateText as addDaysToDateTextFromSearchStrategy,
   buildImsReservationSearchQueries,
+  buildImsReservationSearchRequestSpecs,
   dedupeImsSchedulesById,
   extractDateText,
+  normalizeImsReservationImportRentalType,
   normalizeImsScheduleId,
 } from './ims-existing-reservation-search-strategy.js';
 import {
@@ -1437,7 +1439,7 @@ async function searchImsReservationsForImport(payload) {
           ...payload,
           endDate: addDaysToDateText(payload.rentalDate, 1),
         };
-    const candidates = await findImsReservationsBySearchApi({ token, payload: searchPayload });
+    const candidates = await findImsReservationCandidatesBySearchApi({ token, payload: searchPayload });
     for (const schedule of candidates) {
       const detail = await fetchImsScheduleDetail({ token, scheduleId: schedule.id || schedule.schedule_id });
       if (!detail) continue;
@@ -1448,7 +1450,9 @@ async function searchImsReservationsForImport(payload) {
           token,
           requestId: schedule?.detail?.id,
         });
-        matches.push(mergeImsScheduleForImport(detail, schedule, requestDetail));
+        const merged = mergeImsScheduleForImport(detail, schedule, requestDetail);
+        if (!normalizeImsReservationImportRentalType(readImsReservationImportRentalType(merged))) continue;
+        matches.push(merged);
       }
     }
   }
@@ -3834,16 +3838,18 @@ async function findImsReservationsBySearchApi({
   startDate: queryStartDate = null,
   endDate: queryEndDate = null,
   dateOption: queryDateOption = null,
+  rentalType: queryRentalType = null,
 }) {
   const query = buildImsReservationSearchQueries(payload)[0] || {};
   const startDate = queryStartDate || query.startDate || extractDate(payload.rentalAt || payload.rentalDate || payload.startDate);
   const endDate = queryEndDate || query.endDate || extractDate(payload.returnAt || payload.endDate || payload.returnDate) || startDate;
   const baseDate = queryBaseDate || query.baseDate || startDate;
   const dateOption = queryDateOption || query.dateOption || 'start_at';
+  const rentalType = normalizeImsReservationImportRentalType(queryRentalType) || 'daily';
   const url = new URL('https://api.rencar.co.kr/v2/company-car-schedules/reservations');
   url.searchParams.set('page', String(page));
   url.searchParams.set('base_date', baseDate);
-  url.searchParams.set('rental_type', 'all');
+  url.searchParams.set('rental_type', rentalType);
   url.searchParams.set('status', 'all');
   url.searchParams.set('date_option', dateOption);
   url.searchParams.set('start', startDate);
@@ -3858,12 +3864,17 @@ async function findImsReservationsBySearchApi({
   if (!response.ok) {
     throw new Error(resolveApiErrorMessage(json, response.status, 'IMS reservation search lookup failed'));
   }
-  return Array.isArray(json?.schedules) ? json.schedules : [];
+  const schedules = Array.isArray(json?.schedules) ? json.schedules : [];
+  return schedules.map((schedule) =>
+    normalizeImsReservationImportRentalType(readImsReservationImportRentalType(schedule))
+      ? schedule
+      : { ...schedule, _opsQueryRentalType: rentalType },
+  );
 }
 
 async function findImsReservationCandidatesBySearchApi({ token, payload }) {
   const schedules = [];
-  const queries = buildImsReservationSearchQueries(payload);
+  const queries = buildImsReservationSearchRequestSpecs(payload);
   for (const query of queries) {
     schedules.push(...await findImsReservationsBySearchApi({ token, payload, ...query }));
   }
@@ -3920,13 +3931,14 @@ function toImsReservationImportItem(schedule) {
   const reservation = schedule?.reservation || schedule?.detail || {};
   const detail = schedule?.detail || schedule?.reservation || {};
   const request = schedule?.requestDetail || {};
+  const reservationType = readImsReservationImportRentalType(schedule);
   return {
     scheduleId: stringifyNullable(schedule?.id || schedule?.schedule_id),
     detailId: stringifyNullable(reservation?.id || detail?.id || schedule?.detail_id),
     reservationNumber: stringifyNullable(reservation?.id || detail?.id || schedule?.id || schedule?.schedule_id),
     status: stringifyNullable(schedule?.status),
     detailStatus: stringifyNullable(reservation?.status || detail?.status || request?.state),
-    reservationType: stringifyNullable(reservation?.rental_type || detail?.rental_type || request?.period_type),
+    reservationType: normalizeImsReservationImportRentalType(reservationType) || stringifyNullable(reservationType),
     carNumber: stringifyNullable(schedule?.car?.car_identity || request?.response_car?.car_identity || schedule?.car_identity || schedule?.car_number),
     carName: stringifyNullable(schedule?.car?.model || schedule?.car?.car_model || schedule?.car?.car_name || request?.response_car?.car_name || schedule?.car_name),
     customerName: stringifyNullable(reservation?.customer_name || detail?.customer_name || request?.self_contract_name || request?.driver_name || schedule?.customer_name),
@@ -3940,6 +3952,24 @@ function toImsReservationImportItem(schedule) {
     recommenderName: stringifyNullable(reservation?.recommender?.name || reservation?.recommender_name || detail?.recommender_name || request?.orderer),
     title: stringifyNullable(schedule?.title || schedule?.memo || reservation?.reservation_memo),
   };
+}
+
+function readImsReservationImportRentalType(schedule) {
+  const reservation = schedule?.reservation || schedule?.detail || {};
+  const detail = schedule?.detail || schedule?.reservation || {};
+  const request = schedule?.requestDetail || {};
+  const candidates = [
+    reservation?.rental_type,
+    detail?.rental_type,
+    request?.period_type,
+    schedule?.rental_type,
+    schedule?._opsQueryRentalType,
+  ];
+  for (const candidate of candidates) {
+    const rentalType = normalizeImsReservationImportRentalType(candidate);
+    if (rentalType) return rentalType;
+  }
+  return stringifyNullable(candidates.find((candidate) => stringifyNullable(candidate)));
 }
 
 function delay(ms) {
