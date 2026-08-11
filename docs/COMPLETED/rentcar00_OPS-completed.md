@@ -52,6 +52,7 @@
 - Google Drive 업로드 후 remote 확인:
   - `rentcar00_ops-app-release-arm64-b60-7e52610.apk`
   - `20702419 rentcar00_ops-app-release-arm64-b60-7e52610.apk`
+- GDrive APK 폴더 latest-one cleanup 완료: 이전 b59 파일 제거 후 b60 파일 1개만 남음
 
 ### 남은 확인
 - 실기기에서 b60 설치 후 IMS 예약추가 `daily/monthly/insurance` 후보와 배차완료 차량상태 `일반/장기/보험` 전환을 1회 확인하면 된다.
