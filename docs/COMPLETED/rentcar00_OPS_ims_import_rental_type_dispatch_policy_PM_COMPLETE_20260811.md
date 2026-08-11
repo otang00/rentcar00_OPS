@@ -610,7 +610,22 @@ Rollback/Compensation:
 - Architecture Ledger:
   - Not updated because this repo has no `ARCHITECTURE_LEDGER` or `TEST_REFERENCES` file.
 - Residual risks:
-  - Staff-visible behavior requires parser restart and APK rollout after separate approval.
+  - Parser restart and APK rollout were completed by follow-up approval on 2026-08-11.
   - Existing historical links without `reservationType` will default to `일반` unless separately backfilled.
 - Follow-up work:
-  - Optional rollout PM/approval for parser restart, APK build/upload, and device smoke.
+  - b60 device smoke for IMS reservation-add candidate search and dispatch status transition.
+
+### Rollout Follow-up
+- Approval:
+  - 사장님 approved commit/restart/push/build/deploy after local PM completion.
+- Parser runtime:
+  - `ai.otang.reservation-ai-parser` restarted with `launchctl kickstart -k`.
+  - PID changed `15145 -> 47478`.
+  - Local `/health` and public `/health` both returned OK.
+- APK release:
+  - Version/build: `1.0.0+60`.
+  - Release build commit: `7e52610 chore: bump OPS app build to b60`.
+  - APK: `build/releases/rentcar00_ops-app-release-arm64-b60-7e52610.apk`.
+  - Google Drive: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b60-7e52610.apk`.
+  - Size: `20,702,419 bytes`.
+  - SHA-256: `60733d9a19a1705480be1639d30ecff8b5cbc193e33f4655bf73cc921418fb9e`.

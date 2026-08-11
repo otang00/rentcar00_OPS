@@ -108,12 +108,13 @@ IMS 배차중 snapshot diff 구현물은 보관용 로컬 산출물이며 `send-
 
 ## 현재 기준점
 - repository: `rentcar00_OPS`
-- branch: `fix/ops-return-complete-end-at`
-- 최신 앱 코드 커밋: `a5bb856 fix: ignore terminal reservation overlaps`
-- working tree app version/build: `1.0.0+59`
-- 최신 완료 배포 기록: b59, `docs/COMPLETED/rentcar00_OPS-completed.md` 기준
-- 최신 APK: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b59-a5bb856.apk`
-- 2026-08-10 parser runtime read-only check: active PID `54807`, `127.0.0.1:43110`, health OK
+- branch: `main`
+- 최신 앱 기능 커밋: `801a2a1 feat: map IMS import rental types to dispatch status`
+- 최신 앱 배포 빌드 커밋: `7e52610 chore: bump OPS app build to b60`
+- working tree app version/build: `1.0.0+60`
+- 최신 완료 배포 기록: b60, `docs/COMPLETED/rentcar00_OPS-completed.md` 기준
+- 최신 APK: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b60-7e52610.apk`
+- 2026-08-11 parser runtime restart check: active PID `47478`, `127.0.0.1:43110`, local/public health OK
 - 2026-07-31 미커밋 parser hotfix: IMS 보험배차 claim 상세 `expect_return_date` fallback으로 `20하3779` returnAt `2026-08-07 15:42` runtime 확인
 - 문서 구조: `docs/GOAL`, `docs/PHASE`, `docs/COMPLETED`, `docs/ARCHIVE` 네 영역만 사용
 - `docs/current`, `docs/completed`, `docs/past` 구조는 더 이상 active 기준으로 쓰지 않는다.

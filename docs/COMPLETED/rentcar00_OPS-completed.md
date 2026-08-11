@@ -16,7 +16,17 @@
 - IMS import candidate의 `reservationType`을 external link `lastPayloadJson`/`lastResultJson`에 저장된 값으로 계속 사용한다.
 - 예약상세, 일정탭 카드, 일정상세의 `completeSchedule()` 호출부가 공통 `resolveImsDispatchPolicy()` 결과를 넘긴다.
 - 기존 차량상세 `배차 > 보험 > IMS 보험배차 가져오기` claim flow는 그대로 유지했다.
-- DB schema/data, parser restart, APK build/upload, IMS write는 실행하지 않았다.
+- parser launchd 서비스 `ai.otang.reservation-ai-parser`를 재시작해 운영 parser에 새 검색 로직을 반영했다.
+- DB schema/data, IMS write는 실행하지 않았다.
+
+### 배포물
+- 버전: `1.0.0+60`
+- 기능 커밋: `801a2a1 feat: map IMS import rental types to dispatch status`
+- 배포 빌드 커밋: `7e52610 chore: bump OPS app build to b60`
+- APK: `build/releases/rentcar00_ops-app-release-arm64-b60-7e52610.apk`
+- Google Drive: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b60-7e52610.apk`
+- 파일 크기: `20,702,419 bytes`
+- SHA-256: `60733d9a19a1705480be1639d30ecff8b5cbc193e33f4655bf73cc921418fb9e`
 
 ### 핵심 파일
 - `reservation_ai_parser/src/server.js`
@@ -35,9 +45,16 @@
 - `flutter test test/ims_dispatch_policy_test.dart` 통과: 6 tests
 - `flutter test` 통과: 30 tests
 - `git diff --check` 통과
+- parser restart: PID `15145 -> 47478`
+- `GET http://127.0.0.1:43110/health` 통과
+- `GET https://parser.00rentcar.com/health` 통과
+- `flutter build apk --release --target-platform android-arm64` 통과
+- Google Drive 업로드 후 remote 확인:
+  - `rentcar00_ops-app-release-arm64-b60-7e52610.apk`
+  - `20702419 rentcar00_ops-app-release-arm64-b60-7e52610.apk`
 
 ### 남은 확인
-- 직원 화면에 보이는 실제 동작 반영은 parser restart와 APK build/upload/실기기 smoke가 별도 승인으로 필요하다.
+- 실기기에서 b60 설치 후 IMS 예약추가 `daily/monthly/insurance` 후보와 배차완료 차량상태 `일반/장기/보험` 전환을 1회 확인하면 된다.
 - 기존 historical external link에 `reservationType`이 없으면 이번 정책상 기존처럼 `일반`으로 처리된다.
 
 ---
