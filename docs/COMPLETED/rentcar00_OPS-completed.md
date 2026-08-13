@@ -5,6 +5,67 @@
 
 ---
 
+## 2026-08-13 — 외부예약 취소 알림 확인 종료 + b61 배포
+
+### 사용자 표면
+- OPS 상단 `예약확인` 알림/시트의 `취소 알림` 카드에서 외부예약 취소 이벤트를 확인 종료할 수 있다.
+- 연결 가능한 OPS 예약 후보가 없으면 `연결 예약 없음 확인`으로 알림을 닫는다.
+- 연결 후보가 이미 `예약취소` 상태면 `취소 처리 확인 완료`로 이벤트만 닫는다.
+
+### 실제 동작
+- `reservation.cancelled` 이벤트는 기존 `rc00_ops_reservation_events` row를 사용한다.
+- 확인 완료 시 `resolve_rc00_ops_reservation_cancellation_event` RPC가 이벤트 `status`를 `resolved_orphan_confirmed` 또는 `resolved_reservation_cancelled`로 바꾸고 `processed_at`을 채운다.
+- RPC는 `authenticated`만 실행 가능하고, 내부에서도 `auth.uid()`를 확인한다.
+- 처리 내역은 `rc00_ops_action_logs`에 `target_type=reservation_event`로 남는다.
+- 실제 예약 취소, IMS 삭제, provider write, parser restart는 실행하지 않았다.
+- 운영 DB migration history drift로 누락되어 있던 `20260726124628_add_ims_lifecycle_event_handoffs.sql`를 운영 DB catalog 기준으로 로컬 복원했다.
+- 운영 Supabase migration 적용:
+  - `20260813193000_resolve_reservation_cancellation_events.sql`
+  - `20260813200000_restrict_reservation_cancellation_rpc_execute.sql`
+
+### 배포물
+- 버전: `1.0.0+61`
+- 기능/배포 빌드 커밋: `aeb98a1 feat: resolve orphan cancellation notices`
+- APK: `build/releases/rentcar00_ops-app-release-arm64-b61-aeb98a1.apk`
+- Google Drive: `rentcar00_OPS/apk/rentcar00_ops-app-release-arm64-b61-aeb98a1.apk`
+- 파일 크기: `20,702,419 bytes`
+- SHA-256: `7cd40df304099d50a31625ecc6736f71f0e16a8df72a772e348951eadd44f9eb`
+
+### 핵심 파일
+- `lib/app/view/app_shell.dart`
+- `lib/data/models/reservation_cancellation_notice.dart`
+- `lib/data/repositories/supabase_ops_repository.dart`
+- `lib/features/reservations/shared/providers/reservation_providers.dart`
+- `supabase/migrations/20260726124628_add_ims_lifecycle_event_handoffs.sql`
+- `supabase/migrations/20260813193000_resolve_reservation_cancellation_events.sql`
+- `supabase/migrations/20260813200000_restrict_reservation_cancellation_rpc_execute.sql`
+- `test/reservation_cancellation_notice_candidate_test.dart`
+- `docs/HARNESS/CURRENT_EVENT_FLOW_MAP.md`
+- `reservation_ai_parser/README.md`
+
+### 검증
+- `node --test reservation_ai_parser/gates/__tests__/reservation-event-gates.test.js reservation_ai_parser/operational-signals/__tests__/reservation-event-signals.test.js` 통과: 19 tests
+- `flutter test test/reservation_cancellation_notice_candidate_test.dart test/widget_test.dart` 통과: 8 tests
+- `flutter analyze` 통과: No issues found
+- `git diff --check` 통과
+- `supabase db push --dry-run` 통과 후 운영 DB migration 적용
+- 운영 DB migration list 확인: `20260726124628`, `20260813193000`, `20260813200000` local/remote 일치
+- RPC 권한 확인: `authenticated` EXECUTE만 남음
+- RPC guard 확인: `security_definer=true`, `auth.uid()` guard 존재
+- smoke: pending 외부예약 취소 이벤트 7건 중 자동 후보 0건 1건을 `resolved_orphan_confirmed`로 종료
+- smoke 결과: pending count `7 -> 6`, 대상 이벤트 `processed_at` 채움, action log 1건 기록
+- `flutter build apk --release --target-platform android-arm64 --build-name=1.0.0 --build-number=61` 통과
+- Google Drive 업로드 후 remote 확인:
+  - `rentcar00_ops-app-release-arm64-b61-aeb98a1.apk`
+  - `20702419 rentcar00_ops-app-release-arm64-b61-aeb98a1.apk`
+- GDrive APK 폴더 latest-one cleanup 완료: 이전 b60 파일 제거 후 b61 파일 1개만 남음
+
+### 남은 확인
+- 실기기에서 b61 설치 후 `예약확인 > 취소 알림` 카드의 `연결 예약 없음 확인` 또는 `취소 처리 확인 완료` 버튼을 1회 눌러 화면에서 알림이 빠지는지 확인하면 된다.
+- 남은 pending 취소 이벤트 6건은 모두 자동 매칭 후보가 이미 `예약취소`인 건으로 계산됐다.
+
+---
+
 ## 2026-08-11 — IMS 예약추가 rental_type별 배차 상태 정책
 
 ### 사용자 표면
