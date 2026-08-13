@@ -52,6 +52,27 @@ class SupabaseOpsRepository {
         .toList();
   }
 
+  Future<void> resolveReservationCancellationNotice({
+    required ReservationCancellationNotice notice,
+    required String resolutionStatus,
+    String messageText = '',
+  }) async {
+    final actor = await _currentActionActor();
+    await _client.rpc(
+      'resolve_rc00_ops_reservation_cancellation_event',
+      params: {
+        'p_event_id': notice.eventId,
+        'p_resolution_status': resolutionStatus,
+        'p_actor_id': actor.id,
+        'p_actor_name': actor.name,
+        'p_message_text': messageText.trim(),
+        'p_candidate_reservation_id': notice.candidateReservationId.trim(),
+        'p_candidate_reservation_number': notice.candidateReservationNumber
+            .trim(),
+      },
+    );
+  }
+
   Future<void> recordActionLog({
     required String actionKey,
     required String label,

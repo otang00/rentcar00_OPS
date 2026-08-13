@@ -1,5 +1,13 @@
 import 'package:rentcar00_ops/shared/utils/ops_kst_datetime.dart';
 
+class ReservationCancellationResolutionStatus {
+  static const orphanConfirmed = 'resolved_orphan_confirmed';
+  static const reservationCancelled = 'resolved_reservation_cancelled';
+  static const notActionable = 'resolved_not_actionable';
+
+  const ReservationCancellationResolutionStatus._();
+}
+
 class ReservationCancellationNotice {
   const ReservationCancellationNotice({
     required this.id,
@@ -44,6 +52,9 @@ class ReservationCancellationNotice {
   final int candidateCount;
 
   bool get hasCandidate => candidateReservationId.trim().isNotEmpty;
+  bool get hasCancelledCandidate =>
+      hasCandidate && candidateStatus.trim() == '예약취소';
+  bool get hasActiveCandidate => hasCandidate && !hasCancelledCandidate;
 
   ReservationCancellationNotice copyWithCandidate({
     required String reservationId,

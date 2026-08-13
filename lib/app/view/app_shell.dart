@@ -460,13 +460,13 @@ class _ReservationCheckSectionTitle extends StatelessWidget {
   }
 }
 
-class _CancellationNoticeCard extends StatelessWidget {
+class _CancellationNoticeCard extends ConsumerWidget {
   const _CancellationNoticeCard({required this.notice});
 
   final ReservationCancellationNotice notice;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final carLabel = [
       notice.carNumber,
@@ -483,23 +483,19 @@ class _CancellationNoticeCard extends StatelessWidget {
     final externalNo = notice.sourceReservationNo.trim().isEmpty
         ? notice.sourceReservationId
         : notice.sourceReservationNo;
+    final canResolve = !notice.hasCandidate || notice.hasCancelledCandidate;
+    final resolutionLabel = notice.hasCancelledCandidate
+        ? '취소 처리 확인 완료'
+        : '연결 예약 없음 확인';
 
     return Card(
       margin: EdgeInsets.zero,
       color: const Color(0xFFFFF4F4),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          if (notice.hasCandidate) {
-            final router = GoRouter.of(context);
-            Navigator.of(context).pop();
-            router.push('/reservation/${notice.candidateReservationId}');
-            return;
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('연결 후보 예약이 없습니다. 예약 목록에서 직접 확인하세요.')),
-          );
-        },
+        onTap: notice.hasActiveCandidate
+            ? () => _openCandidateReservation(context, notice)
+            : null,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -532,7 +528,11 @@ class _CancellationNoticeCard extends StatelessWidget {
               if (externalNo.trim().isNotEmpty) Text('외부예약 $externalNo'),
               if (notice.hasCandidate)
                 Text(
-                  notice.candidateCount > 1
+                  notice.hasCancelledCandidate
+                      ? notice.candidateCount > 1
+                            ? '취소 완료 후보 ${notice.candidateCount}건 · 확인 후 닫기'
+                            : '취소 완료 후보 ${notice.candidateReservationNumber.isEmpty ? notice.candidateReservationId : notice.candidateReservationNumber} · 확인 후 닫기'
+                      : notice.candidateCount > 1
                       ? '후보 ${notice.candidateCount}건 · 예약상세에서 직접 취소'
                       : '후보 예약 ${notice.candidateReservationNumber.isEmpty ? notice.candidateReservationId : notice.candidateReservationNumber} · 직접 취소',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -548,11 +548,100 @@ class _CancellationNoticeCard extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (notice.hasCandidate)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.open_in_new_outlined),
+                      label: const Text('예약 보기'),
+                      onPressed: () =>
+                          _openCandidateReservation(context, notice),
+                    ),
+                  if (canResolve)
+                    FilledButton.icon(
+                      icon: const Icon(Icons.task_alt_outlined),
+                      label: Text(resolutionLabel),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.red.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () =>
+                          _resolveCancellationNotice(context, ref, notice),
+                    ),
+                ],
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+void _openCandidateReservation(
+  BuildContext context,
+  ReservationCancellationNotice notice,
+) {
+  final router = GoRouter.of(context);
+  Navigator.of(context).pop();
+  router.push('/reservation/${notice.candidateReservationId}');
+}
+
+Future<void> _resolveCancellationNotice(
+  BuildContext context,
+  WidgetRef ref,
+  ReservationCancellationNotice notice,
+) async {
+  final isCancelledCandidate = notice.hasCancelledCandidate;
+  final title = isCancelledCandidate ? '취소 처리 확인 완료' : '연결 예약 없음 확인';
+  final message = isCancelledCandidate
+      ? '이 외부 취소 이벤트의 연결 후보가 이미 예약취소 상태입니다. 확인 완료로 닫습니다.'
+      : '이 외부 취소 이벤트에 연결할 OPS 예약 후보가 없습니다. 확인 완료로 닫습니다.';
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('확인 완료'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await ref
+        .read(supabaseOpsRepositoryProvider)
+        .resolveReservationCancellationNotice(
+          notice: notice,
+          resolutionStatus: isCancelledCandidate
+              ? ReservationCancellationResolutionStatus.reservationCancelled
+              : ReservationCancellationResolutionStatus.orphanConfirmed,
+          messageText: message,
+        );
+    ref.invalidate(reservationCancellationNoticesRawProvider);
+    ref.invalidate(reservationCancellationNoticesProvider);
+    ref.invalidate(reservationCancellationNoticeCountProvider);
+    if (context.mounted) {
+      messenger.showSnackBar(SnackBar(content: Text('$title했습니다.')));
+    }
+  } catch (error) {
+    if (context.mounted) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('취소 이벤트 확인 저장 실패\n$error')),
+      );
+    }
   }
 }
 

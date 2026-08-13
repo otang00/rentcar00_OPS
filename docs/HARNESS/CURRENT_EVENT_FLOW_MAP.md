@@ -55,6 +55,32 @@
   - 같은 `sourceProvider + sourceReservationId`는 같은 OPS reservation id로 매핑
   - 실패 event 재처리 정책은 확인 필요
 
+## Event/Decision/Command: 외부예약 취소 이벤트 수신/확인
+
+- 유형: Event + Command
+- 생성 위치:
+  - booking-system sync/orchestrator 카모아·찜카 cancelled handoff
+- 처리 위치:
+  - 수신: `reservation_ai_parser/src/server.js` `/api/integrations/rentcar00/reservation-events`
+  - 확인 완료: OPS 앱 예약확인 sheet → `resolve_rc00_ops_reservation_cancellation_event` RPC
+- 결과 상태:
+  - 수신 시 `rc00_ops_reservation_events.status=pending_review`
+  - 연결 OPS 예약 후보가 없으면 `resolved_orphan_confirmed`
+  - 연결 후보가 이미 `예약취소` 상태면 `resolved_reservation_cancelled`
+  - `rc00_ops_action_logs`에 확인 완료 감사 기록
+- 다음 흐름:
+  - pending 취소 알림 카운트에서 제외
+  - 실제 예약 취소가 필요한 active 후보는 예약 상세에서 수동 취소
+- 실패 기준:
+  - signature 불일치
+  - provider/source reservation id 누락
+  - RPC가 `reservation.cancelled`가 아니거나 `pending_review/received`가 아닌 event를 거부
+  - live DB migration 미적용 또는 Supabase RPC 호출 실패
+- 재처리 기준:
+  - 같은 eventId는 inbox dedupe 처리
+  - 확인 완료된 event는 pending 목록에 다시 나오지 않는다.
+  - 이 흐름은 실제 예약취소/IMS 삭제 command가 아니다.
+
 ## Event/Decision/Command: 홈페이지 예약 확인 처리
 
 - 유형: Command

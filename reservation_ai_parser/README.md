@@ -133,6 +133,13 @@ rc00_ops_external_reservation_links
 - `sourceProvider=homepage`는 `reservation_id=WEB-*`, `referral_source=홈페이지`, `check_payload_json.homepage_review=pending`으로 등록한다.
 - `sourceProvider=carmore|zzimcar`는 `reservation_id=EXT-<provider>-<externalId>`로 등록하고 provider source review metadata를 남긴다.
 - `sourceProvider=ims_partner`는 기존 IMS id를 source로 사용하고, 신규 IMS create를 호출하지 않는다.
+
+`reservation.cancelled`:
+- 같은 endpoint와 HMAC header를 사용한다.
+- provider와 source reservation id가 필수다.
+- 수신 성공은 `rc00_ops_reservation_events.status=pending_review`, `imported=false`, `reviewRequired=true`를 의미한다.
+- 연결 OPS 예약이 없거나 이미 취소된 후보만 있는 경우 OPS 앱 예약확인 sheet에서 확인 완료로 닫는다.
+- 이 이벤트 수신/확인 흐름은 실제 예약취소, IMS 삭제, 외부 provider write를 실행하지 않는다.
 - 이미 같은 IMS id가 다른 OPS 예약에 linked 상태면 duplicate projection을 만들지 않고 conflict로 거부한다.
 - `reservation_status`: `예약중`
 - `needs_attention`: `true`

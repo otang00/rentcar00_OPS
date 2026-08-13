@@ -251,7 +251,7 @@ final reservationCancellationNoticesProvider =
       return AsyncValue.data(
         notices
             .map(
-              (notice) => _attachCancellationCandidate(
+              (notice) => attachCancellationCandidate(
                 notice: notice,
                 reservations: reservations,
               ),
@@ -459,7 +459,7 @@ List<String> _prioritizeBadges(List<String> badges) {
   return visible.take(3).toList();
 }
 
-ReservationCancellationNotice? _attachCancellationCandidate({
+ReservationCancellationNotice? attachCancellationCandidate({
   required ReservationCancellationNotice notice,
   required List<ReservationRecord> reservations,
 }) {
@@ -468,7 +468,13 @@ ReservationCancellationNotice? _attachCancellationCandidate({
       .toList();
   if (matches.isNotEmpty &&
       matches.every((item) => item.statusKey.trim() == '예약취소')) {
-    return null;
+    final candidate = _sortCancellationMatches(matches, notice).first;
+    return notice.copyWithCandidate(
+      reservationId: candidate.reservationId,
+      reservationNumber: candidate.reservationNumber,
+      status: candidate.statusKey,
+      count: matches.length,
+    );
   }
 
   final activeMatches = matches
@@ -476,20 +482,26 @@ ReservationCancellationNotice? _attachCancellationCandidate({
       .toList();
   if (activeMatches.isEmpty) return notice;
 
-  activeMatches.sort((a, b) {
-    final exactA = _reservationNumberMatchesCancellation(a, notice) ? 0 : 1;
-    final exactB = _reservationNumberMatchesCancellation(b, notice) ? 0 : 1;
-    final exactCompare = exactA.compareTo(exactB);
-    if (exactCompare != 0) return exactCompare;
-    return a.startAt.compareTo(b.startAt);
-  });
-  final candidate = activeMatches.first;
+  final candidate = _sortCancellationMatches(activeMatches, notice).first;
   return notice.copyWithCandidate(
     reservationId: candidate.reservationId,
     reservationNumber: candidate.reservationNumber,
     status: candidate.statusKey,
     count: activeMatches.length,
   );
+}
+
+List<ReservationRecord> _sortCancellationMatches(
+  List<ReservationRecord> matches,
+  ReservationCancellationNotice notice,
+) {
+  return [...matches]..sort((a, b) {
+    final exactA = _reservationNumberMatchesCancellation(a, notice) ? 0 : 1;
+    final exactB = _reservationNumberMatchesCancellation(b, notice) ? 0 : 1;
+    final exactCompare = exactA.compareTo(exactB);
+    if (exactCompare != 0) return exactCompare;
+    return a.startAt.compareTo(b.startAt);
+  });
 }
 
 bool _matchesCancellationNotice(
