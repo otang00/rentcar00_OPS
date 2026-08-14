@@ -73,8 +73,8 @@
 ## 완료로 이동한 PM
 - `docs/COMPLETED/rentcar00_OPS_ims_import_rental_type_dispatch_policy_PM_COMPLETE_20260811.md`
   - 예약추가 IMS 가져오기에서 `daily/monthly/insurance`를 명시 조회하고, 가져온 IMS `reservationType` 기준으로 배차완료 차량 상태를 `일반/장기/보험`으로 매핑했다. 후속 승인으로 parser restart와 b60 APK build/upload까지 완료했다. DB 변경은 실행하지 않았다.
-- Booking docs `docs/COMPLETED/2026-08-10_RESERVATION_EVENT_RUNTIME_ACTIVATION_RELEASE_AND_DOC_DRIFT_PM_COMPLETE_20260810.md`
-  - 홈페이지/카모아/찜카 reservation event runtime을 IMS-first OPS projection 기준으로 검증했다. IMS partner는 자동 bulk가 아니라 candidate-report + target-only project-ops로 운용하며, 5684는 기존 linked target으로 기록했다.
+- Booking repo reference `/Users/otang_server/.openclaw/workspace/projects/rentcar00-booking-system/docs/COMPLETED/2026-08-10_RESERVATION_EVENT_RUNTIME_ACTIVATION_RELEASE_AND_DOC_DRIFT_PM_COMPLETE_20260810.md`
+  - 홈페이지/카모아/찜카 reservation event runtime을 IMS-first OPS projection 기준으로 검증한 과거 근거다. IMS partner의 당시 target-only 운용 기준은 2026-08-14 Booking 기준 automatic `project-ops` + booking-side `ops_link_status`로 대체됐다.
 - `docs/COMPLETED/rentcar00_OPS_vehicle_availability_active_reservation_policy_PM_COMPLETE_20260810.md`
   - 예약상세 차량변경 overlap 검사에서 `예약취소`/`완료`를 차량 점유에서 제외하고 b59 APK build/upload까지 완료했다.
 - `docs/COMPLETED/rentcar00_OPS-external-reservation-ims-existing-search-fallback_PM_COMPLETE_20260804.md`
