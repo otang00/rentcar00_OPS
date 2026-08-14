@@ -65,6 +65,11 @@
   - 역할: 자동차 그룹별 가격 정책 재설정 PM.
   - 과태료 MVP와 별개다. 코드/DB/운영 반영은 아직 승인되지 않았다.
 
+- `rentcar00_OPS-realtime-refresh-call-volume-reduction-pm-20260803.md`
+  - 상태: `Draft`
+  - 역할: OPS 앱 Realtime 구독 성공/테이블 이벤트가 불필요한 전체 provider refresh를 만들지 않도록 호출량 축소 구현을 준비한다.
+  - 기본 범위: 코드 구현 전 PM 문서. DB publication, parser restart, APK build/upload, deploy는 별도 승인 전 제외.
+
 ## 완료로 이동한 PM
 - `docs/COMPLETED/rentcar00_OPS_ims_import_rental_type_dispatch_policy_PM_COMPLETE_20260811.md`
   - 예약추가 IMS 가져오기에서 `daily/monthly/insurance`를 명시 조회하고, 가져온 IMS `reservationType` 기준으로 배차완료 차량 상태를 `일반/장기/보험`으로 매핑했다. 후속 승인으로 parser restart와 b60 APK build/upload까지 완료했다. DB 변경은 실행하지 않았다.
