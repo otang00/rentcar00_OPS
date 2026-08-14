@@ -8,6 +8,17 @@ import fontkit from '@pdf-lib/fontkit';
 import { buildConfig, loadEnvFile, parseReservationInput, validateConfig } from './parser-core.js';
 import { mapHomepageReservationPayload } from './homepage-reservation-mapper.js';
 import {
+  buildExistingImsPartnerBindingResult,
+  buildReservationCancelledEventPayload,
+  buildReservationCreatedEventPayload,
+  evaluateImsBindingAvailabilityIdentityGate,
+  evaluateImsBindingConflictRowsGate,
+  evaluateImsBindingPreparationGate,
+  evaluateImsLinkedAfterCreateGate,
+  evaluateOpsProjectionIdentityGate,
+  evaluateReservationEventHeaderGate,
+} from '../gates/reservation-event-gates.js';
+import {
   mergeImsInsuranceClaimListAndDetail,
   toImsInsuranceClaimImportItem,
 } from './ims-insurance-claim-import-item.js';
@@ -284,10 +295,7 @@ async function receiveRentcar00ReservationEvent({ req, rawBody }) {
   const timestamp = getHeader(req, 'x-rentcar00-timestamp');
   const signature = getHeader(req, 'x-rentcar00-signature');
 
-  if (!['reservation.created', 'reservation.cancelled'].includes(eventType)) {
-    throw new ApiError(400, 'invalid_event_type', 'X-Rentcar00-Event-Type must be reservation.created or reservation.cancelled');
-  }
-  if (!eventId) throw new ApiError(400, 'missing_event_id', 'X-Rentcar00-Event-Id is required');
+  throwReservationEventGateBlock(evaluateReservationEventHeaderGate({ eventType, eventId }));
   validateReservationEventTimestamp(timestamp);
   verifyReservationEventSignature({ timestamp, rawBody, signature });
 
@@ -390,117 +398,15 @@ function verifyReservationEventSignature({ timestamp, rawBody, signature }) {
 }
 
 function normalizeReservationCreatedEventPayload({ body, eventId, eventType }) {
-  const bodyEventId = stringifyNullable(body?.eventId).trim();
-  const bodyEventType = stringifyNullable(body?.eventType).trim();
-  if (bodyEventId && bodyEventId !== eventId) {
-    throw new ApiError(400, 'event_id_mismatch', 'header and body eventId do not match');
-  }
-  if (bodyEventType && bodyEventType !== eventType) {
-    throw new ApiError(400, 'event_type_mismatch', 'header and body eventType do not match');
-  }
-  const booking = body?.booking && typeof body.booking === 'object' ? body.booking : null;
-  if (!booking) throw new ApiError(400, 'invalid_payload', 'booking object is required');
-  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
-
-  const bookingOrderId = firstNonEmpty(
-    booking.bookingOrderId,
-    input.bookingOrderId,
-  );
-  const sourceReservationId = firstNonEmpty(
-    booking.sourceReservationId,
-    booking.externalReservationId,
-    booking.external_reservation_id,
-    booking.providerReservationId,
-    input.sourceReservationId,
-    input.externalReservationId,
-    input.external_reservation_id,
-    input.providerReservationId,
-  );
-  const reservationCode = firstNonEmpty(
-    booking.reservationCode,
-    booking.reservationNumber,
-    input.reservationCode,
-    input.reservationNumber,
-    booking.sourceReservationNo,
-    booking.externalReservationNo,
-    booking.external_reservation_no,
-    input.sourceReservationNo,
-    input.externalReservationNo,
-    input.external_reservation_no,
-    sourceReservationId,
-  );
-  if (!bookingOrderId && !reservationCode && !sourceReservationId) {
-    throw new ApiError(400, 'invalid_payload', 'booking bookingOrderId, reservationCode or sourceReservationId is required');
-  }
-
-  return {
-    eventId,
-    eventType,
-    bookingOrderId,
-    reservationCode,
-    payload: body,
-    status: 'received',
-  };
+  const gate = buildReservationCreatedEventPayload({ body, eventId, eventType });
+  throwReservationEventGateBlock(gate);
+  return gate.payload;
 }
 
 function normalizeReservationCancelledEventPayload({ body, eventId, eventType }) {
-  const bodyEventId = stringifyNullable(body?.eventId).trim();
-  const bodyEventType = stringifyNullable(body?.eventType).trim();
-  if (bodyEventId && bodyEventId !== eventId) {
-    throw new ApiError(400, 'event_id_mismatch', 'header and body eventId do not match');
-  }
-  if (bodyEventType && bodyEventType !== eventType) {
-    throw new ApiError(400, 'event_type_mismatch', 'header and body eventType do not match');
-  }
-
-  const booking = body?.booking && typeof body.booking === 'object' ? body.booking : {};
-  const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
-  const provider = firstNonEmpty(
-    body?.provider,
-    booking.sourceProvider,
-    input.sourceProvider,
-  );
-  const sourceReservationId = firstNonEmpty(
-    booking.sourceReservationId,
-    booking.externalReservationId,
-    booking.external_reservation_id,
-    input.sourceReservationId,
-    input.externalReservationId,
-    input.external_reservation_id,
-  );
-  const reservationCode = firstNonEmpty(
-    booking.reservationCode,
-    booking.reservationNumber,
-    booking.sourceReservationNo,
-    booking.externalReservationNo,
-    booking.external_reservation_no,
-    input.reservationCode,
-    input.reservationNumber,
-    input.sourceReservationNo,
-    input.externalReservationNo,
-    input.external_reservation_no,
-    sourceReservationId,
-  );
-  const bookingOrderId = firstNonEmpty(
-    booking.bookingOrderId,
-    input.bookingOrderId,
-    provider && sourceReservationId ? `external-provider:${provider}:${sourceReservationId}` : '',
-  );
-
-  if (!provider || !sourceReservationId) {
-    throw new ApiError(400, 'invalid_payload', 'provider and source reservation id are required for cancellation event');
-  }
-
-  return {
-    eventId,
-    eventType,
-    bookingOrderId,
-    reservationCode,
-    provider,
-    sourceReservationId,
-    payload: body,
-    status: 'pending_review',
-  };
+  const gate = buildReservationCancelledEventPayload({ body, eventId, eventType });
+  throwReservationEventGateBlock(gate);
+  return gate.payload;
 }
 
 async function findStoredReservationEvent(eventId) {
@@ -584,21 +490,17 @@ async function importReservationCreatedEvent(payload) {
 }
 
 async function prepareImsBindingBeforeOpsProjection({ mapped } = {}) {
-  if (!mapped) throw new ApiError(400, 'mapped_reservation_missing', 'mapped reservation is required');
+  if (!mapped) throwReservationEventGateBlock(evaluateImsBindingPreparationGate({ mapped }));
 
   const existingLink = await findExternalReservationLinkByReservationId(mapped.reservationId);
-  if (existingLink?.external_status === 'linked' && existingLink?.external_reservation_id) {
-    if (mapped.sourceProvider === 'ims_partner') {
-      const expectedBinding = buildExistingImsPartnerBinding(mapped);
-      if (String(expectedBinding.externalReservationId) !== String(existingLink.external_reservation_id)) {
-        throw new ApiError(409, 'ims_binding_conflict', `IMS partner event points to ${expectedBinding.externalReservationId}, but OPS reservation is linked to ${existingLink.external_reservation_id}`);
-      }
-    }
+  const preparationGate = evaluateImsBindingPreparationGate({ mapped, existingLink });
+  throwReservationEventGateBlock(preparationGate);
+  if (preparationGate.action === 'reuse_existing_link') {
     return { imsPayload: {}, imsBindingResult: buildImsBindingFromExistingLink(existingLink) };
   }
 
-  if (mapped.sourceProvider === 'ims_partner') {
-    const imsBindingResult = buildExistingImsPartnerBinding(mapped);
+  if (preparationGate.action === 'use_existing_ims_partner_binding') {
+    const imsBindingResult = preparationGate.bindingResult;
     await assertImsBindingAvailable({
       externalReservationId: imsBindingResult.externalReservationId,
       reservationId: mapped.reservationId,
@@ -609,10 +511,7 @@ async function prepareImsBindingBeforeOpsProjection({ mapped } = {}) {
   const imsPayload = buildImsReservationPayloadFromMappedReservation(mapped);
   const imsCreateResult = await createImsReservationDirect(imsPayload, { allowExistingLink: true });
   const imsBindingResult = await resolveImsReservationBindingAfterCreate({ payload: imsPayload, result: imsCreateResult });
-  const imsLinked = imsBindingResult?.externalStatus === 'linked' && Boolean(imsBindingResult?.externalReservationId);
-  if (!imsLinked) {
-    throw new ApiError(409, 'ims_create_required_before_ops', stringifyErrorText(imsBindingResult?.errorText || imsBindingResult?.message) || 'IMS 생성 성공 전에는 OPS 예약을 생성하지 않습니다.');
-  }
+  throwReservationEventGateBlock(evaluateImsLinkedAfterCreateGate(imsBindingResult));
   await assertImsBindingAvailable({
     externalReservationId: imsBindingResult.externalReservationId,
     reservationId: mapped.reservationId,
@@ -636,37 +535,9 @@ function buildImsBindingFromExistingLink(existingLink = {}) {
 }
 
 function buildExistingImsPartnerBinding(mapped = {}) {
-  const input = mapped.metaJson?.reservation_input && typeof mapped.metaJson.reservation_input === 'object'
-    ? mapped.metaJson.reservation_input
-    : {};
-  const externalReservationId = firstNonEmpty(
-    mapped.sourceReservationId,
-    input.imsReservationId,
-    input.externalReservationId,
-    input.external_reservation_id,
-  );
-  if (!externalReservationId) {
-    throw new ApiError(400, 'ims_partner_identity_required', 'IMS partner event requires an existing IMS reservation id');
-  }
-  const externalDetailId = firstNonEmpty(
-    input.externalDetailId,
-    input.external_detail_id,
-    input.imsDetailId,
-    input.ims_detail_id,
-    mapped.reservationNumber,
-  );
-  return {
-    attempted: false,
-    created: false,
-    reused: true,
-    reusedExisting: true,
-    externalReservationId,
-    externalDetailId,
-    externalStatus: 'linked',
-    sourceType: 'normal_schedule',
-    linkKey: `IMS:${externalReservationId}`,
-    error: null,
-  };
+  const gate = buildExistingImsPartnerBindingResult(mapped);
+  throwReservationEventGateBlock(gate);
+  return gate.bindingResult;
 }
 
 function buildImsImportResultFromBinding(bindingResult = {}) {
@@ -724,9 +595,7 @@ async function createOpsReservationRows({ mapped, carRef } = {}) {
 }
 
 async function ensureOpsReservationProjection({ mapped, reservationRefId } = {}) {
-  if (!mapped?.reservationId || !reservationRefId) {
-    throw new ApiError(500, 'ops_projection_identity_required', 'OPS projection identity is required');
-  }
+  throwReservationEventGateBlock(evaluateOpsProjectionIdentityGate({ mapped, reservationRefId }));
   const checkPayload = buildReservationCheckPayload(mapped);
   await insertSupabaseRowsIfMissing('rc00_ops_reservation_states', {
     reservation_id: mapped.reservationId,
@@ -991,11 +860,9 @@ async function findExternalReservationLinkByReservationId(reservationId) {
 }
 
 async function assertImsBindingAvailable({ externalReservationId, reservationId } = {}) {
-  const externalId = stringifyNullable(externalReservationId).trim();
-  const targetReservationId = stringifyNullable(reservationId).trim();
-  if (!externalId || !targetReservationId) {
-    throw new ApiError(400, 'ims_binding_identity_required', 'IMS external ID and OPS reservation ID are required');
-  }
+  const identityGate = evaluateImsBindingAvailabilityIdentityGate({ externalReservationId, reservationId });
+  throwReservationEventGateBlock(identityGate);
+  const { externalId, targetReservationId } = identityGate;
   const url = new URL('/rest/v1/rc00_ops_external_reservation_links', normalizeSupabaseBaseUrl(config.supabaseUrl));
   url.searchParams.set('provider', 'eq.ims');
   url.searchParams.set('external_status', 'eq.linked');
@@ -1007,10 +874,7 @@ async function assertImsBindingAvailable({ externalReservationId, reservationId 
   if (!response.ok) {
     throw new ApiError(502, 'ims_binding_lookup_failed', resolveApiErrorMessage(json, response.status, 'IMS binding lookup failed'));
   }
-  const conflicts = (Array.isArray(json) ? json : []).filter((row) => stringifyNullable(row.reservation_id) !== targetReservationId);
-  if (conflicts.length > 0) {
-    throw new ApiError(409, 'ims_binding_conflict', `IMS reservation ${externalId} is already linked to another OPS reservation`);
-  }
+  throwReservationEventGateBlock(evaluateImsBindingConflictRowsGate({ rows: json, reservationId: targetReservationId, externalReservationId: externalId }));
 }
 
 async function upsertExternalReservationLink({ mapped, reservationRefId, imsPayload = {}, imsResult = {}, externalStatus = 'failed', errorText = null } = {}) {
@@ -1199,6 +1063,11 @@ class ApiError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+function throwReservationEventGateBlock(gate) {
+  if (!gate || gate.ok !== false) return;
+  throw new ApiError(gate.status, gate.code, gate.message);
 }
 
 function sendJson(res, statusCode, body) {

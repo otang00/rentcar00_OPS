@@ -1,0 +1,86 @@
+export const OPS_RESERVATION_EVENT_SIGNAL_CODES = Object.freeze({
+  RESERVATION_EVENT_RECEIVED: 'ops_reservation_event_received',
+  RESERVATION_EVENT_IMPORTED: 'ops_reservation_event_imported',
+  RESERVATION_EVENT_FAILED: 'ops_reservation_event_failed',
+  IMS_BINDING_CONFLICT: 'ops_ims_binding_conflict',
+  IMS_CREATE_REQUIRED_BEFORE_PROJECTION: 'ops_ims_create_required_before_projection',
+  PROJECTION_CREATED: 'ops_projection_created',
+  PROJECTION_REUSED: 'ops_projection_reused',
+});
+
+export const opsReservationEventSignalCatalog = Object.freeze([
+  {
+    code: OPS_RESERVATION_EVENT_SIGNAL_CODES.RESERVATION_EVENT_RECEIVED,
+    stage: 'receiver',
+    severity: 'info',
+    sourcePath: 'reservation_ai_parser/src/server.js',
+    helperPath: 'reservation_ai_parser/operational-signals/reservation-event-signals.js',
+    means: 'A reservation.created or reservation.cancelled event passed receiver identity/payload checks and reached the OPS event inbox path.',
+    doesNotMean: 'The event was imported, IMS binding succeeded, OPS projection exists, or a live parser smoke was run.',
+    safeFields: ['eventId', 'eventType', 'provider', 'sourceReservationId', 'status', 'deduped', 'reviewRequired'],
+  },
+  {
+    code: OPS_RESERVATION_EVENT_SIGNAL_CODES.RESERVATION_EVENT_IMPORTED,
+    stage: 'import',
+    severity: 'info',
+    sourcePath: 'reservation_ai_parser/src/server.js',
+    helperPath: 'reservation_ai_parser/operational-signals/reservation-event-signals.js',
+    means: 'A reservation.created event completed IMS binding and OPS import result construction, and the event can be marked imported.',
+    doesNotMean: 'A push notification was sent, the operator reviewed the reservation, or Core created any OPS row.',
+    safeFields: ['eventId', 'provider', 'sourceReservationId', 'reservationId', 'reservationRefId', 'status', 'scheduleCreated', 'scheduleCount', 'carMatched', 'imsExternalReservationId'],
+  },
+  {
+    code: OPS_RESERVATION_EVENT_SIGNAL_CODES.RESERVATION_EVENT_FAILED,
+    stage: 'import',
+    severity: 'error',
+    sourcePath: 'reservation_ai_parser/src/server.js',
+    helperPath: 'reservation_ai_parser/operational-signals/reservation-event-signals.js',
+    means: 'OPS reservation-event processing failed and can be represented by a safe reason code.',
+    doesNotMean: 'The external marketplace booking was cancelled, retry has already succeeded, or raw failure payload is safe to expose.',
+    safeFields: ['eventId', 'eventType', 'provider', 'sourceReservationId', 'reservationId', 'status', 'reasonCode'],
+  },
+  {
+    code: OPS_RESERVATION_EVENT_SIGNAL_CODES.IMS_BINDING_CONFLICT,
+    stage: 'ims_binding',
+    severity: 'error',
+    sourcePath: 'reservation_ai_parser/src/server.js',
+    helperPath: 'reservation_ai_parser/operational-signals/reservation-event-signals.js',
+    means: 'An IMS reservation id is already linked to another OPS reservation, so duplicate OPS projection is blocked.',
+    doesNotMean: 'The external booking was cancelled, the existing OPS reservation is wrong, or Core should relink IMS automatically.',
+    safeFields: ['eventId', 'provider', 'sourceReservationId', 'reservationId', 'externalReservationId', 'status', 'reasonCode'],
+  },
+  {
+    code: OPS_RESERVATION_EVENT_SIGNAL_CODES.IMS_CREATE_REQUIRED_BEFORE_PROJECTION,
+    stage: 'ims_binding',
+    severity: 'error',
+    sourcePath: 'reservation_ai_parser/src/server.js',
+    helperPath: 'reservation_ai_parser/operational-signals/reservation-event-signals.js',
+    means: 'OPS projection was blocked because IMS create/reuse did not produce an exact linked IMS reservation id.',
+    doesNotMean: 'OPS should create a fallback reservation row, the provider booking is invalid, or Core contacted IMS.',
+    safeFields: ['eventId', 'provider', 'sourceReservationId', 'reservationId', 'status', 'reasonCode'],
+  },
+  {
+    code: OPS_RESERVATION_EVENT_SIGNAL_CODES.PROJECTION_CREATED,
+    stage: 'ops_projection',
+    severity: 'info',
+    sourcePath: 'reservation_ai_parser/src/server.js',
+    helperPath: 'reservation_ai_parser/operational-signals/reservation-event-signals.js',
+    means: 'OPS reservation, state, and schedule projection was created for the mapped reservation id.',
+    doesNotMean: 'The operator reviewed the reservation, notification delivery succeeded, or Core owns the projection.',
+    safeFields: ['eventId', 'provider', 'sourceReservationId', 'reservationId', 'reservationRefId', 'status', 'scheduleCreated', 'scheduleCount', 'carMatched'],
+  },
+  {
+    code: OPS_RESERVATION_EVENT_SIGNAL_CODES.PROJECTION_REUSED,
+    stage: 'ops_projection',
+    severity: 'info',
+    sourcePath: 'reservation_ai_parser/src/server.js',
+    helperPath: 'reservation_ai_parser/operational-signals/reservation-event-signals.js',
+    means: 'Existing OPS reservation id was reused and projection/schedule/link were ensured idempotently.',
+    doesNotMean: 'A new OPS reservation was inserted, duplicate event input is harmless forever, or operator review is complete.',
+    safeFields: ['eventId', 'provider', 'sourceReservationId', 'reservationId', 'reservationRefId', 'status', 'scheduleCreated', 'scheduleCount', 'carMatched'],
+  },
+]);
+
+export function listOpsReservationEventSignalCodes() {
+  return opsReservationEventSignalCatalog.map((signal) => signal.code);
+}

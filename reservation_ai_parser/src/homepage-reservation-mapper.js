@@ -1,3 +1,5 @@
+import { normalizeReservationEventSourceProvider } from '../gates/reservation-event-gates.js';
+
 export function mapHomepageReservationPayload(body = {}) {
   const booking = body?.booking && typeof body.booking === 'object' ? body.booking : {};
   const input = body?.reservationInput && typeof body.reservationInput === 'object' ? body.reservationInput : {};
@@ -149,11 +151,7 @@ function sanitizeReservationId(value) {
 }
 
 function normalizeSourceProvider(value) {
-  const text = firstText(value).toLowerCase();
-  if (text === 'carmore' || text === '카모아') return 'carmore';
-  if (text === 'zzimcar' || text === '찜카') return 'zzimcar';
-  if (['ims_partner', 'ims-partner', 'imspartner', 'ims partner', 'ims'].includes(text)) return 'ims_partner';
-  return 'homepage';
+  return normalizeReservationEventSourceProvider(value).sourceProvider;
 }
 
 function normalizeProviderCheckStatus(value) {
